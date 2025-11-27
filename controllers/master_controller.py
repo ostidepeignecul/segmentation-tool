@@ -34,6 +34,9 @@ class MasterController:
         """Wire menu actions to controller handlers."""
         self.ui.actionopen_nde.triggered.connect(self._on_open_nde)
         self.ui.actioncharger_npz.triggered.connect(self._on_load_npz)
+        self.ui.actionSauvegarder.triggered.connect(self._on_save)
+        self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
+        self.ui.actionQuitter.triggered.connect(self._on_quit)
 
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
@@ -87,6 +90,18 @@ class MasterController:
     def _on_load_npz(self) -> None:
         """Handle loading an NPZ overlay."""
         pass
+
+    def _on_save(self) -> None:
+        """Handle saving current session or annotations."""
+        pass
+
+    def _on_open_settings(self) -> None:
+        """Open the settings dialog."""
+        pass
+
+    def _on_quit(self) -> None:
+        """Quit the application."""
+        self.main_window.close()
 
     def _on_slice_changed(self, index: int) -> None:
         """Handle slice change events."""

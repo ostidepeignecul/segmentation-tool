@@ -80,6 +80,11 @@
      <string>Fichier</string>
     </property>
     <addaction name="actionopen_nde"/>
+    <addaction name="actionSauvegarder"/>
+    <addaction name="separator"/>
+    <addaction name="actionParam_tres"/>
+    <addaction name="separator"/>
+    <addaction name="actionQuitter"/>
    </widget>
    <widget class="QMenu" name="menuOverlay">
     <property name="title">
@@ -230,12 +235,27 @@
   </widget>
   <action name="actioncharger_npz">
    <property name="text">
-    <string>charger npz</string>
+    <string>Charger un fichier .npz/.npy</string>
    </property>
   </action>
   <action name="actionopen_nde">
    <property name="text">
-    <string>open nde</string>
+    <string>Ouvrir un fichier .nde</string>
+   </property>
+  </action>
+  <action name="actionSauvegarder">
+   <property name="text">
+    <string>Sauvegarder</string>
+   </property>
+  </action>
+  <action name="actionParam_tres">
+   <property name="text">
+    <string>Paramètres</string>
+   </property>
+  </action>
+  <action name="actionQuitter">
+   <property name="text">
+    <string>Quitter</string>
    </property>
   </action>
  </widget>
