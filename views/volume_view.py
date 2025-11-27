@@ -1,8 +1,13 @@
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QFrame
 
 
 class VolumeView(QFrame):
     """Displays a 3D representation of the NDE volume."""
+
+    volume_needs_update = pyqtSignal()
+    overlay_updated = pyqtSignal()
+    camera_changed = pyqtSignal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)

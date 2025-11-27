@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1267</width>
+    <width>1107</width>
     <height>823</height>
    </rect>
   </property>
@@ -31,7 +31,6 @@
         <property name="frameShadow">
          <enum>QFrame::Shadow::Plain</enum>
         </property>
-        <layout class="QVBoxLayout" name="verticalLayout"/>
        </widget>
        <widget class="VolumeView" name="frame_4">
         <property name="frameShape">
@@ -40,7 +39,6 @@
         <property name="frameShadow">
          <enum>QFrame::Shadow::Plain</enum>
         </property>
-        <layout class="QVBoxLayout" name="verticalLayout_3"/>
        </widget>
       </widget>
       <widget class="QSplitter" name="splitter_2">
@@ -54,7 +52,6 @@
         <property name="frameShadow">
          <enum>QFrame::Shadow::Plain</enum>
         </property>
-        <layout class="QVBoxLayout" name="verticalLayout_2"/>
        </widget>
        <widget class="AScanView" name="frame_7">
         <property name="frameShape">
@@ -63,7 +60,6 @@
         <property name="frameShadow">
          <enum>QFrame::Shadow::Plain</enum>
         </property>
-        <layout class="QVBoxLayout" name="verticalLayout_4"/>
        </widget>
       </widget>
      </widget>
@@ -75,7 +71,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1267</width>
+     <width>1107</width>
      <height>22</height>
     </rect>
    </property>
@@ -96,13 +92,141 @@
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <widget class="QDockWidget" name="dockWidget_2">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>300</width>
+     <height>397</height>
+    </size>
+   </property>
    <property name="features">
     <set>QDockWidget::DockWidgetFeature::NoDockWidgetFeatures</set>
    </property>
    <attribute name="dockWidgetArea">
     <number>1</number>
    </attribute>
-   <widget class="ToolsPanel" name="dockWidgetContents_2"/>
+   <widget class="ToolsPanel" name="dockWidgetContents_2">
+    <property name="minimumSize">
+     <size>
+      <width>300</width>
+      <height>0</height>
+     </size>
+    </property>
+    <widget class="QFrame" name="frame">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>10</y>
+       <width>271</width>
+       <height>441</height>
+      </rect>
+     </property>
+     <property name="frameShape">
+      <enum>QFrame::Shape::StyledPanel</enum>
+     </property>
+     <property name="frameShadow">
+      <enum>QFrame::Shadow::Raised</enum>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_5">
+      <item>
+       <widget class="QSpinBox" name="spinBox"/>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButton">
+        <property name="text">
+         <string>goto</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Label choisi :</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_2">
+        <property name="text">
+         <string>Threshold</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="horizontalSlider">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="radioButton">
+        <property name="text">
+         <string>Polygone</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="radioButton_2">
+        <property name="text">
+         <string>Rectangle</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="radioButton_3">
+        <property name="text">
+         <string>Point</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBox">
+        <property name="text">
+         <string>Appliquer au volume</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBox_2">
+        <property name="text">
+         <string>Threshold automatique</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBox_3">
+        <property name="text">
+         <string>Persistance de ROI</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButton_2">
+        <property name="text">
+         <string>Recalculer ROI</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButton_3">
+        <property name="text">
+         <string>Supprimer ROI</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButton_4">
+        <property name="text">
+         <string>Annuler selection</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </widget>
   </widget>
   <action name="actioncharger_npz">
    <property name="text">
@@ -119,31 +243,31 @@
   <customwidget>
    <class>EndviewView</class>
    <extends>QFrame</extends>
-   <header>endview_view.h</header>
+   <header>views/endview_view.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
    <class>VolumeView</class>
    <extends>QFrame</extends>
-   <header>volume_view.h</header>
+   <header>views/volume_view.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
    <class>CScanView</class>
    <extends>QFrame</extends>
-   <header>cscan_view.h</header>
+   <header>views/cscan_view.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
    <class>AScanView</class>
    <extends>QFrame</extends>
-   <header>ascan_view.h</header>
+   <header>views/ascan_view.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
    <class>ToolsPanel</class>
    <extends>QWidget</extends>
-   <header>tools_panel.h</header>
+   <header>views/tools_panel.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>
