@@ -1,10 +1,11 @@
 from typing import Any, Optional
-
-from PyQt6.QtWidgets import QMainWindow
+from PyQt6.QtWidgets import QMainWindow, QFileDialog, QMessageBox
 
 from models.annotation_model import AnnotationModel
 from models.nde_model import NDEModel
 from models.view_state_model import ViewStateModel
+from services.cscan_service import CScanService
+from services.nde_loader import NdeLoaderService
 from ui_mainwindow import Ui_MainWindow
 
 
@@ -19,6 +20,8 @@ class MasterController:
         self.nde_model = NDEModel()
         self.annotation_model = AnnotationModel()
         self.view_state_model = ViewStateModel()
+        self.nde_loader = NdeLoaderService()
+        self.cscan_service = CScanService()
 
         # References to Designer-created views.
         self.endview_view = self.ui.frame_3
@@ -26,6 +29,7 @@ class MasterController:
         self.cscan_view = self.ui.frame_5
         self.ascan_view = self.ui.frame_7
         self.tools_panel = self.ui.dockWidgetContents_2
+        self._current_point: Optional[tuple[int, int]] = None
 
         self._connect_actions()
         self._connect_signals()
@@ -41,7 +45,8 @@ class MasterController:
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
         self.tools_panel.attach_designer_widgets(
-            slice_spinbox=self.ui.spinBox,
+            slice_slider=self.ui.horizontalSlider_2,
+            slice_label=self.ui.label_3,
             goto_button=self.ui.pushButton,
             threshold_slider=self.ui.horizontalSlider,
             polygon_radio=self.ui.radioButton,
@@ -85,7 +90,32 @@ class MasterController:
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
-        pass
+        file_path, _ = QFileDialog.getOpenFileName(
+            self.main_window,
+            "Ouvrir un fichier .nde",
+            "",
+            "NDE Files (*.nde);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        try:
+            loaded_model = self.nde_loader.load_nde_model(file_path)
+            self.nde_model = loaded_model
+            self.nde_model.set_current_slice(0)
+
+            volume = loaded_model.volume
+            num_slices = volume.shape[0] if volume is not None else 0
+            if num_slices > 0:
+                self.tools_panel.set_slice_bounds(0, num_slices - 1)
+                self.tools_panel.set_slice_value(0)
+
+            self._refresh_views()
+
+            self.status_message(f"NDE chargé: {file_path}")
+
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "Erreur NDE", str(exc))
 
     def _on_load_npz(self) -> None:
         """Handle loading an NPZ overlay."""
@@ -105,10 +135,11 @@ class MasterController:
 
     def _on_slice_changed(self, index: int) -> None:
         """Handle slice change events."""
-        self.view_state_model.set_slice(index)
         self.tools_panel.set_slice_value(index)
         self.nde_model.set_current_slice(index)
         self.endview_view.set_slice(index)
+        self.cscan_view.highlight_slice(index)
+        self._update_ascan_trace()
 
     def _on_goto_requested(self, slice_idx: int) -> None:
         """Handle explicit goto action from tools panel."""
@@ -168,7 +199,10 @@ class MasterController:
 
     def _on_endview_point_selected(self, pos: Any) -> None:
         """Handle point selection."""
-        pass
+        if not isinstance(pos, tuple) or len(pos) != 2:
+            return
+        x, y = int(pos[0]), int(pos[1])
+        self._update_ascan_trace(x=x, y=y)
 
     def _on_endview_drag_update(self, pos: Any) -> None:
         """Handle drag updates during drawing."""
@@ -201,3 +235,63 @@ class MasterController:
     def run(self) -> None:
         """Launch the main window."""
         self.main_window.show()
+
+    def status_message(self, message: str, timeout_ms: int = 3000) -> None:
+        """Display a transient status message."""
+        if hasattr(self.ui, "statusbar") and self.ui.statusbar:
+            self.ui.statusbar.showMessage(message, timeout_ms)
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers
+    # ------------------------------------------------------------------ #
+
+    def _refresh_views(self) -> None:
+        """Push the current volume state into all views."""
+        volume = self._current_volume()
+        if volume is None:
+            return
+
+        slice_idx = self.nde_model.current_slice or 0
+        self.endview_view.set_volume(volume)
+        self.endview_view.set_slice(slice_idx)
+
+        projection, value_range = self.cscan_service.compute_top_projection(volume)
+        self.cscan_view.set_projection(projection, value_range)
+
+        self.volume_view.set_volume(volume)
+        self._update_ascan_trace()
+
+    def _current_volume(self) -> Optional[Any]:
+        volume = self.nde_model.normalized_volume
+        if volume is not None:
+            return volume
+        return self.nde_model.volume
+
+    def _update_ascan_trace(self, x: Optional[int] = None, y: Optional[int] = None) -> None:
+        volume = self._current_volume()
+        if volume is None:
+            self.ascan_view.clear()
+            return
+
+        slice_idx = self.nde_model.current_slice or 0
+        if slice_idx >= volume.shape[0]:
+            slice_idx = volume.shape[0] - 1
+
+        height, width = volume.shape[1:]
+        if self._current_point is not None:
+            default_x, default_y = self._current_point
+        else:
+            default_x, default_y = width // 2, height // 2
+
+        if x is None:
+            x = default_x
+        x = max(0, min(width - 1, x))
+
+        trace = volume[slice_idx, :, x]
+        self.ascan_view.set_signal(trace)
+
+        if y is None:
+            y = default_y
+        y = max(0, min(height - 1, y))
+        self.ascan_view.set_marker(y)
+        self._current_point = (x, y)

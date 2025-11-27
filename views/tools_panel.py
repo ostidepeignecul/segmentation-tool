@@ -6,11 +6,12 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFrame,
+    QLabel,
     QPushButton,
     QRadioButton,
     QSlider,
-    QSpinBox,
 )
+from PyQt6.QtWidgets import QInputDialog
 
 
 class ToolsPanel(QFrame):
@@ -30,7 +31,8 @@ class ToolsPanel(QFrame):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
-        self._slice_spinbox: Optional[QSpinBox] = None
+        self._slice_slider: Optional[QSlider] = None
+        self._slice_label: Optional[QLabel] = None
         self._goto_button: Optional[QPushButton] = None
         self._threshold_slider: Optional[QSlider] = None
         self._polygon_radio: Optional[QRadioButton] = None
@@ -43,12 +45,15 @@ class ToolsPanel(QFrame):
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
 
+        self._slice_min: int = 0
+        self._slice_max: int = 0
         self._wired = False
 
     def attach_designer_widgets(
         self,
         *,
-        slice_spinbox: QSpinBox,
+        slice_slider: QSlider,
+        slice_label: QLabel,
         goto_button: QPushButton,
         threshold_slider: QSlider,
         polygon_radio: QRadioButton,
@@ -65,7 +70,8 @@ class ToolsPanel(QFrame):
         if self._wired:
             return
 
-        self._slice_spinbox = slice_spinbox
+        self._slice_slider = slice_slider
+        self._slice_label = slice_label
         self._goto_button = goto_button
         self._threshold_slider = threshold_slider
         self._polygon_radio = polygon_radio
@@ -78,7 +84,7 @@ class ToolsPanel(QFrame):
         self._roi_delete_button = roi_delete_button
         self._selection_cancel_button = selection_cancel_button
 
-        self._slice_spinbox.valueChanged.connect(self.slice_changed.emit)
+        self._slice_slider.valueChanged.connect(self._on_slider_changed)
         self._goto_button.clicked.connect(self._emit_goto_requested)
         self._threshold_slider.valueChanged.connect(self.threshold_changed.emit)
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
@@ -98,16 +104,27 @@ class ToolsPanel(QFrame):
             lambda checked: checked and self.tool_mode_changed.emit("point")
         )
 
-        self._slice_spinbox.editingFinished.connect(self._emit_goto_requested)
         self._wired = True
 
-    def set_slice_value(self, slice_idx: int) -> None:
-        """Update the slice spinbox without re-emitting signals."""
-        if not self._slice_spinbox:
+    def set_slice_bounds(self, minimum: int, maximum: int) -> None:
+        """Configure slider bounds without emitting change signals."""
+        if not self._slice_slider:
             return
-        self._slice_spinbox.blockSignals(True)
-        self._slice_spinbox.setValue(slice_idx)
-        self._slice_spinbox.blockSignals(False)
+        self._slice_slider.blockSignals(True)
+        self._slice_slider.setMinimum(minimum)
+        self._slice_slider.setMaximum(maximum)
+        self._slice_slider.blockSignals(False)
+        self._slice_min = minimum
+        self._slice_max = maximum
+
+    def set_slice_value(self, slice_idx: int) -> None:
+        """Update the slice slider/label without re-emitting signals."""
+        if not self._slice_slider:
+            return
+        self._slice_slider.blockSignals(True)
+        self._slice_slider.setValue(slice_idx)
+        self._update_slice_label(slice_idx)
+        self._slice_slider.blockSignals(False)
 
     def set_threshold_value(self, threshold: int) -> None:
         """Update the threshold slider without re-emitting signals."""
@@ -133,6 +150,31 @@ class ToolsPanel(QFrame):
 
     def _emit_goto_requested(self) -> None:
         """Emit goto with the current spinbox value."""
-        if not self._slice_spinbox:
+        if not self._slice_slider:
             return
-        self.goto_requested.emit(self._slice_spinbox.value())
+        current = self._slice_slider.value()
+        slice_idx, ok = QInputDialog.getInt(
+            self,
+            "Se rendre à la tranche",
+            f"Index de tranche (0 - {self._slice_max})",
+            current,
+            self._slice_min,
+            self._slice_max,
+            1,
+        )
+        if ok:
+            self.goto_requested.emit(slice_idx)
+
+    def _on_slider_changed(self, value: int) -> None:
+        """Handle slider movements and emit slice_changed."""
+        self._update_slice_label(value)
+        self.slice_changed.emit(value)
+
+    def _update_slice_label(self, value: int) -> None:
+        """Reflect the current slider value into the label."""
+        if not self._slice_label:
+            return
+        if self._slice_max:
+            self._slice_label.setText(f"{value} / {self._slice_max}")
+        else:
+            self._slice_label.setText(str(value))
