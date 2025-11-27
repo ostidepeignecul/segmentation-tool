@@ -27,12 +27,15 @@ class ToolsPanel(QFrame):
     roi_recompute_requested = pyqtSignal()
     roi_delete_requested = pyqtSignal()
     selection_cancel_requested = pyqtSignal()
+    overlay_toggled = pyqtSignal(bool)
+    cross_toggled = pyqtSignal(bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
         self._slice_slider: Optional[QSlider] = None
         self._slice_label: Optional[QLabel] = None
+        self._position_label: Optional[QLabel] = None
         self._goto_button: Optional[QPushButton] = None
         self._threshold_slider: Optional[QSlider] = None
         self._polygon_radio: Optional[QRadioButton] = None
@@ -40,6 +43,8 @@ class ToolsPanel(QFrame):
         self._point_radio: Optional[QRadioButton] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
+        self._overlay_checkbox: Optional[QCheckBox] = None
+        self._cross_checkbox: Optional[QCheckBox] = None
         self._roi_persistence_checkbox: Optional[QCheckBox] = None
         self._roi_recompute_button: Optional[QPushButton] = None
         self._roi_delete_button: Optional[QPushButton] = None
@@ -59,6 +64,9 @@ class ToolsPanel(QFrame):
         polygon_radio: QRadioButton,
         rectangle_radio: QRadioButton,
         point_radio: QRadioButton,
+        position_label: QLabel,
+        overlay_checkbox: QCheckBox,
+        cross_checkbox: QCheckBox,
         apply_volume_checkbox: QCheckBox,
         threshold_auto_checkbox: QCheckBox,
         roi_persistence_checkbox: QCheckBox,
@@ -72,11 +80,14 @@ class ToolsPanel(QFrame):
 
         self._slice_slider = slice_slider
         self._slice_label = slice_label
+        self._position_label = position_label
         self._goto_button = goto_button
         self._threshold_slider = threshold_slider
         self._polygon_radio = polygon_radio
         self._rectangle_radio = rectangle_radio
         self._point_radio = point_radio
+        self._overlay_checkbox = overlay_checkbox
+        self._cross_checkbox = cross_checkbox
         self._apply_volume_checkbox = apply_volume_checkbox
         self._threshold_auto_checkbox = threshold_auto_checkbox
         self._roi_persistence_checkbox = roi_persistence_checkbox
@@ -89,6 +100,8 @@ class ToolsPanel(QFrame):
         self._threshold_slider.valueChanged.connect(self.threshold_changed.emit)
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)
+        self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
+        self._cross_checkbox.toggled.connect(self.cross_toggled.emit)
         self._roi_persistence_checkbox.toggled.connect(self.roi_persistence_toggled.emit)
         self._roi_recompute_button.clicked.connect(self.roi_recompute_requested)
         self._roi_delete_button.clicked.connect(self.roi_delete_requested)
@@ -134,6 +147,22 @@ class ToolsPanel(QFrame):
         self._threshold_slider.setValue(threshold)
         self._threshold_slider.blockSignals(False)
 
+    def set_overlay_checked(self, enabled: bool) -> None:
+        """Set overlay checkbox state without emitting signals."""
+        if not self._overlay_checkbox:
+            return
+        self._overlay_checkbox.blockSignals(True)
+        self._overlay_checkbox.setChecked(enabled)
+        self._overlay_checkbox.blockSignals(False)
+
+    def set_cross_checked(self, enabled: bool) -> None:
+        """Set cross checkbox state without emitting signals."""
+        if not self._cross_checkbox:
+            return
+        self._cross_checkbox.blockSignals(True)
+        self._cross_checkbox.setChecked(enabled)
+        self._cross_checkbox.blockSignals(False)
+
     def select_tool_mode(self, mode: str) -> None:
         """Select a tool radio button without emitting tool_mode_changed."""
         mapping = {
@@ -178,3 +207,9 @@ class ToolsPanel(QFrame):
             self._slice_label.setText(f"{value} / {self._slice_max}")
         else:
             self._slice_label.setText(str(value))
+
+    def set_position_label(self, x: int, y: int) -> None:
+        """Update the position label with the latest cursor coordinates."""
+        if not self._position_label:
+            return
+        self._position_label.setText(f"position x = {x} ; y = {y}")

@@ -159,7 +159,10 @@ class EndviewView(QFrame):
         return True
 
     def _handle_mouse_move(self, event: QMouseEvent) -> bool:
-        # Crosshair must stay fixed during mouse move; no action needed.
+        coords = self._scene_coords_from_event(event)
+        if coords is None:
+            return False
+        self.drag_update.emit(coords)
         return False
 
     # ------------------------------------------------------------------ #
@@ -252,6 +255,11 @@ class EndviewView(QFrame):
         height, width = self._volume.shape[1:]
         self._crosshair_h.setLine(0, y, width, y)
         self._crosshair_v.setLine(x, 0, x, height)
+
+    def set_cross_visible(self, visible: bool) -> None:
+        """Show or hide the crosshair lines."""
+        self._crosshair_h.setVisible(visible)
+        self._crosshair_v.setVisible(visible)
 
     def _emit_slice_scroll(self, delta: int) -> None:
         if self._volume is None or delta == 0:

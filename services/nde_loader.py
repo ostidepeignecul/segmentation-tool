@@ -296,6 +296,26 @@ class NdeLoaderService:
             indent=1,
         )
 
+        # Domain-specific preference: favor lengthwise when it yields a reasonable slice count
+        # or aspect, but still allow the generic heuristic to win for edge cases.
+        preferred_orientation: Optional[Dict] = None
+        if structure == "domain":
+            sample = data_array[0, :, :]
+            aspect = sample.shape[1] / sample.shape[0] if sample.shape[0] else 1.0
+            prefer_lengthwise = (
+                50 <= lengthwise_qty <= 500  # typical range for expected slice count
+                or 0.2 <= aspect <= 5.0      # slice aspect not excessively elongated
+            )
+            if prefer_lengthwise:
+                preferred_orientation = {
+                    "slice_orientation": "lengthwise",
+                    "transpose": aspect < 1.0,
+                    "num_images": lengthwise_qty,
+                    "shape": sample.shape,
+                    "aspect": aspect,
+                    "reason": "domain: prefer lengthwise (qty/aspect heuristic)",
+                }
+
         if structure == "public":
             sample = data_array[0, :, :]
             aspect = sample.shape[1] / sample.shape[0] if sample.shape[0] else 1.0
@@ -325,13 +345,24 @@ class NdeLoaderService:
                 "num_images": qty,
             })
 
-        best_orientation = max(
-            orientations,
-            key=lambda o: (
-                (20 if o["num_images"] >= 1000 else 15 if o["num_images"] >= 500 else 10 if o["num_images"] >= 100 else 5)
-                + (2 if 0.1 <= o["aspect"] <= 50.0 else 1 if 0.05 <= o["aspect"] <= 100.0 else 0)
-            ),
-        )
+        def _score_orientation(o: Dict) -> int:
+            base = (
+                20 if o["num_images"] >= 1000 else
+                15 if o["num_images"] >= 500 else
+                10 if o["num_images"] >= 100 else
+                5
+            )
+            aspect_score = (
+                2 if 0.1 <= o["aspect"] <= 50.0 else
+                1 if 0.05 <= o["aspect"] <= 100.0 else
+                0
+            )
+            bias = 0
+            if preferred_orientation and o["name"] == preferred_orientation["slice_orientation"]:
+                bias = 8  # strong bias toward preferred lengthwise without hard-forcing
+            return base + aspect_score + bias
+
+        best_orientation = max(orientations, key=_score_orientation)
 
         transpose = best_orientation["aspect"] < 1.0
         cfg = {
@@ -341,6 +372,8 @@ class NdeLoaderService:
             "shape": best_orientation["shape"],
             "aspect": best_orientation["aspect"],
         }
+        if preferred_orientation and best_orientation["name"] == preferred_orientation["slice_orientation"]:
+            cfg["reason"] = preferred_orientation["reason"]
         nde_debug_logger.log_variable("orientation_config", cfg, indent=1)
         return cfg
 

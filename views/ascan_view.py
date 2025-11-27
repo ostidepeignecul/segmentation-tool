@@ -82,6 +82,10 @@ class AScanView(QFrame):
         self._positions = None
         self._plot.setData([])
 
+    def set_marker_visible(self, visible: bool) -> None:
+        """Show or hide the marker line."""
+        self._marker.setVisible(visible)
+
     def _on_marker_move(self) -> None:
         if self._signal is None or self._suspend_marker_signal:
             return

@@ -1350,3 +1350,429 @@
 [00:00.000]     - num_images: 201
 [00:00.000]     - shape: tuple[310, 324]
 [00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/datasets/nde/From Dakota Kirby/Mark-Carte-Hyd2-Painted-Plate_DK edit.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (268, 301, 568)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 2045.15
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=268, crosswise=301, ultrasound=568
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: ultrasound
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 568
+[00:00.000]     - shape: tuple[268, 301]
+[00:00.000]     - aspect: 1.123134328358209
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/datasets/nde/From Dakota Kirby/Mark-Carte-Hyd2-Painted-Plate_DK edit.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (268, 301, 568)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 2045.15
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=268, crosswise=301, ultrasound=568
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: ultrasound
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 568
+[00:00.000]     - shape: tuple[268, 301]
+[00:00.000]     - aspect: 1.123134328358209
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/datasets/nde/From Dakota Kirby/Mark-Carte-Hyd2-Painted-Plate_DK edit.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (268, 301, 568)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 2045.15
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=268, crosswise=301, ultrasound=568
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 268
+[00:00.000]     - shape: tuple[301, 568]
+[00:00.000]     - aspect: 1.8870431893687707
+[00:00.000]     - reason: domain: preserve lengthwise as slice axis
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/datasets/nde/From Dakota Kirby/3 MARK CARTE HYDRA 2 INCREASED GAIN   LAM FLAT PLAT 1 IN AND FLAT BOTTOM HOLES DK Edit.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (357, 61, 568)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 1146.91
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=357, crosswise=61, ultrasound=568
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 357
+[00:00.000]     - shape: tuple[61, 568]
+[00:00.000]     - aspect: 9.311475409836065
+[00:00.000]     - reason: domain: preserve lengthwise as slice axis
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/datasets/nde/From Dakota Kirby/Rex2-Hyd2-Exch-Sample_2023_10_10 16h06m07s.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (433, 420, 472)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 2277.12
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=433, crosswise=420, ultrasound=472
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 433
+[00:00.000]     - shape: tuple[420, 472]
+[00:00.000]     - aspect: 1.1238095238095238
+[00:00.000]     - reason: domain: preserve lengthwise as slice axis
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/datasets/nde/From Gary Luckett/LN5/D7701_LN5_X2000-3050_Y600to1000(44C).nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (1050, 440, 640)
+[00:00.000]       - Dtype: uint16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 65021
+[00:00.000]       - Mean: 361.99
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=1050, crosswise=440, ultrasound=640
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 1050
+[00:00.000]     - shape: tuple[440, 640]
+[00:00.000]     - aspect: 1.4545454545454546
+[00:00.000]     - reason: domain: preserve lengthwise as slice axis
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/datasets/nde/Qualification dataset/MX2-757-SC-SS-00579-Z-64000 IA Training.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (526, 219, 500)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 2205.18
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=526, crosswise=219, ultrasound=500
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 526
+[00:00.000]     - shape: tuple[219, 500]
+[00:00.000]     - aspect: 2.2831050228310503
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/datasets/nde/From Benoit Cabirol/Pipe_10mm_Flexoform_Rast_All.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (601, 652, 428)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 1837.86
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=601, crosswise=652, ultrasound=428
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: True
+[00:00.000]     - num_images: 601
+[00:00.000]     - shape: tuple[652, 428]
+[00:00.000]     - aspect: 0.656441717791411
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/SB70_MGO_151272_40M_45M/SB70_MGO_151272_40M_45M.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (113, 3408, 276)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 14778
+[00:00.000]       - Mean: 1618.98
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=113, crosswise=3408, ultrasound=276
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: True
+[00:00.000]     - num_images: 113
+[00:00.000]     - shape: tuple[3408, 276]
+[00:00.000]     - aspect: 0.08098591549295775
+[00:00.000]     - reason: domain: preserve lengthwise as slice axis
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/SB70_MGO_151272_40M_45M/SB70_MGO_151272_40M_45M.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (113, 3408, 276)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 14778
+[00:00.000]       - Mean: 1618.98
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=113, crosswise=3408, ultrasound=276
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: crosswise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 3408
+[00:00.000]     - shape: tuple[113, 276]
+[00:00.000]     - aspect: 2.4424778761061945
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/datasets/nde/From Dakota Kirby/Mark-Carte-Hyd2-Painted-Plate_DK edit.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (268, 301, 568)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 2045.15
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=268, crosswise=301, ultrasound=568
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 268
+[00:00.000]     - shape: tuple[301, 568]
+[00:00.000]     - aspect: 1.8870431893687707
+[00:00.000]     - reason: domain: prefer lengthwise (qty/aspect heuristic)
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/SB70_MGO_151272_40M_45M/SB70_MGO_151272_40M_45M.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (113, 3408, 276)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 14778
+[00:00.000]       - Mean: 1618.98
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=113, crosswise=3408, ultrasound=276
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: crosswise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 3408
+[00:00.000]     - shape: tuple[113, 276]
+[00:00.000]     - aspect: 2.4424778761061945

@@ -9,11 +9,13 @@ class ViewStateModel:
         self.colormap: Optional[str] = None
         self.show_overlay: bool = True
         self.show_volume: bool = True
+        self.show_cross: bool = True
         self.tool_mode: Optional[str] = None
         self.threshold: Optional[int] = None
         self.threshold_auto: bool = False
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
+        self.cursor_position: Optional[tuple[int, int]] = None
 
 
     def set_alpha(self, alpha: float) -> None:
@@ -51,3 +53,11 @@ class ViewStateModel:
     def set_roi_persistence(self, enabled: bool) -> None:
         """Set whether ROI persistence is enabled."""
         self.roi_persistence = enabled
+
+    def set_show_cross(self, visible: bool) -> None:
+        """Toggle crosshair visibility across views."""
+        self.show_cross = visible
+
+    def set_cursor_position(self, x: int, y: int) -> None:
+        """Store the latest cursor position from views."""
+        self.cursor_position = (int(x), int(y))

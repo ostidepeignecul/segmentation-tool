@@ -50,11 +50,14 @@ class MasterController:
         self.tools_panel.attach_designer_widgets(
             slice_slider=self.ui.horizontalSlider_2,
             slice_label=self.ui.label_3,
+            position_label=self.ui.label_4,
             goto_button=self.ui.pushButton,
             threshold_slider=self.ui.horizontalSlider,
             polygon_radio=self.ui.radioButton,
             rectangle_radio=self.ui.radioButton_2,
             point_radio=self.ui.radioButton_3,
+            overlay_checkbox=self.ui.checkBox_5,
+            cross_checkbox=self.ui.checkBox_4,
             apply_volume_checkbox=self.ui.checkBox,
             threshold_auto_checkbox=self.ui.checkBox_2,
             roi_persistence_checkbox=self.ui.checkBox_3,
@@ -63,12 +66,17 @@ class MasterController:
             selection_cancel_button=self.ui.pushButton_4,
         )
 
+        self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
+        self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
+
         self.tools_panel.slice_changed.connect(self._on_slice_changed)
         self.tools_panel.goto_requested.connect(self._on_goto_requested)
         self.tools_panel.tool_mode_changed.connect(self._on_tool_mode_changed)
         self.tools_panel.threshold_changed.connect(self._on_threshold_changed)
         self.tools_panel.threshold_auto_toggled.connect(self._on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self._on_apply_volume_toggled)
+        self.tools_panel.overlay_toggled.connect(self._on_overlay_toggled)
+        self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
         self.tools_panel.roi_persistence_toggled.connect(self._on_roi_persistence_toggled)
         self.tools_panel.roi_recompute_requested.connect(self._on_roi_recompute_requested)
         self.tools_panel.roi_delete_requested.connect(self._on_roi_delete_requested)
@@ -164,6 +172,17 @@ class MasterController:
         """Handle volume application toggle."""
         self.view_state_model.set_apply_volume(enabled)
 
+    def _on_overlay_toggled(self, enabled: bool) -> None:
+        """Handle overlay visibility toggle."""
+        self.view_state_model.toggle_overlay(enabled)
+
+    def _on_cross_toggled(self, enabled: bool) -> None:
+        """Handle crosshair visibility toggle."""
+        self.view_state_model.set_show_cross(enabled)
+        self.endview_view.set_cross_visible(enabled)
+        self.cscan_view.set_cross_visible(enabled)
+        self.ascan_view.set_marker_visible(enabled)
+
     def _on_roi_persistence_toggled(self, enabled: bool) -> None:
         """Handle ROI persistence toggle."""
         self.view_state_model.set_roi_persistence(enabled)
@@ -205,11 +224,17 @@ class MasterController:
         if not isinstance(pos, tuple) or len(pos) != 2:
             return
         x, y = int(pos[0]), int(pos[1])
+        self.view_state_model.set_cursor_position(x, y)
+        self.tools_panel.set_position_label(x, y)
         self._update_ascan_trace(point=(x, y))
 
     def _on_endview_drag_update(self, pos: Any) -> None:
         """Handle drag updates during drawing."""
-        pass
+        if not isinstance(pos, tuple) or len(pos) != 2:
+            return
+        x, y = int(pos[0]), int(pos[1])
+        self.view_state_model.set_cursor_position(x, y)
+        self.tools_panel.set_position_label(x, y)
 
     def _on_cscan_crosshair_changed(self, slice_idx: int, x: int) -> None:
         """Handle crosshair movement on the C-Scan view."""
@@ -279,6 +304,9 @@ class MasterController:
 
         self.volume_view.set_volume(volume)
         self._update_ascan_trace()
+        self.endview_view.set_cross_visible(self.view_state_model.show_cross)
+        self.cscan_view.set_cross_visible(self.view_state_model.show_cross)
+        self.ascan_view.set_marker_visible(self.view_state_model.show_cross)
 
     def _current_volume(self) -> Optional[Any]:
         return self.nde_model.get_active_volume()

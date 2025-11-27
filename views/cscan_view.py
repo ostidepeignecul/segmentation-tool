@@ -136,8 +136,16 @@ class CScanView(QFrame):
 
     def _render_pixmap(self) -> None:
         heatmap = self._to_rgb(self._projection, self._value_range)
+        heatmap = np.ascontiguousarray(heatmap, dtype=np.uint8)
         h, w, _ = heatmap.shape
-        image = QImage(heatmap.data, w, h, w * 3, QImage.Format.Format_RGB888)
+        bytes_per_line = heatmap.strides[0]
+        image = QImage(
+            heatmap.data,
+            w,
+            h,
+            bytes_per_line,
+            QImage.Format.Format_RGB888,
+        )
         self._pixmap_item.setPixmap(QPixmap.fromImage(image.copy()))
         self._scene.setSceneRect(0, 0, w, h)
 
@@ -174,3 +182,8 @@ class CScanView(QFrame):
         self._cursor_h.setLine(0, z_clamped, self._projection.shape[1], z_clamped)
         self._cursor_v.setLine(x_clamped, 0, x_clamped, self._projection.shape[0])
         self._current_crosshair = (z_clamped, x_clamped)
+
+    def set_cross_visible(self, visible: bool) -> None:
+        """Show or hide the crosshair lines."""
+        self._cursor_h.setVisible(visible)
+        self._cursor_v.setVisible(visible)

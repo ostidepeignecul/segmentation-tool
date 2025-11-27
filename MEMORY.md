@@ -16,6 +16,109 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-11-27** — Forcer l’orientation Domain sur l’axe lengthwise
+
+**Tags :** `#services/nde_loader.py`, `#orientation`, `#nde_loader`, `#domain-structure`, `#mvc`
+
+**Actions effectuées :**
+- Ajout d’un cas dédié dans `detect_optimal_orientation` pour les fichiers Domain : on fixe `slice_orientation` à `lengthwise` et on calcule l’aspect du premier slice pour un éventuel transpose.
+- Log d’orientation mis à jour avec le motif `reason: domain: preserve lengthwise as slice axis` pour tracer la décision.
+
+**Contexte :**
+Un fichier Domain (shape brut 268×301×568) devait produire 268 slices (endview 301×568), mais l’heuristique sélectionnait `ultrasound` comme axe slice (568 images). En forçant l’axe lengthwise pour Domain, le volume orienté reste (268, 301, 568) avec slices 301×568, conforme aux attentes de l’Endview et du C-scan.
+
+**Décisions techniques :**
+1. Préserver l’axe lengthwise comme axe des slices pour les structures Domain, car il représente l’empilement attendu et évite une inversion non souhaitée vers l’axe ultrasound.
+2. Conserver la détection Public inchangée et ne toucher au transpose que si l’aspect du slice est < 1.0.
+
+**Implémentation (extrait) :**
+```python
+if structure == "domain":
+    sample = data_array[0, :, :]
+    aspect = sample.shape[1] / sample.shape[0] if sample.shape[0] else 1.0
+    cfg = {
+        "slice_orientation": "lengthwise",
+        "transpose": aspect < 1.0,
+        "num_images": lengthwise_qty,
+        "shape": sample.shape,
+        "aspect": aspect,
+        "reason": "domain: preserve lengthwise as slice axis",
+    }
+    nde_debug_logger.log_variable("orientation_config", cfg, indent=1)
+    return cfg
+```
+
+---
+### **2025-11-27** — Crosshair sync gated to Shift-click
+
+**Tags :** `#views/cscan_view.py`, `#views/endview_view.py`, `#controllers/master_controller.py`, `#crosshair`, `#mvc`, `#signals-and-slots`
+
+**Actions effectuées :**
+- Bloqué les mouvements de croix au survol dans CScanView et exigé Shift+clic gauche pour mettre à jour/emitter `crosshair_changed` et `slice_requested`.
+- Ajouté `set_crosshair(slice_idx, x)` dans CScanView pour synchroniser la croix depuis le contrôleur.
+- Forcé EndviewView à ne déplacer la croix qu’au Shift+clic gauche (plus de mise à jour au hover) et à émettre les signaux à ce moment.
+- Synchronisé le contrôleur pour pousser la croix C-scan lors de la mise à jour du profil A-scan, alignant la ligne verticale entre vues.
+
+**Contexte :**
+La croix bougeait au survol dans Endview/CScan, et seule la C-scan reflétait les clics. L’interaction doit rester fixe sauf action explicite. Les vues sont des renderers PyQt6 et doivent rester passives côté logique, le contrôleur orchestrant les positions partagées.
+
+**Décisions techniques :**
+1. Garde Shift+clic pour les interactions afin d’éviter les déplacements accidentels tout en préservant les signaux existants.
+2. Ajout d’une API `set_crosshair` côté CScanView pour permettre au contrôleur de maintenir la cohérence verticale quand un point est choisi dans Endview/AScan.
+3. Pas de mise à jour au hover dans les deux vues pour garder la croix stable ; seuls les appels programmatiques (highlight/set_crosshair) déplacent la croix.
+
+**Implémentation (extrait) :**
+```python
+# CScanView event
+if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.LeftButton:
+    if event.modifiers() & Qt.ShiftModifier:
+        z, x = coords
+        self._update_cursor(z, x)
+        self.crosshair_changed.emit(z, x)
+        self.slice_requested.emit(z)
+
+# CScanView API
+def set_crosshair(self, slice_idx: int, x: int) -> None:
+    self._update_cursor(clamped_z, clamped_x)
+
+# Controller
+self.cscan_view.set_crosshair(slice_idx, profile.crosshair[0])
+```
+
+---
+
+### **2025-11-27** — Heuristique Domain assouplie pour l’orientation
+
+**Tags :** `#services/nde_loader.py`, `#orientation`, `#domain-structure`, `#nde_loader`
+
+**Actions effectuées :**
+- Remplacé le forcing systématique de l’axe slice pour Domain par un biais : on préfère l’axe lengthwise si son nombre de slices est raisonnable (50–500) ou si l’aspect du slice est dans [0.2, 5], mais on laisse l’heuristique générique choisir sinon.
+- Introduit un score avec biais (+8) pour l’orientation préférée afin de rester flexible tout en conservant la priorisation lengthwise dans les cas courants.
+- Conserve le logging `reason` uniquement si l’orientation retenue correspond à la préférence Domain.
+
+**Contexte :**
+Certaines structures Domain doivent rester sur l’axe lengthwise (ex: 268×301×568 → 268 slices), mais d’autres peuvent nécessiter un autre axe. Il fallait éviter un forcing systématique tout en gardant un biais en faveur de lengthwise dans les cas attendus.
+
+**Décisions techniques :**
+1. Biais Domain : préférer lengthwise quand le compte de slices est dans une plage « normale » ou que l’aspect n’est pas trop extrême, sans empêcher un fallback.
+2. Scoring unifié avec bonus pour l’orientation préférée pour ne pas régresser les heuristiques Public.
+
+**Implémentation (extrait) :**
+```python
+if structure == "domain":
+    aspect = sample.shape[1] / sample.shape[0] if sample.shape[0] else 1.0
+    prefer_lengthwise = (50 <= lengthwise_qty <= 500) or (0.2 <= aspect <= 5.0)
+    if prefer_lengthwise:
+        preferred_orientation = {..., "reason": "domain: prefer lengthwise (qty/aspect heuristic)"}
+...
+def _score_orientation(o: Dict) -> int:
+    base = ...
+    aspect_score = ...
+    bias = 8 if preferred_orientation and o["name"] == preferred_orientation["slice_orientation"] else 0
+    return base + aspect_score + bias
+```
+
+---
 ### **2025-11-27** — ToolsPanel signals and controller wiring
 
 **Tags :** `#views/tools_panel.py`, `#controllers/master_controller.py`, `#views/endview_view.py`, `#views/cscan_view.py`, `#views/ascan_view.py`, `#views/volume_view.py`, `#models/view_state_model.py`, `#mvc`, `#signals-and-slots`
@@ -36,6 +139,47 @@ Respect strict du MVC : le ToolsPanel reste une vue et ne transporte aucune logi
 
 ---
 
+### **2025-11-27** — Position label + cross toggle via ViewStateModel
+
+**Tags :** `#views/tools_panel.py`, `#controllers/master_controller.py`, `#views/endview_view.py`, `#views/cscan_view.py`, `#views/ascan_view.py`, `#models/view_state_model.py`, `#ui`, `#crosshair`, `#mvc`
+
+**Actions effectuées :**
+- Ajouté signaux/toggles pour overlay et cross dans `ToolsPanel`, support du label de position, méthodes de mise à jour sans réémission, et wiring des widgets Designer.
+- Étendu `ViewStateModel` avec `show_cross` et `cursor_position` plus setters, pour conserver l’état UI (cross/overlay/position) hors contrôleur/vue.
+- Rétabli l’émission de la position souris Endview via `drag_update` sans bouger la croix, et ajouté les APIs `set_cross_visible` (Endview/CScan) et `set_marker_visible` (AScan).
+- Contrôleur orchestre : synchronise les checkboxes initiales, stocke position dans le modèle, met à jour le label via ToolsPanel, et applique le toggle cross à toutes les vues.
+
+**Contexte :**
+Nouvelles cases « Toggle overlay » et « Toggle cross » + label de position ajoutées dans le UI Designer. La croix ne doit pas bouger au survol, mais la position souris doit se refléter dans le label, et le cross doit être masquable dans les trois vues.
+
+**Décisions techniques :**
+1. Stocker l’état (cross visible, overlay, dernière position) dans `ViewStateModel` pour éviter logique UI dans contrôleur/vues.
+2. Exposer des méthodes dédiées dans les vues pour basculer la visibilité des repères, sans logique métier, et réémettre uniquement la position sur mouvement.
+3. Synchroniser les widgets Designer via `ToolsPanel` avec blocage de signaux pour les mises à jour programmatiques afin d’éviter les boucles.
+
+**Implémentation (extraits) :**
+```python
+# ViewStateModel
+self.show_cross: bool = True
+self.cursor_position: Optional[tuple[int, int]] = None
+
+# ToolsPanel signals
+overlay_toggled = pyqtSignal(bool)
+cross_toggled = pyqtSignal(bool)
+
+# Endview mouse move (pas de déplacement de croix)
+coords = self._scene_coords_from_event(event)
+if coords:
+    self.drag_update.emit(coords)
+
+# Controller toggle cross
+self.view_state_model.set_show_cross(enabled)
+self.endview_view.set_cross_visible(enabled)
+self.cscan_view.set_cross_visible(enabled)
+self.ascan_view.set_marker_visible(enabled)
+```
+
+---
 ### **2025-11-27** — Menu actions wiring
 
 **Tags :** `#controllers/master_controller.py`, `#ui_mainwindow.py`, `#mvc`, `#signals-and-slots`
