@@ -1,9 +1,11 @@
 from typing import Any, Optional
+
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QMessageBox
 
 from models.annotation_model import AnnotationModel
 from models.nde_model import NDEModel
 from models.view_state_model import ViewStateModel
+from services.ascan_service import AScanService
 from services.cscan_service import CScanService
 from services.nde_loader import NdeLoaderService
 from ui_mainwindow import Ui_MainWindow
@@ -22,6 +24,7 @@ class MasterController:
         self.view_state_model = ViewStateModel()
         self.nde_loader = NdeLoaderService()
         self.cscan_service = CScanService()
+        self.ascan_service = AScanService()
 
         # References to Designer-created views.
         self.endview_view = self.ui.frame_3
@@ -202,23 +205,38 @@ class MasterController:
         if not isinstance(pos, tuple) or len(pos) != 2:
             return
         x, y = int(pos[0]), int(pos[1])
-        self._update_ascan_trace(x=x, y=y)
+        self._update_ascan_trace(point=(x, y))
 
     def _on_endview_drag_update(self, pos: Any) -> None:
         """Handle drag updates during drawing."""
         pass
 
-    def _on_cscan_crosshair_changed(self, x: int, y: int) -> None:
+    def _on_cscan_crosshair_changed(self, slice_idx: int, x: int) -> None:
         """Handle crosshair movement on the C-Scan view."""
-        pass
+        volume = self._current_volume()
+        if volume is None:
+            return
+        self.nde_model.set_current_slice(slice_idx)
+        self.tools_panel.set_slice_value(slice_idx)
+        self.endview_view.set_slice(slice_idx)
+        self.cscan_view.highlight_slice(slice_idx)
+        y = self._current_point[1] if self._current_point else volume.shape[1] // 2
+        self._update_ascan_trace(point=(x, y))
 
     def _on_cscan_slice_requested(self, z: int) -> None:
         """Handle slice requests originating from the C-Scan view."""
         self._on_slice_changed(z)
 
-    def _on_ascan_position_changed(self, x: int, y: int, z: int) -> None:
+    def _on_ascan_position_changed(self, profile_idx: int) -> None:
         """Handle A-Scan position changes."""
-        pass
+        point = self.ascan_service.map_profile_index_to_point(
+            self.nde_model,
+            profile_idx,
+            self._current_point,
+        )
+        if point is None:
+            return
+        self._update_ascan_trace(point=point)
 
     def _on_ascan_cursor_moved(self, t: float) -> None:
         """Handle cursor moves within the A-Scan."""
@@ -226,11 +244,12 @@ class MasterController:
 
     def _on_volume_needs_update(self) -> None:
         """Handle volume refresh requests."""
-        pass
+        self._refresh_views()
 
     def _on_camera_changed(self, view_params: Any) -> None:
         """Handle camera/navigation changes in the volume view."""
-        pass
+        if isinstance(view_params, dict) and "slice" in view_params:
+            self._on_slice_changed(int(view_params["slice"]))
 
     def run(self) -> None:
         """Launch the main window."""
@@ -262,36 +281,21 @@ class MasterController:
         self._update_ascan_trace()
 
     def _current_volume(self) -> Optional[Any]:
-        volume = self.nde_model.normalized_volume
-        if volume is not None:
-            return volume
-        return self.nde_model.volume
+        return self.nde_model.get_active_volume()
 
-    def _update_ascan_trace(self, x: Optional[int] = None, y: Optional[int] = None) -> None:
-        volume = self._current_volume()
-        if volume is None:
+    def _update_ascan_trace(self, point: Optional[tuple[int, int]] = None) -> None:
+        profile = self.ascan_service.build_profile(
+            self.nde_model,
+            point_hint=point or self._current_point,
+        )
+        if profile is None:
             self.ascan_view.clear()
+            self._current_point = None
             return
 
+        self.ascan_view.set_signal(profile.signal_percent, positions=profile.positions)
+        self.ascan_view.set_marker(profile.marker_index)
+        self.endview_view.set_crosshair(*profile.crosshair)
         slice_idx = self.nde_model.current_slice or 0
-        if slice_idx >= volume.shape[0]:
-            slice_idx = volume.shape[0] - 1
-
-        height, width = volume.shape[1:]
-        if self._current_point is not None:
-            default_x, default_y = self._current_point
-        else:
-            default_x, default_y = width // 2, height // 2
-
-        if x is None:
-            x = default_x
-        x = max(0, min(width - 1, x))
-
-        trace = volume[slice_idx, :, x]
-        self.ascan_view.set_signal(trace)
-
-        if y is None:
-            y = default_y
-        y = max(0, min(height - 1, y))
-        self.ascan_view.set_marker(y)
-        self._current_point = (x, y)
+        self.cscan_view.set_crosshair(slice_idx, profile.crosshair[0])
+        self._current_point = profile.crosshair

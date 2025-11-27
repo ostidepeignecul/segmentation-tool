@@ -33,6 +33,7 @@ class CScanView(QFrame):
 
         self._projection: Optional[np.ndarray] = None
         self._value_range: Tuple[float, float] = (0.0, 1.0)
+        self._current_crosshair: Optional[Tuple[int, int]] = None
 
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
@@ -80,6 +81,7 @@ class CScanView(QFrame):
         """Display the projection (Z, X)."""
         if projection is None or projection.size == 0:
             self._projection = None
+            self._current_crosshair = None
             self._status.setText("C-scan vide")
             self._pixmap_item.setPixmap(QPixmap())
             return
@@ -89,6 +91,10 @@ class CScanView(QFrame):
             value_range = (float(self._projection.min()), float(self._projection.max()))
         self._value_range = value_range
         self._status.setText(f"Z={projection.shape[0]} · X={projection.shape[1]}")
+        self._current_crosshair = (
+            projection.shape[0] // 2,
+            projection.shape[1] // 2,
+        )
         self._render_pixmap()
 
         if colormaps:
@@ -101,23 +107,31 @@ class CScanView(QFrame):
         if self._projection is None:
             return
         slice_idx = max(0, min(self._projection.shape[0] - 1, slice_idx))
-        self._update_cursor(slice_idx, self._projection.shape[1] // 2)
+        _, last_x = self._current_crosshair or (
+            slice_idx,
+            self._projection.shape[1] // 2,
+        )
+        self._update_cursor(slice_idx, last_x)
+
+    def set_crosshair(self, slice_idx: int, x: int) -> None:
+        """Synchronize the crosshair position programmatically."""
+        if self._projection is None:
+            return
+        z = max(0, min(self._projection.shape[0] - 1, int(slice_idx)))
+        x_clamped = max(0, min(self._projection.shape[1] - 1, int(x)))
+        self._update_cursor(z, x_clamped)
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self._view.viewport() and self._projection is not None:
-            if event.type() == QEvent.Type.MouseMove:
-                coords = self._coords_from_event(event.position().toPoint())
-                if coords:
-                    z, x = coords
-                    self._update_cursor(z, x)
-                    self.crosshair_changed.emit(z, x)
-                return True
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
-                coords = self._coords_from_event(event.position().toPoint())
-                if coords:
-                    z, _ = coords
-                    self.slice_requested.emit(z)
-                return True
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    coords = self._coords_from_event(event.position().toPoint())
+                    if coords:
+                        z, x = coords
+                        self._update_cursor(z, x)
+                        self.crosshair_changed.emit(z, x)
+                        self.slice_requested.emit(z)
+                    return True
         return super().eventFilter(obj, event)
 
     def _render_pixmap(self) -> None:
@@ -151,5 +165,12 @@ class CScanView(QFrame):
         return None
 
     def _update_cursor(self, z: int, x: int) -> None:
-        self._cursor_h.setLine(0, z, self._projection.shape[1], z)
-        self._cursor_v.setLine(x, 0, x, self._projection.shape[0])
+        if self._projection is None:
+            return
+        max_z = self._projection.shape[0] - 1
+        max_x = self._projection.shape[1] - 1
+        z_clamped = max(0, min(max_z, z))
+        x_clamped = max(0, min(max_x, x))
+        self._cursor_h.setLine(0, z_clamped, self._projection.shape[1], z_clamped)
+        self._cursor_v.setLine(x_clamped, 0, x_clamped, self._projection.shape[0])
+        self._current_crosshair = (z_clamped, x_clamped)

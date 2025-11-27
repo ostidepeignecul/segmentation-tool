@@ -111,6 +111,15 @@ class EndviewView(QFrame):
         """Force re-rendering the base slice."""
         self._refresh_pixmaps()
 
+    def set_crosshair(self, x: int, y: int) -> None:
+        """Expose crosshair updates to controllers for synchronized highlighting."""
+        if self._volume is None:
+            return
+        height, width = self._volume.shape[1:]
+        x = max(0, min(width - 1, int(x)))
+        y = max(0, min(height - 1, int(y)))
+        self._update_crosshair(x, y)
+
     # ------------------------------------------------------------------ #
     # Event handling
     # ------------------------------------------------------------------ #
@@ -121,11 +130,15 @@ class EndviewView(QFrame):
                 if event.type() == QMouseEvent.Type.MouseButtonPress:
                     return self._handle_mouse_press(event)
                 if event.type() == QMouseEvent.Type.MouseMove:
-                    self._handle_mouse_move(event)
+                    return self._handle_mouse_move(event)
         return super().eventFilter(obj, event)
 
     def wheelEvent(self, event) -> None:
         if not self._scene.items():
+            return
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self._emit_slice_scroll(event.angleDelta().y())
+            event.accept()
             return
         zoom_in = event.angleDelta().y() > 0
         factor = 1.15 if zoom_in else 1 / 1.15
@@ -134,20 +147,20 @@ class EndviewView(QFrame):
     def _handle_mouse_press(self, event: QMouseEvent) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
+        if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            return False
         coords = self._scene_coords_from_event(event)
         if coords is None:
             return False
+        x, y = coords
+        self._update_crosshair(x, y)
         self.point_selected.emit(coords)
         self.mouse_clicked.emit(coords, event.button())
         return True
 
-    def _handle_mouse_move(self, event: QMouseEvent) -> None:
-        coords = self._scene_coords_from_event(event)
-        if coords is None:
-            return
-        x, y = coords
-        self._update_crosshair(x, y)
-        self.drag_update.emit(coords)
+    def _handle_mouse_move(self, event: QMouseEvent) -> bool:
+        # Crosshair must stay fixed during mouse move; no action needed.
+        return False
 
     # ------------------------------------------------------------------ #
     # Rendering helpers
@@ -188,6 +201,7 @@ class EndviewView(QFrame):
             normalized = (data - min_val) / (max_val - min_val)
             normalized = np.clip(normalized * 255.0, 0, 255).astype(np.uint8)
         h, w = normalized.shape
+        normalized = np.ascontiguousarray(normalized, dtype=np.uint8)
         qimage = QImage(
             normalized.data,
             w,
@@ -207,6 +221,7 @@ class EndviewView(QFrame):
         rgba[..., 0] = 255  # red channel
         rgba[..., 3] = (normalized * 200).astype(np.uint8)
         h, w, _ = rgba.shape
+        rgba = np.ascontiguousarray(rgba, dtype=np.uint8)
         qimage = QImage(
             rgba.data,
             w,
@@ -237,3 +252,11 @@ class EndviewView(QFrame):
         height, width = self._volume.shape[1:]
         self._crosshair_h.setLine(0, y, width, y)
         self._crosshair_v.setLine(x, 0, x, height)
+
+    def _emit_slice_scroll(self, delta: int) -> None:
+        if self._volume is None or delta == 0:
+            return
+        step = -1 if delta > 0 else 1
+        new_index = max(0, min(self._volume.shape[0] - 1, self._current_slice + step))
+        if new_index != self._current_slice:
+            self.slice_changed.emit(new_index)
