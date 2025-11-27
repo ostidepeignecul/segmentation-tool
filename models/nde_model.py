@@ -1,19 +1,27 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 
 class NDEModel:
-    """Represents the loaded NDE data without any UI logic."""
+    """Stores raw NDE data (volume, A-scan, metadata) without UI logic."""
 
     def __init__(self) -> None:
-        self.raw_volume: Optional[Any] = None
+        self.volume: Optional[Any] = None
+        self.a_scan: Optional[Any] = None
         self.metadata: Dict[str, Any] = {}
-        self.file_path: Optional[str] = None
-        self.volume_shape: Optional[Tuple[int, int, int]] = None
+        self.current_slice: Optional[int] = None
 
-    def load_from_array(self, array: Any) -> None:
-        """Load NDE data from an existing array."""
+    def set_volume(self, volume: Any, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Assign the volume and optional metadata."""
+        pass
+
+    def set_a_scan(self, a_scan: Any) -> None:
+        """Assign the raw A-scan data."""
+        pass
+
+    def set_current_slice(self, index: int) -> None:
+        """Update the currently selected slice index."""
         pass
 
     def clear(self) -> None:
-        """Reset all stored NDE data."""
+        """Reset stored NDE data."""
         pass

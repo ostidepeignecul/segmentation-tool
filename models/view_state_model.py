@@ -2,19 +2,27 @@ from typing import Optional
 
 
 class ViewStateModel:
-    """Stores UI state such as slice index and tool selection."""
+    """Stores UI state such as slice index, overlays, and color settings."""
 
     def __init__(self) -> None:
         self.current_slice: Optional[int] = None
-        self.slice_range: Optional[range] = None
-        self.zoom_level: float = 1.0
-        self.overlay_opacity: float = 1.0
-        self.active_tool: Optional[str] = None
+        self.overlay_alpha: float = 1.0
+        self.colormap: Optional[str] = None
+        self.show_overlay: bool = True
+        self.show_volume: bool = True
 
-    def set_slice(self, i: int) -> None:
+    def set_slice(self, index: int) -> None:
         """Set the current slice index."""
         pass
 
-    def set_tool(self, name: str) -> None:
-        """Set the active tool."""
+    def set_alpha(self, alpha: float) -> None:
+        """Adjust overlay alpha value."""
+        pass
+
+    def set_colormap(self, name: str) -> None:
+        """Change the active colormap."""
+        pass
+
+    def toggle_overlay(self, visible: bool) -> None:
+        """Show or hide overlays."""
         pass
