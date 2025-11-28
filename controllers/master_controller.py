@@ -1,13 +1,14 @@
+import logging
 from typing import Any, Optional
 
-from PyQt6.QtWidgets import QMainWindow, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from models.annotation_model import AnnotationModel
-from models.nde_model import NDEModel
+from models.simple_nde_model import SimpleNDEModel
 from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService
 from services.cscan_service import CScanService
-from services.nde_loader import NdeLoaderService
+from services.simple_nde_loader import SimpleNdeLoader
 from ui_mainwindow import Ui_MainWindow
 
 
@@ -15,14 +16,15 @@ class MasterController:
     """Coordinates models and the Designer-built UI without embedding business logic."""
 
     def __init__(self, main_window: Optional[QMainWindow] = None) -> None:
+        self.logger = logging.getLogger(__name__)
         self.main_window = main_window or QMainWindow()
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self.main_window)
 
-        self.nde_model = NDEModel()
+        self.nde_model: Optional[SimpleNDEModel] = None
         self.annotation_model = AnnotationModel()
         self.view_state_model = ViewStateModel()
-        self.nde_loader = NdeLoaderService()
+        self.nde_loader = SimpleNdeLoader()
         self.cscan_service = CScanService()
         self.ascan_service = AScanService()
 
@@ -33,7 +35,6 @@ class MasterController:
         self.ascan_view = self.ui.frame_7
         self.tools_panel = self.ui.dockWidgetContents_2
         self._current_point: Optional[tuple[int, int]] = None
-        self._rotation_actions_connected = False
 
         self._connect_actions()
         self._connect_signals()
@@ -45,26 +46,6 @@ class MasterController:
         self.ui.actionSauvegarder.triggered.connect(self._on_save)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
-        self._rotation_actions_connected = self._connect_rotation_actions()
-
-    def _connect_rotation_actions(self) -> bool:
-        """Connect rotation menu actions if present in the UI Designer output."""
-        connected = False
-        rotations = [
-            ("actionRotate90", 1),
-            ("actionRotate180", 2),
-            ("actionRotate270", 3),
-            ("actionRotateReset", 0),
-        ]
-        for attr, quarter_turns in rotations:
-            action = getattr(self.ui, attr, None)
-            if action is None or not hasattr(action, "triggered"):
-                continue
-            action.triggered.connect(
-                lambda _checked=False, turns=quarter_turns: self.nde_loader.set_rotation(turns)
-            )
-            connected = True
-        return connected
 
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
@@ -132,18 +113,35 @@ class MasterController:
             return
 
         try:
-            if not self._rotation_actions_connected:
-                # Default rotation (90°) when no explicit action was triggered.
-                self.nde_loader.set_rotation(1)
-            loaded_model = self.nde_loader.load_nde_model(file_path)
-            self.nde_model = loaded_model
-            self.nde_model.set_current_slice(0)
+            loaded_model = self.nde_loader.load(file_path)
+            volume = loaded_model.get_active_volume()
+            if volume is None or getattr(volume, "ndim", 0) != 3:
+                raise ValueError("Le fichier NDE ne contient pas de volume 3D exploitable.")
 
-            volume = loaded_model.volume
-            num_slices = volume.shape[0] if volume is not None else 0
-            if num_slices > 0:
-                self.tools_panel.set_slice_bounds(0, num_slices - 1)
-                self.tools_panel.set_slice_value(0)
+            self.nde_model = loaded_model
+            num_slices = volume.shape[0]
+            self.view_state_model.set_slice(0, num_slices - 1)
+            self.view_state_model.set_current_point(None)
+            self._current_point = None
+            self.annotation_model.initialize(volume.shape)
+
+            self.tools_panel.set_slice_bounds(0, num_slices - 1)
+            self.tools_panel.set_slice_value(0)
+
+            axis_order = loaded_model.metadata.get("axis_order", [])
+            positions = loaded_model.metadata.get("positions") or {}
+            axes_info = []
+            for idx, name in enumerate(axis_order):
+                shape_len = volume.shape[idx] if idx < len(volume.shape) else "?"
+                pos_len = len(positions.get(name, [])) if positions.get(name) is not None else "?"
+                axes_info.append(f"{name}: shape={shape_len}, positions={pos_len}")
+            self.logger.info(
+                "NDE loaded | structure=%s | shape=%s | axes=%s | path=%s",
+                loaded_model.metadata.get("structure"),
+                volume.shape,
+                "; ".join(axes_info) if axes_info else "n/a",
+                loaded_model.metadata.get("path"),
+            )
 
             self._refresh_views()
 
@@ -170,10 +168,15 @@ class MasterController:
 
     def _on_slice_changed(self, index: int) -> None:
         """Handle slice change events."""
-        self.tools_panel.set_slice_value(index)
-        self.nde_model.set_current_slice(index)
-        self.endview_view.set_slice(index)
-        self.cscan_view.highlight_slice(index)
+        volume = self._current_volume()
+        if volume is None:
+            return
+        clamped = max(0, min(volume.shape[0] - 1, int(index)))
+        self.view_state_model.set_slice(clamped, volume.shape[0] - 1)
+        self.tools_panel.set_slice_value(clamped)
+        self.endview_view.set_slice(clamped)
+        self.cscan_view.highlight_slice(clamped)
+        self.volume_view.set_slice_index(clamped, update_slider=True)
         self._update_ascan_trace()
 
     def _on_goto_requested(self, slice_idx: int) -> None:
@@ -265,11 +268,12 @@ class MasterController:
         volume = self._current_volume()
         if volume is None:
             return
-        self.nde_model.set_current_slice(slice_idx)
-        self.tools_panel.set_slice_value(slice_idx)
-        self.endview_view.set_slice(slice_idx)
-        self.cscan_view.highlight_slice(slice_idx)
-        y = self._current_point[1] if self._current_point else volume.shape[1] // 2
+        clamped_slice = max(0, min(volume.shape[0] - 1, int(slice_idx)))
+        self.view_state_model.set_slice(clamped_slice, volume.shape[0] - 1)
+        self.tools_panel.set_slice_value(clamped_slice)
+        self.endview_view.set_slice(clamped_slice)
+        self.cscan_view.highlight_slice(clamped_slice)
+        y = self.view_state_model.current_point[1] if self.view_state_model.current_point else volume.shape[1] // 2
         self._update_ascan_trace(point=(x, y))
 
     def _on_cscan_slice_requested(self, z: int) -> None:
@@ -278,13 +282,19 @@ class MasterController:
 
     def _on_ascan_position_changed(self, profile_idx: int) -> None:
         """Handle A-Scan position changes."""
-        point = self.ascan_service.map_profile_index_to_point(
+        if self.nde_model is None:
+            return
+        selection = self.ascan_service.map_profile_index_to_point(
             self.nde_model,
             profile_idx,
-            self._current_point,
+            self.view_state_model.current_point,
+            self.view_state_model.current_slice,
         )
-        if point is None:
+        if selection is None:
             return
+        point, new_slice = selection
+        if new_slice is not None:
+            self._on_slice_changed(new_slice)
         self._update_ascan_trace(point=point)
 
     def _on_ascan_cursor_moved(self, t: float) -> None:
@@ -319,35 +329,58 @@ class MasterController:
         if volume is None:
             return
 
-        slice_idx = self.nde_model.current_slice or 0
+        # Sélectionne l’indice de tranche courant dans les bornes valides
+        slice_idx = max(0, min(volume.shape[0] - 1, self.view_state_model.current_slice))
+
+        # Met à jour l’Endview (pas de changement ici)
         self.endview_view.set_volume(volume)
         self.endview_view.set_slice(slice_idx)
 
+        # Met à jour la C‑scan
         projection, value_range = self.cscan_service.compute_top_projection(volume)
         self.cscan_view.set_projection(projection, value_range)
 
-        self.volume_view.set_volume(volume)
+        # Récupère l'ordre des axes depuis le modèle, s'il existe
+        axis_order = None
+        if self.nde_model is not None:
+            axis_order = self.nde_model.metadata.get("axis_order")
+
+        # Envoie le volume à la vue 3D en précisant l’ordre des axes
+        self.volume_view.set_volume(volume, slice_idx=slice_idx, axis_order=axis_order)
+
+        # Reste des mises à jour
         self._update_ascan_trace()
         self.endview_view.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_view.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_view.set_marker_visible(self.view_state_model.show_cross)
 
+
     def _current_volume(self) -> Optional[Any]:
+        if self.nde_model is None:
+            return None
         return self.nde_model.get_active_volume()
 
     def _update_ascan_trace(self, point: Optional[tuple[int, int]] = None) -> None:
+        if self.nde_model is None:
+            return
+        volume = self._current_volume()
+        if volume is None:
+            return
         profile = self.ascan_service.build_profile(
             self.nde_model,
-            point_hint=point or self._current_point,
+            slice_idx=self.view_state_model.current_slice,
+            point_hint=point or self.view_state_model.current_point,
         )
         if profile is None:
             self.ascan_view.clear()
             self._current_point = None
+            self.view_state_model.set_current_point(None)
             return
 
         self.ascan_view.set_signal(profile.signal_percent, positions=profile.positions)
         self.ascan_view.set_marker(profile.marker_index)
         self.endview_view.set_crosshair(*profile.crosshair)
-        slice_idx = self.nde_model.current_slice or 0
+        slice_idx = self.view_state_model.current_slice
         self.cscan_view.set_crosshair(slice_idx, profile.crosshair[0])
         self._current_point = profile.crosshair
+        self.view_state_model.set_current_point(profile.crosshair)

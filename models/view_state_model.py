@@ -16,6 +16,8 @@ class ViewStateModel:
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
         self.cursor_position: Optional[tuple[int, int]] = None
+        self.current_slice: int = 0
+        self.current_point: Optional[tuple[int, int]] = None
 
 
     def set_alpha(self, alpha: float) -> None:
@@ -61,3 +63,18 @@ class ViewStateModel:
     def set_cursor_position(self, x: int, y: int) -> None:
         """Store the latest cursor position from views."""
         self.cursor_position = (int(x), int(y))
+
+    def set_slice(self, index: int, maximum: Optional[int] = None) -> None:
+        """Track the current slice index with optional clamping."""
+        target = int(index)
+        if maximum is not None:
+            target = max(0, min(int(maximum), target))
+        self.current_slice = target
+
+    def set_current_point(self, point: Optional[tuple[int, int]]) -> None:
+        """Track the latest crosshair (x, y) coordinates."""
+        if point is None:
+            self.current_point = None
+            return
+        x, y = point
+        self.current_point = (int(x), int(y))

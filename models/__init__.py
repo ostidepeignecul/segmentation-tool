@@ -7,12 +7,12 @@ Architecture recommandée avec 3 modèles :
 - ViewStateModel : État de l'interface utilisateur (slice, zoom, crosshair)
 """
 
-from .nde_model import NDEModel
+from .simple_nde_model import SimpleNDEModel
 from .annotation_model import AnnotationModel
 from .view_state_model import ViewStateModel
 
 __all__ = [
-    'NDEModel',
+    'SimpleNDEModel',
     'AnnotationModel',
     'ViewStateModel',
 ]

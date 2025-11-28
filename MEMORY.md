@@ -15,6 +15,23 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 2. Removed unused exports to avoid import failures when loading models package; maintained skeleton-only behavior.
 
 ---
+
+### **2025-11-28** — Désactivation du plan de surlignage VolumeView
+
+**Tags :** `#views/volume_view.py`, `#3d-visualization`, `#mvc`
+
+**Actions effectuées :**
+- Commenté la création du visual VisPy en mode `raycasting_mode="plane"` dans `_build_scene`, désactivant le plan de surlignage de slice dans la vue 3D.
+- La mise à jour de `plane_position` reste inoffensive car `_slice_highlight_visual` reste à `None`, évitant tout mouvement de plan.
+
+**Contexte :**
+Le plan mobile de surlignage devait être désactivé tout en conservant le rendu volumique et la navigation par slider. La vue consomme déjà un volume orienté comme l’Endview ; seul le repère de slice était à neutraliser.
+
+**Décisions techniques :**
+1. Conserver le code commenté pour une réactivation rapide, mais laisser `_slice_highlight_visual` à `None` pour que `_update_slice_plane` s’arrête immédiatement.
+2. Ne pas toucher aux autres visuels (volume MIP, image 2D) ni à la caméra afin de limiter le changement au surlignage uniquement.
+
+---
 # 2025-11-27 — VolumeView coupe 3D style volume_plane
 
 **Tags :** `#views/volume_view.py`, `#3d-visualization`, `#vispy`, `#slider`, `#mvc`
@@ -674,6 +691,54 @@ if self._volume is not None:
         scale=(1.0, -1.0, 1.0),
         translate=(0.0, float(height), float(self._current_slice)),
     )
+```
+
+---
+### **2025-11-28** — Fallback d’orientation pour NDE sans métadonnées
+
+**Tags:** `#services/simple_nde_loader.py`, `#controllers/master_controller.py`, `#services/ascan_service.py`, `#orientation`, `#domain-structure`, `#logging`, `#simple_nde_model`, `#mvc`
+
+**Actions effectuées:**
+- Ajouté un repli d’orientation dans `SimpleNdeLoader`: si les `dimensions` JSON sont absents (axes auto `axis_*`), on déplace l’axe le plus long en axe de slice (index 0) via `np.moveaxis`, en conservant l’axe ultrasound en dernière position ; log `[structure] fallback orientation: moved axis …`.
+- Log détaillé des axes dans le loader (nom, quantity, shape) et dans `MasterController` au chargement (structure, shape, axis_order, taille des positions, path) pour diagnostiquer les fichiers Domain sans métadonnées.
+- Corrigé `AScanService.build_profile` pour passer l’argument `ultrasound_axis` à `_axis_positions_for_profile`, évitant un `TypeError` lors du recalcul des positions.
+
+**Contexte:**
+Un fichier Domain (shape brut 113×3408×276) était interprété avec 113 slices faute de métadonnées `dimensions`. Le fallback réoriente désormais automatiquement le volume pour mettre l’axe le plus long (3408) en axe slice, améliorant l’affichage Endview/C-Scan/A-Scan tout en loggant l’opération. Les logs permettent de comparer avec les fichiers Public qui fournissent U/V/Ultrasound explicites.
+
+**Décisions techniques:**
+1. N’appliquer le repli que si `axis_order` est généré (`axis_*`), afin de ne pas modifier les fichiers disposant de métadonnées explicites.
+2. Utiliser `np.argmax(shape)` pour cibler l’axe slice et `np.moveaxis` pour le placer en index 0 ; conserver l’ordre des autres axes (ultrasound restant en dernière position par défaut) et reconstruire `positions` selon le nouvel ordre.
+3. Consolider la traçabilité: logs loader+controller au niveau INFO pour inspecter shape/axes/paths lors de l’ouverture d’un NDE.
+
+**Implémentation (extrait):**
+```python
+# services/simple_nde_loader.py
+slice_axis = int(np.argmax(shape))
+if slice_axis != 0:
+    reordered_data = np.moveaxis(data, slice_axis, 0)
+    reordered_axis_order = [axis_order[slice_axis], *axis_order[:slice_axis], *axis_order[slice_axis + 1:]]
+    logger.info("[%s] fallback orientation: moved axis %s to slice axis | old shape=%s | new shape=%s",
+                structure, slice_axis, shape, reordered_data.shape)
+    return reordered_data, reordered_axis_order, reordered_positions
+```
+```python
+# controllers/master_controller.py
+self.logger.info(
+    "NDE loaded | structure=%s | shape=%s | axes=%s | path=%s",
+    loaded_model.metadata.get("structure"),
+    volume.shape,
+    "; ".join(axes_info) if axes_info else "n/a",
+    loaded_model.metadata.get("path"),
+)
+```
+```python
+# services/ascan_service.py
+positions = self._axis_positions_for_profile(
+    model,
+    normalized.size,
+    ultrasound_axis,
+)
 ```
 
 ---
