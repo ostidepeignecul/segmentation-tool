@@ -16,6 +16,67 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-11-28** — Overlay NPZ/NPY géré via NPZOverlayService et annotation_model
+
+**Tags :** `#services/npz_overlay.py`, `#controllers/master_controller.py`, `#views/endview_view.py`, `#overlay`, `#mvc`
+
+**Actions effectuées :**
+- Simplifié NPZOverlayService : initialisation d’un volume masque vide aligné sur le NDE, chargement NPZ/NPY (shape validée), construction d’un volume RGBA via palette `MASK_COLORS_BGRA`, stockage `mask_volume`/`overlay_rgba`, clear.
+- MasterController : délégation overlay au service (initialisation après chargement NDE, chargement overlay via service, push conditionnel vers la vue selon toggle overlay) sans logique de coloration ; annotation_model reçoit `mask_volume` du service.
+- EndviewView : support overlay volumique RGBA (Z,H,W,4) ou slice 2D via extraction auto de la slice courante et conversion directe en QPixmap sans remapping.
+
+**Contexte :**
+Éviter la logique d’overlay dans le contrôleur : le service gère chargement et palette, le modèle stocke les masques, la vue affiche un volume RGBA prêt. L’overlay est créé vide au chargement NDE pour servir de toile lors des futurs outils de dessin.
+
+**Décisions techniques :**
+1. Validation stricte de la shape overlay contre le volume NDE et conversion en uint8 côté service ; couleurs provenant de `MASK_COLORS_BGRA` (fallback magenta semi-transparente pour classes inconnues).
+2. La vue gère les volumes overlay RGBA en 4D en extrayant la slice courante ; le contrôleur ne fait qu’orchestrer les appels service/modèle et pousse l’overlay selon le toggle.
+
+---
+
+### **2025-11-28** — Overlay NPZ: auto-transpose H/W
+
+**Tags :** `#services/npz_overlay.py`, `#overlay`, `#mvc`
+
+**Actions effectuées :**
+- `NPZOverlayService.load` tolère un overlay dont les dimensions H/W sont inversées par rapport au volume (ex: (Z, W, H) vs (Z, H, W)) : détection (même profondeur, axes 1 et 2 permutés), transpose `(0,2,1)` et log avant de bâtir l’RGBA.
+- Les autres shapes restent rejetées par une erreur.
+
+**Contexte :**
+Des NPZ/NPY fournis avec H/W échangés doivent être acceptés sans demander de retoucher les vues/contrôleur ; le service corrige l’ordre pour livrer un masque aligné au volume NDE.
+
+**Décision technique :**
+1. Vérifier la profondeur puis appliquer un transpose (0,2,1) sur mismatch H/W au lieu d’échouer, afin de conserver une orientation cohérente avec le volume attendu.
+
+---
+
+### **2025-11-28** — Overlay 3D poussé via contrôleur
+
+**Tags :** `#controllers/master_controller.py`, `#views/volume_view.py`, `#overlay`, `#mvc`
+
+**Actions effectuées :**
+- `_push_overlay` envoie désormais l’overlay RGBA du service à la fois à l’Endview et à la VolumeView, et les nettoie toutes deux si le toggle overlay est désactivé.
+
+**Contexte :**
+Le volume overlay (annotations) n’apparaissait que dans l’Endview ; le contrôleur pousse maintenant le même overlay vers la vue 3D pour afficher l’annotation par-dessus le volume NDE.
+
+**Décision technique :**
+1. Mutualiser le push overlay pour les deux vues afin de garder une seule source (service overlay_rgba) et respecter le toggle overlay.
+
+---
+
+### **2025-11-28** — Fix compat numpy (overlay asarray copy)
+
+**Tags :** `#services/npz_overlay.py`, `#overlay`, `#numpy`
+
+**Actions effectuées :**
+- Remplacé `np.asarray(..., copy=False)` par `np.array(..., copy=False)` lors du chargement overlay pour éviter l’erreur `asarray() got an unexpected keyword argument 'copy'` sur les versions numpy antérieures.
+
+**Contexte :**
+La compatibilité numpy nécessitait d’éviter l’argument `copy` avec `asarray`; `np.array` supporte `copy` et conserve le cast en uint8 sans duplication inutile.
+
+---
+
 ### **2025-11-28** — Rotation 90° horaire appliquée dans SimpleNdeLoader
 
 **Tags :** `#services/simple_nde_loader.py`, `#orientation`, `#rotation`, `#mvc`
@@ -806,5 +867,38 @@ positions = self._axis_positions_for_profile(
     ultrasound_axis,
 )
 ```
+
+---
+
+### **2025-11-28** — Overlay 3D translucide dans VolumeView
+
+**Tags :** `#views/volume_view.py`, `#overlay`, `#vispy`, `#3d-visualization`, `#mvc`
+
+**Actions effectuées :**
+- Ajout d’un VolumeVisual overlay translucide en plus de l’image de slice : conversion de l’overlay RGBA (Z,H,W,4) en volume alpha float32 [0,1], création `scene.visuals.Volume(..., method="translucent", cmap=_TranslucentMask(), threshold=0.1)` avec blend actif et depth_test désactivé.
+- Maintien de la synchronisation slice/flip XY : le Volume overlay partage `STTransform(scale=(-1,-1,1), translate=(width,height,0))` appliqué avec le volume principal ; `set_overlay(None)` nettoie VolumeVisual et image 2D, reconstruction après `set_volume`.
+
+**Contexte :**
+L’overlay n’apparaissait qu’en 2D (Image de slice). Le canal alpha du RGBA pilote maintenant un volume translucent en 3D, tout en conservant l’overlay de slice existant et le toggle overlay côté contrôleur.
+
+**Décisions techniques :**
+1. Utiliser l’alpha du RGBA comme scalaire (pas de remappage couleurs) et un colormap GLSL translucide type TransFire pour mélanger proprement avec le volume principal.
+2. Désactiver le depth test et activer le blend sur le Volume overlay pour le dessiner au-dessus du MIP, tout en réappliquant le flip XY via `_apply_visual_transform` afin d’aligner Endview et 3D.
+
+---
+
+### **2025-11-28** — Overlay non repush sur navigation de slices
+
+**Tags :** `#controllers/master_controller.py`, `#overlay`, `#performance`, `#mvc`
+
+**Actions effectuées :**
+- Supprimé l’appel à `_push_overlay()` dans `_on_slice_changed` pour éviter de réinjecter le volume RGBA à chaque déplacement de slice.
+
+**Contexte :**
+Chaque mouvement de slider déclenchait un push complet de l’overlay RGBA vers les vues, générant des logs et un coût inutile. Les vues gèrent déjà la mise à jour de slice via `set_slice` / `set_slice_index` et l’overlay 2D/3D se met à jour localement sans recharger les données.
+
+**Décisions techniques :**
+1. Laisser `_push_overlay` uniquement sur chargement NDE, chargement overlay ou toggle overlay, car ces événements changent effectivement les données.
+2. S’appuyer sur les vues (Endview/VolumeView) pour rafraîchir l’overlay slice côté rendu lors des changements d’index, évitant un repush volumique coûteux.
 
 ---

@@ -8,6 +8,7 @@ from models.simple_nde_model import SimpleNDEModel
 from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService
 from services.cscan_service import CScanService
+from services.npz_overlay import NPZOverlayService
 from services.simple_nde_loader import SimpleNdeLoader
 from ui_mainwindow import Ui_MainWindow
 
@@ -27,6 +28,7 @@ class MasterController:
         self.nde_loader = SimpleNdeLoader()
         self.cscan_service = CScanService()
         self.ascan_service = AScanService()
+        self.overlay_service = NPZOverlayService()
 
         # References to Designer-created views.
         self.endview_view = self.ui.frame_3
@@ -124,6 +126,8 @@ class MasterController:
             self.view_state_model.set_current_point(None)
             self._current_point = None
             self.annotation_model.initialize(volume.shape)
+            self.overlay_service.initialize_empty(volume.shape)
+            self.annotation_model.mask_volume = self.overlay_service.mask_volume
 
             self.tools_panel.set_slice_bounds(0, num_slices - 1)
             self.tools_panel.set_slice_value(0)
@@ -152,7 +156,28 @@ class MasterController:
 
     def _on_load_npz(self) -> None:
         """Handle loading an NPZ overlay."""
-        pass
+        if self.nde_model is None:
+            QMessageBox.warning(self.main_window, "Overlay", "Chargez un NDE avant l'overlay.")
+            return
+        file_path, _ = QFileDialog.getOpenFileName(
+            self.main_window,
+            "Charger un overlay (.npz/.npy)",
+            "",
+            "Overlay Files (*.npz *.npy);;All Files (*)",
+        )
+        if not file_path:
+            return
+        volume = self._current_volume()
+        if volume is None:
+            QMessageBox.warning(self.main_window, "Overlay", "Volume NDE indisponible.")
+            return
+        try:
+            self.overlay_service.load(file_path, target_shape=volume.shape)
+            self.annotation_model.mask_volume = self.overlay_service.mask_volume
+            self._push_overlay()
+            self.status_message(f"Overlay chargé: {file_path}")
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "Erreur overlay", str(exc))
 
     def _on_save(self) -> None:
         """Handle saving current session or annotations."""
@@ -202,6 +227,7 @@ class MasterController:
     def _on_overlay_toggled(self, enabled: bool) -> None:
         """Handle overlay visibility toggle."""
         self.view_state_model.toggle_overlay(enabled)
+        self._push_overlay()
 
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
@@ -335,6 +361,7 @@ class MasterController:
         # Met à jour l’Endview (pas de changement ici)
         self.endview_view.set_volume(volume)
         self.endview_view.set_slice(slice_idx)
+        self._push_overlay()
 
         # Met à jour la C‑scan
         projection, value_range = self.cscan_service.compute_top_projection(volume)
@@ -384,3 +411,21 @@ class MasterController:
         self.cscan_view.set_crosshair(slice_idx, profile.crosshair[0])
         self._current_point = profile.crosshair
         self.view_state_model.set_current_point(profile.crosshair)
+
+    # ------------------------------------------------------------------ #
+    # Overlay helpers
+    # ------------------------------------------------------------------ #
+    def _push_overlay(self) -> None:
+        """Push overlay to the view according to toggle."""
+        if not self.view_state_model.show_overlay:
+            self.logger.info("Overlay hidden by toggle; clearing views.")
+            self.endview_view.set_overlay(None)
+            self.volume_view.set_overlay(None)
+            return
+        overlay = self.overlay_service.get_rgba_volume()
+        if overlay is not None:
+            self.logger.info("Pushing overlay to views | shape=%s dtype=%s", overlay.shape, overlay.dtype)
+        else:
+            self.logger.info("No overlay available to push; clearing views.")
+        self.endview_view.set_overlay(overlay)
+        self.volume_view.set_overlay(overlay)

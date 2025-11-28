@@ -183,10 +183,10 @@ class EndviewView(QFrame):
         if self._overlay is None or self._volume is None:
             self._overlay_item.setPixmap(QPixmap())
             return
-        if self._overlay.ndim == 3:
+        overlay_slice = self._overlay
+        if self._overlay.ndim >= 3 and self._overlay.shape[0] == self._volume.shape[0]:
+            # Overlay volumique (Z,H,W[,C]) : on extrait la slice courante
             overlay_slice = self._overlay[self._current_slice]
-        else:
-            overlay_slice = self._overlay
         overlay_pixmap = self._mask_to_pixmap(overlay_slice)
         self._pixmaps.overlay = overlay_pixmap
         self._overlay_item.setPixmap(overlay_pixmap)
@@ -216,13 +216,19 @@ class EndviewView(QFrame):
 
     @staticmethod
     def _mask_to_pixmap(mask: np.ndarray) -> QPixmap:
-        data = np.asarray(mask, dtype=np.float32)
+        data = np.asarray(mask)
         if data.size == 0:
             return QPixmap()
-        normalized = np.clip(data, 0.0, 1.0)
-        rgba = np.zeros((*normalized.shape, 4), dtype=np.uint8)
-        rgba[..., 0] = 255  # red channel
-        rgba[..., 3] = (normalized * 200).astype(np.uint8)
+        # Support soit une mask 2D (valeurs 0..1/uint8), soit une image RGBA prête (H,W,4)
+        if data.ndim == 2:
+            normalized = np.clip(data.astype(np.float32), 0.0, 1.0)
+            rgba = np.zeros((*normalized.shape, 4), dtype=np.uint8)
+            rgba[..., 0] = 255  # red
+            rgba[..., 3] = (normalized * 200).astype(np.uint8)
+        elif data.ndim == 3 and data.shape[2] == 4:
+            rgba = data.astype(np.uint8, copy=False)
+        else:
+            return QPixmap()
         h, w, _ = rgba.shape
         rgba = np.ascontiguousarray(rgba, dtype=np.uint8)
         qimage = QImage(
