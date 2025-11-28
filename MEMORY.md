@@ -16,6 +16,22 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-11-28** — Rotation 90° horaire appliquée dans SimpleNdeLoader
+
+**Tags :** `#services/simple_nde_loader.py`, `#orientation`, `#rotation`, `#mvc`
+
+**Actions effectuées :**
+- Ajout d’un pipeline de rotation 90° horaire dans le loader : `np.rot90(k=-1, axes=(1,2))` appliqué aux volumes après orientation fallback pour Public/Domain.
+- Mise à jour de l’`axis_order` en inversant les axes Y/X (`[a0, a2, a1, *rest]`) et inversion du tableau de positions de l’ancien axe X (devenu Y) pour refléter le flip induit par la rotation ; l’ancien axe Y devient l’axe X sans inversion.
+
+**Contexte :**
+La rotation devait être effectuée côté loader pour respecter le MVC, les vues étant redevenues passives. Le loader fournit désormais un volume déjà roté (shape Z, W, H) avec métadonnées cohérentes.
+
+**Décisions techniques :**
+1. Rotation slice-wise dans le plan (Y,X) : conserve l’axe des slices (0) et permute largeur/hauteur avec inversion de l’ancien axe X.
+2. Synchroniser métadonnées : swap axis_order et inverser uniquement les positions du nouvel axe Y (ancien X) pour suivre la rotation clockwise.
+
+---
 ### **2025-11-28** — Orientation fix via display transforms (pas de rotation des données)
 
 **Tags :** `#views/endview_view.py`, `#views/volume_view.py`, `#3d-visualization`, `#ui`, `#mvc`

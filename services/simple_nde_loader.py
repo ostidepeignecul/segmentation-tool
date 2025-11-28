@@ -121,6 +121,7 @@ class SimpleNdeLoader:
             positions,
             structure="public",
         )
+        data, axis_order, positions = self._rotate_clockwise(data, axis_order, positions)
 
         # Retrieve min/max values from dataValue if present
         data_value: Dict[str, Any] = dataset_entry.get("dataValue") or {}
@@ -191,6 +192,7 @@ class SimpleNdeLoader:
             positions,
             structure="domain",
         )
+        data, axis_order, positions = self._rotate_clockwise(data, axis_order, positions)
 
         # Determine min/max values
         data_value: Dict[str, Any] = dataset_entry.get("dataValue") if dataset_entry else {}
@@ -334,3 +336,42 @@ class SimpleNdeLoader:
             qty = dim.get("quantity")
             parts.append(f"{name}={qty} (shape[{idx}]={shape[idx] if idx < len(shape) else '?'})")
         logger.info("[%s] dimensions: %s", source, "; ".join(parts))
+
+    def _rotate_clockwise(
+        self,
+        data: np.ndarray,
+        axis_order: List[str],
+        positions: Dict[str, np.ndarray],
+    ) -> Tuple[np.ndarray, List[str], Dict[str, np.ndarray]]:
+        """
+        Rotate each slice 90° clockwise in the (Y, X) plane.
+
+        Rotation is applied as a display-ready orientation so views stay passive.
+        Axis names/positions are swapped accordingly; the axis coming from the
+        original X (third dim) becomes the new Y and is reversed, while the
+        original Y becomes the new X.
+        """
+        if data.ndim < 3:
+            return data, axis_order, positions
+
+        rotated = np.rot90(data, k=-1, axes=(1, 2))  # (Z, H, W) -> (Z, W, H)
+
+        if axis_order and len(axis_order) >= 3:
+            a0, a1, a2, *rest = axis_order
+            new_axis_order = [a0, a2, a1, *rest]
+        else:
+            new_axis_order = axis_order
+
+        new_positions: Dict[str, np.ndarray] = {}
+        for name, coords in positions.items():
+            new_positions[name] = coords
+        if axis_order and len(axis_order) >= 3:
+            a0, a1, a2, *rest = axis_order
+            # new axis1 comes from old axis2 but reversed by rot90
+            if a2 in positions:
+                new_positions[a2] = positions[a2][::-1]
+            # new axis2 comes from old axis1 (orientation preserved)
+            if a1 in positions:
+                new_positions[a1] = positions[a1]
+
+        return rotated, new_axis_order, new_positions
