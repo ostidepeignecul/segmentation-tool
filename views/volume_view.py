@@ -1,26 +1,18 @@
 """
 Volume view for 3D NDE data that keeps the slice orientation consistent with
-the 2D endview. This implementation reorders axes based on the provided
-``axis_order`` metadata so that the underlying volume has the shape
-``(num_slices, ultrasound, cross)`` regardless of how the data was stored in
-the HDF5 file. The ``axis_order`` list should come from the JSON
-``dimensions`` description and is expected to mirror the order of the
-dimensions in the underlying HDF5 dataset【848655542718855†L150-L163】.  The
-ultrasound axis is detected by searching for the string "ultrasound"
-(case‑insensitive) in this list; the remaining axis becomes the cross axis.
+the 2D endview. The loader is expected to deliver an already oriented volume
+of shape ``(num_slices, height, width)``; the view does not permute axes but
+applies a display-only flip in the XY plane so that the 3D rendering matches
+the 2D endview.
 
-This class uses VisPy to render a 3D volume with a movable slice plane and
-overlay a 2D image of the current slice. A horizontal slider lets users
-navigate through the slices. When an ``axis_order`` is provided and the
-underlying volume has three or more dimensions, the volume is permuted
-accordingly before display to ensure that the ultrasound dimension maps to
-vertical (``y``) and the cross dimension maps to horizontal (``x``).  This
-alignment guarantees that the 3D view corresponds to the endview’s
-orientation.
+This class uses VisPy to render a 3D volume with a movable slice image. A
+horizontal slider lets users navigate through the slices, and the camera is
+recentred on the active slice for coherent navigation.
 
 The methods exposed here mirror the original ``VolumeView`` interface,
-allowing this drop‑in replacement to work with existing controllers.
+allowing this drop-in replacement to work with existing controllers.
 """
+
 
 from __future__ import annotations
 
@@ -37,13 +29,9 @@ class VolumeView(QFrame):
     """Displays a basic 3D volume using VisPy, oriented consistently with the endview.
 
     The first dimension of the volume corresponds to the slice index, the
-    second dimension to the ultrasound/depth axis, and the third dimension to
-    the cross axis.  An optional ``axis_order`` sequence may be supplied
-    when assigning a new volume; if present, the axes are permuted so that
-    the ultrasound axis becomes the second dimension and the remaining axis
-    becomes the third.  This reordering is key to ensuring that the 3D view
-    aligns with the 2D endview orientation, as specified by the NDE
-    documentation【848655542718855†L258-L268】.
+    second to height, and the third to width. Axes are assumed already
+    oriented by the loader; the view only applies a display flip in XY so
+    the 3D render matches the 2D endview orientation.
     """
 
     volume_needs_update = pyqtSignal()
@@ -196,20 +184,10 @@ class VolumeView(QFrame):
             method="mip",
             cmap=colormap_name,
         )
-        # Slice highlight plane désactivé (conservé pour réactivation future)
-        # plane_z = max(0, min(depth - 1, int(self._current_slice)))
-        # self._slice_highlight_visual = scene.visuals.Volume(
-        #     self._norm_volume,
-        #     parent=self._view.scene,
-        #     method="mip",
-        #     cmap=colormap_name,
-        #     raycasting_mode="plane",
-        #     plane_normal=(0, 0, 1),
-        #     plane_thickness=1.0,
-        #     plane_position=(0.0, 0.0, float(plane_z)),
-        # )
+
         # Configure camera ranges and centre
         self._configure_camera(depth, height, width)
+        self._apply_visual_transform()
         # Add the initial 2D slice image overlay
         self._add_slice_image()
 
@@ -239,9 +217,7 @@ class VolumeView(QFrame):
         )
         self._slice_image.order = 9
         self._slice_image.interpolation = "nearest"
-        self._slice_image.transform = STTransform(
-            translate=(0.0, 0.0, float(self._current_slice)),
-        )
+        self._apply_visual_transform()
         self._update_slice_image()
 
     def _update_slice_plane(self) -> None:
@@ -264,8 +240,15 @@ class VolumeView(QFrame):
         if data is not None:
             self._slice_image.set_data(data)
         if self._volume is not None:
+            height = self._volume.shape[1]
+            width = self._volume.shape[2]
             self._slice_image.transform = STTransform(
-                translate=(0.0, 0.0, float(self._current_slice)),
+                scale=(-1.0, -1.0, 1.0),
+                translate=(
+                    float(width),
+                    float(height),
+                    float(self._current_slice),
+                ),
             )
 
     def _get_slice_data(self, index: int) -> Optional[np.ndarray]:
@@ -280,7 +263,8 @@ class VolumeView(QFrame):
         """Configure the camera so that slices face the user and the volume fills the view."""
         if self._view.camera is None:
             return
-        center = (width / 2.0, height / 2.0, depth / 2.0)
+        # Centre initial: milieu du volume, avec z sur la slice courante
+        center = (width / 2.0, height / 2.0, float(self._current_slice))
         self._view.camera.up = "+y"
         # Set the ranges along each axis
         self._view.camera.set_range(
@@ -298,9 +282,32 @@ class VolumeView(QFrame):
         if self._view.camera is None or self._volume is None:
             return
         depth, height, width = self._volume.shape[:3]
+        # Focus : centre de la slice courante (x/y au centre, z = index de slice)
         z_focus = max(0, min(depth - 1, int(self._current_slice)))
         self._view.camera.center = (
             width / 2.0,
             height / 2.0,
             float(z_focus),
         )
+
+    def _apply_visual_transform(self) -> None:
+        """Apply a 180° flip in the XY plane to align 3D orientation with Endview."""
+        if self._volume is None:
+            return
+        height = self._volume.shape[1]
+        width = self._volume.shape[2]
+        flip = STTransform(
+            scale=(-1.0, -1.0, 1.0),
+            translate=(float(width), float(height), 0.0),
+        )
+        if self._volume_visual is not None:
+            self._volume_visual.transform = flip
+        if self._slice_image is not None:
+            self._slice_image.transform = STTransform(
+                scale=(-1.0, -1.0, 1.0),
+                translate=(
+                    float(width),
+                    float(height),
+                    float(self._current_slice),
+                ),
+            )

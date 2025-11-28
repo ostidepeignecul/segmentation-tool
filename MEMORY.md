@@ -16,6 +16,56 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-11-28** — Orientation fix via display transforms (pas de rotation des données)
+
+**Tags :** `#views/endview_view.py`, `#views/volume_view.py`, `#3d-visualization`, `#ui`, `#mvc`
+
+**Actions effectuées :**
+- Supprimé les `rot90` dans EndviewView : affichage direct des slices/overlays, coords écran ↔ données inchangées, croix tracée sans remapping.
+- Supprimé les `rot90` dans VolumeView : le volume est utilisé tel que fourni par le loader ; ajout d’un flip visuel XY via `STTransform(scale=(-1, -1, 1), translate=(width, height, 0))` sur le volume et l’image de slice, avec translation z pour la slice.
+- Caméra recentrée inchangée (centre sur la slice courante) ; la cohérence 2D/3D vient désormais du flip d’affichage et non d’une rotation des données.
+
+**Contexte :**
+Les rotations appliquées dans les vues violaient le MVC (données modifiées côté UI). Le besoin d’alignement 2D/3D est couvert par un flip visuel de la 3D, tandis que les données restent orientées par le loader. Endview redevient un simple renderer sans remapping de coordonnées.
+
+**Décisions techniques :**
+1. Pas de transformation des données dans les vues : respecter le rôle du loader/modèle pour l’orientation ; la vue ne fait qu’un flip d’affichage côté 3D.
+2. Alignement 3D ↔ 2D via `STTransform` sur les visuels (volume + image slice) au lieu de rot90 des arrays ; conserver un centre caméra sur la slice active pour la navigation.
+
+---
+### **2025-11-28** — Rotations différenciées Endview/Volume
+
+**Tags :** `#views/endview_view.py`, `#views/volume_view.py`, `#3d-visualization`, `#ui`, `#mvc`
+
+**Actions effectuées :**
+- Endview : affichage roté de 90° horaire (rot90 k=-1) pour chaque slice et overlay ; mapping des clics/croix converti pour rester dans le repère données (x_data = y_disp, y_data = H-1-x_disp ; croix inverse : x_disp = H-1-y, y_disp = x).
+- VolumeView : affichage roté de 90° antihoraire sur chaque slice pour le rendu 3D (np.rot90 k=1 axes (1,2)), en conservant navigation/slider/caméra alignés sur les dimensions rotées.
+
+**Contexte :**
+Besoin d’appliquer une rotation horaire sur l’Endview tout en appliquant la rotation inverse sur la vue 3D, sans casser les coordonnées de données utilisées par le contrôleur ni la navigation.
+
+**Décisions techniques :**
+1. Rotation Endview uniquement visuelle : on pivote les arrays avant conversion en pixmap et on traduit les coordonnées écran → données et inversement pour la croix afin de garder le protocole (x,y) intact côté contrôleur.
+2. Rotation VolumeView appliquée aux volumes normalisé/brut pour le rendu VisPy ; la profondeur reste en axe 0, largeur/hauteur sont permutés après rotation et la caméra/ranges utilisent ces dimensions rotées automatiquement.
+
+---
+### **2025-11-28** — Caméra centrée sur la slice courante en 3D
+
+**Tags :** `#views/volume_view.py`, `#3d-visualization`, `#camera`, `#mvc`
+
+**Actions effectuées :**
+- Recentrage de la TurntableCamera sur le centre de la slice active : `camera.center = (width/2, height/2, slice_idx)` dans `_focus_camera_on_slice`.
+- Initialisation cohérente du centre dans `_configure_camera` en plaçant directement le focus sur la slice courante plutôt qu’au milieu du volume.
+
+**Contexte :**
+Le pivot de caméra devait suivre la slice sélectionnée pour que les rotations se fassent autour de cette coupe (alignée avec l’endview) plutôt qu’autour du centre global du volume.
+
+**Décisions techniques :**
+1. Garder x/y centrés sur la largeur/hauteur pour un pivot stable et ne déplacer que la coordonnée z selon l’index de slice clampé.
+2. Appliquer le même centre dès la configuration initiale pour éviter un premier focus au milieu du volume avant le repositionnement.
+
+---
+
 ### **2025-11-28** — Désactivation du plan de surlignage VolumeView
 
 **Tags :** `#views/volume_view.py`, `#3d-visualization`, `#mvc`
