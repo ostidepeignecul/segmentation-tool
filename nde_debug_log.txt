@@ -1888,3 +1888,563 @@
 [00:00.000]     - num_images: 3408
 [00:00.000]     - shape: tuple[113, 276]
 [00:00.000]     - aspect: 2.4424778761061945
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/SB70_MGO_151272_40M_45M/SB70_MGO_151272_40M_45M.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: domain
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (113, 3408, 276)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 14778
+[00:00.000]       - Mean: 1618.98
+[00:00.000]     structure: domain
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: domain
+[00:00.000]   Dimensions: lengthwise=113, crosswise=3408, ultrasound=276
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: crosswise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 3408
+[00:00.000]     - shape: tuple[113, 276]
+[00:00.000]     - aspect: 2.4424778761061945
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (201, 310, 324)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 3675.57
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=201, crosswise=310, ultrasound=324
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: False
+[00:00.000]     - num_images: 201
+[00:00.000]     - shape: tuple[310, 324]
+[00:00.000]     - aspect: 1.0451612903225806
+
+================================================================================
+[00:00.000] LOAD_NDE_DATA
+================================================================================
+[00:00.000] nde_file: C:/Users/gabriel.forest/Documents/nde test/Pipe_10mm_Flexoform_Rast_All/Pipe_10mm_Flexoform_Rast_All.nde
+[00:00.000] group_idx: 1
+[00:00.000]   structure: public
+[00:00.000]   Données chargées:
+[00:00.000]     data_array:
+[00:00.000]       - Type: numpy.ndarray
+[00:00.000]       - Shape: (601, 652, 428)
+[00:00.000]       - Dtype: int16
+[00:00.000]       - Min: 0
+[00:00.000]       - Max: 32767
+[00:00.000]       - Mean: 1837.86
+[00:00.000]     structure: public
+
+================================================================================
+[00:00.000] DETECT_OPTIMAL_ORIENTATION
+================================================================================
+[00:00.000] structure: public
+[00:00.000]   Dimensions: lengthwise=601, crosswise=652, ultrasound=428
+[00:00.000]   orientation_config:
+[00:00.000]     - slice_orientation: lengthwise
+[00:00.000]     - transpose: True
+[00:00.000]     - num_images: 601
+[00:00.000]     - shape: tuple[652, 428]
+[00:00.000]     - aspect: 0.656441717791411

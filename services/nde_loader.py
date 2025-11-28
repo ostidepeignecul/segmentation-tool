@@ -33,6 +33,7 @@ class NdeLoaderService:
         self._cached_images: Optional[List[np.ndarray]] = None
         self._cached_image_names: Optional[List[str]] = None
         self._cached_raw_slices: Optional[List[np.ndarray]] = None
+        self.force_rotation_k = 0
 
     # ------------------------------------------------------------------
     # Core loading pipeline
@@ -46,6 +47,13 @@ class NdeLoaderService:
 
         orientation_cfg = self.detect_optimal_orientation(data_array, structure)
         oriented_volume = self.orient_volume(data_array, orientation_cfg)
+        if self.force_rotation_k != 0:
+            # Rotation slice-wise dans le plan (Y, X)
+            oriented_volume = np.rot90(
+                oriented_volume,
+                k=self.force_rotation_k,
+                axes=(2, 1),
+            )
         normalized_volume = self.normalize_volume(
             oriented_volume,
             nde_data.get("min_value"),
@@ -105,6 +113,9 @@ class NdeLoaderService:
             img_data = self.extract_slice(data_array, idx, orientation)
             if transpose:
                 img_data = img_data.T
+
+            if self.force_rotation_k != 0:
+                img_data = np.rot90(img_data, k=self.force_rotation_k)
 
             if nde_data["max_value"] == nde_data["min_value"]:
                 img_data_normalized = np.zeros_like(img_data, dtype=float)
@@ -441,3 +452,13 @@ class NdeLoaderService:
         self._cached_image_names = None
         self._cached_raw_slices = None
         self.logger.info("Cache mémoire libéré")
+
+    # ------------------------------------------------------------------
+    # Rotation controls
+    # ------------------------------------------------------------------
+
+    def set_rotation(self, quarter_turns: int) -> None:
+        """
+        quarter_turns : 0=aucune rotation, 1=90°, 2=180°, 3=270°
+        """
+        self.force_rotation_k = quarter_turns % 4

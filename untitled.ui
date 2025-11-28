@@ -32,7 +32,7 @@
          <enum>QFrame::Shadow::Plain</enum>
         </property>
        </widget>
-       <widget class="VolumeView" name="frame_4">
+       <widget class="CScanView" name="frame_4">
         <property name="frameShape">
          <enum>QFrame::Shape::Box</enum>
         </property>
@@ -45,7 +45,7 @@
        <property name="orientation">
         <enum>Qt::Orientation::Vertical</enum>
        </property>
-       <widget class="CScanView" name="frame_5">
+       <widget class="VolumeView" name="frame_5">
         <property name="frameShape">
          <enum>QFrame::Shape::Box</enum>
         </property>

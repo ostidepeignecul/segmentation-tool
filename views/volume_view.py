@@ -28,7 +28,13 @@ class VolumeView(QFrame):
         self._current_slice: int = 0
         self._canvas = scene.SceneCanvas(keys="interactive", bgcolor="black", show=False)
         self._view = self._canvas.central_widget.add_view()
-        self._view.camera = scene.TurntableCamera(fov=45, elevation=30, azimuth=45)
+        self._view.camera = scene.TurntableCamera(
+            fov=45,
+            elevation=0,
+            azimuth=270,
+            up="+y",
+            center=(0.0, 0.0, 0.0),
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -81,6 +87,7 @@ class VolumeView(QFrame):
         self._current_slice = clamped
         self._update_slice_plane()
         self._update_slice_image()
+        self._focus_camera_on_slice()
         if update_slider:
             self._slider.blockSignals(True)
             self._slider.setValue(clamped)
@@ -103,12 +110,15 @@ class VolumeView(QFrame):
         colormap_name = cmap if isinstance(cmap, str) else "viridis"
         try:
             depth, height, width = self._norm_volume.shape
+            flip_y = STTransform(scale=(1.0, -1.0, 1.0), translate=(0.0, float(height), 0.0))
+
             self._volume_visual = scene.visuals.Volume(
                 self._norm_volume,
                 parent=self._view.scene,
                 method="mip",
                 cmap=colormap_name,
             )
+            self._volume_visual.transform = flip_y
             plane_z = max(0, min(depth - 1, int(self._current_slice)))
             self._slice_highlight_visual = scene.visuals.Volume(
                 self._norm_volume,
@@ -120,7 +130,8 @@ class VolumeView(QFrame):
                 plane_thickness=1.0,
                 plane_position=(float(plane_z), height / 2.0, width / 2.0),
             )
-            self._view.camera.set_range()
+            self._slice_highlight_visual.transform = flip_y
+            self._configure_camera(depth, height, width)
         except Exception as exc:
             self._status.setText(f"Volume non rendu ({exc})")
             self._volume_visual = None
@@ -151,6 +162,11 @@ class VolumeView(QFrame):
         )
         self._slice_image.order = 9
         self._slice_image.interpolation = "nearest"
+        height = self._volume.shape[1]
+        self._slice_image.transform = STTransform(
+            scale=(1.0, -1.0, 1.0),
+            translate=(0.0, float(height), 0.0),
+        )
         self._update_slice_image()
 
     def _update_slice_plane(self) -> None:
@@ -170,12 +186,43 @@ class VolumeView(QFrame):
         data = self._get_slice_data(self._current_slice)
         if data is not None:
             self._slice_image.set_data(data)
-        self._slice_image.transform = STTransform(
-            translate=(0.0, 0.0, float(self._current_slice))
-        )
+        if self._volume is not None:
+            height = self._volume.shape[1]
+            self._slice_image.transform = STTransform(
+                scale=(1.0, -1.0, 1.0),
+                translate=(0.0, float(height), float(self._current_slice)),
+            )
 
     def _get_slice_data(self, index: int) -> Optional[np.ndarray]:
         if self._norm_volume is None:
             return None
         clamped = max(0, min(self._norm_volume.shape[0] - 1, int(index)))
         return self._norm_volume[clamped]
+
+    def _configure_camera(self, depth: int, height: int, width: int) -> None:
+        """Orient the camera to face slices like the Endview and pivot around volume center."""
+        if self._view.camera is None:
+            return
+        center = (depth / 2.0, height / 2.0, width / 2.0)
+        self._view.camera.up = "+y"
+        self._view.camera.azimuth = 270.0
+        self._view.camera.elevation = 0.0
+        self._view.camera.set_range(
+            x=(0.0, float(depth)),
+            y=(0.0, float(height)),
+            z=(0.0, float(width)),
+        )
+        self._view.camera.center = center
+        self._focus_camera_on_slice()
+
+    def _focus_camera_on_slice(self) -> None:
+        """Keep the camera centered on the current slice for consistent navigation."""
+        if self._view.camera is None or self._volume is None:
+            return
+        depth, height, width = self._volume.shape
+        z_focus = max(0, min(width - 1, int(self._current_slice)))
+        self._view.camera.center = (
+            depth / 2.0,
+            height / 2.0,
+            float(z_focus),
+        )

@@ -413,3 +413,267 @@ L’ancien plan séparé était mal aligné; on suit l’exemple VisPy volume_pl
 2. Aligner `plane_normal` sur l’axe 0 (stack) et centrer `plane_position` en x/y pour éviter les décalages; clamp de l’index pour rester dans les bornes du volume.
 
 ---
+### **2025-11-28** — Rotation slice-wise après orientation NDE
+
+**Tags:** `#services/nde_loader.py`, `#controllers/master_controller.py`, `#rotation`, `#orientation`, `#mvc`
+
+**Actions effectuées:**
+- Ajouté `force_rotation_k` et `set_rotation(quarter_turns)` dans `NdeLoaderService`, appliquant `np.rot90` sur les axes `(2, 1)` après `orient_volume` lorsque `force_rotation_k` est non nul, pour faire pivoter chaque slice tout en conservant le shape `[Z, H, W]`.
+- Relié le contrôleur : connexion conditionnelle des actions Designer `actionRotate90/180/270/Reset` à `nde_loader.set_rotation`, et fallback `set_rotation(1)` (90°) juste avant `load_nde_model` si aucune action n’est disponible, tout en préservant le pipeline `detect → orient → rotate → normalize`.
+
+**Contexte:**
+Exigence d’ajouter un mécanisme de rotation 90°/180°/270° sur l’axe des slices sans toucher à la détection ou à la normalisation. La rotation est appliquée après l’orientation automatique dans le loader, et le contrôleur orchestre soit via des actions UI (si présentes), soit via un défaut 90° pour garantir l’application sans casser Endview/C-Scan/Volume.
+
+**Décisions techniques:**
+1. Utiliser `np.rot90(..., axes=(2, 1))` pour pivoter dans le plan (Y, X) et préserver l’axe stack (Z), évitant de perturber les indices de slice et la crosshair.
+2. Connecter les actions UI si elles existent, sinon définir 90° avant chargement afin que la rotation soit disponible sans modifier les vues ni la logique d’orientation.
+
+**Implémentation (extrait):**
+```python
+if self.force_rotation_k != 0:
+    oriented_volume = np.rot90(
+        oriented_volume,
+        k=self.force_rotation_k,
+        axes=(2, 1),
+    )
+```
+
+---
+### **2025-11-28** — Rotation appliquée aux endviews en mémoire
+
+**Tags:** `#services/nde_loader.py`, `#rotation`, `#orientation`, `#endview`, `#mvc`
+
+**Actions effectuées:**
+- Ajouté l’appel à `np.rot90` conditionné par `force_rotation_k` dans `load_nde_as_memory_images` après le transpose des slices, pour appliquer les rotations 90°/180°/270° dans le plan (Y, X) sur chaque slice générée en mémoire.
+- Rotation appliquée avant normalisation et conversions uint8/BGR, afin que les caches `_cached_raw_slices` et `_cached_images` reflètent la même orientation que le volume orienté/roté utilisé par les vues.
+
+**Contexte:**
+Après avoir introduit `set_rotation` dans le loader, les endviews générées en mémoire devaient suivre la même rotation slice-wise que le volume principal afin de préparer l’annotation future sur ces images sans divergence d’orientation.
+
+**Décisions techniques:**
+1. Insérer `np.rot90(img_data, k=self.force_rotation_k)` juste après le transpose pour opérer dans le plan (Y, X) de la slice déjà orientée, en conservant la pile `[Z, H, W]`.
+2. Laisser la rotation d’affichage existante (rot90 k=-1 quand `transpose` est False) pour ne pas changer le rendu attendu, tout en garantissant que la rotation forcée soit déjà intégrée dans les données normalisées et BGR retournées.
+
+**Implémentation (extrait):**
+```python
+img_data = self.extract_slice(data_array, idx, orientation)
+if transpose:
+    img_data = img_data.T
+
+if self.force_rotation_k != 0:
+    img_data = np.rot90(img_data, k=self.force_rotation_k)
+```
+
+---
+### **2025-11-28** — Orientation caméra VolumeView alignée sur Endview
+
+**Tags:** `#views/volume_view.py`, `#camera`, `#orientation`, `#vispy`, `#mvc`
+
+**Actions effectuées:**
+- Initialisé la TurntableCamera avec `up="+y"`, `azimuth=90`, `elevation=0`, et centre (0,0,0) pour viser frontalement les slices comme l’Endview.
+- Introduit `_configure_camera(depth, height, width)` appelé après build de scène pour recentrer la caméra sur le volume, fixer up/azimuth/elevation, et définir le range (0..dim) afin que la rotation souris pivote autour du centre du volume.
+
+**Contexte:**
+La vue 3D devait présenter le volume dans le même sens que l’Endview rotatée, avec un point d’ancrage centré pour les rotations souris. L’ancienne orientation (elevation/azimuth 30/45 par défaut) affichait le volume sous un angle générique, décalé du référentiel Endview.
+
+**Décisions techniques:**
+1. Utiliser `up="+y"` et `azimuth=90/elevation=0` pour aligner l’axe vertical sur la hauteur des slices et regarder perpendiculairement à l’axe de pile, reflétant l’Endview rotatée.
+2. Recaler la caméra sur `(depth/2, height/2, width/2)` et appeler `set_range` avec les bornes des trois axes pour que la rotation se fasse autour du centre du volume sans glisser hors cadre.
+
+**Implémentation (extrait):**
+```python
+self._view.camera = scene.TurntableCamera(
+    fov=45,
+    elevation=0,
+    azimuth=90,
+    up="+y",
+    center=(0.0, 0.0, 0.0),
+)
+...
+self._view.camera.up = "+y"
+self._view.camera.center = center
+self._view.camera.azimuth = 90.0
+self._view.camera.elevation = 0.0
+self._view.camera.set_range(
+    x=(0.0, float(depth)),
+    y=(0.0, float(height)),
+    z=(0.0, float(width)),
+)
+```
+
+---
+### **2025-11-28** — Caméra VolumeView centrée sur la slice courante
+
+**Tags:** `#views/volume_view.py`, `#camera`, `#orientation`, `#vispy`, `#mvc`
+
+**Actions effectuées:**
+- Ajouté `_focus_camera_on_slice()` et appelé depuis `set_slice_index` et `_configure_camera` pour recaler la TurntableCamera sur `(current_slice, height/2, width/2)` à chaque changement de slice ou rebuild de scène.
+- Conserve l’orientation `up="+y"`, `azimuth=90`, `elevation=0` et range calé sur les dimensions, en appliquant la mise au point slice après `set_range` pour garder le pivot sur la coupe active.
+
+**Contexte:**
+La vue 3D devait rester focalisée sur la slice courante (comme l’Endview rotatée) lors des déplacements du slider ou des reconstructions de scène, pour que les rotations souris pivotent autour de la coupe active.
+
+**Décisions techniques:**
+1. Centrer la caméra sur la slice active plutôt qu’au milieu du volume pour aligner le référentiel de navigation avec la coupe visualisée.
+2. Appliquer le recentrage après `set_range` pour éviter que VisPy ne réécrase le center et garantir une ancre stable lors des rotations.
+
+**Implémentation (extrait):**
+```python
+def _focus_camera_on_slice(self) -> None:
+    if self._view.camera is None or self._volume is None:
+        return
+    depth, height, width = self._volume.shape
+    clamped = max(0, min(depth - 1, int(self._current_slice)))
+    self._view.camera.center = (
+        float(clamped),
+        height / 2.0,
+        width / 2.0,
+    )
+```
+
+---
+### **2025-11-28** — Focalisation caméra VolumeView sur l’axe Z
+
+**Tags:** `#views/volume_view.py`, `#camera`, `#orientation`, `#vispy`, `#mvc`
+
+**Actions effectuées:**
+- Ajusté `_focus_camera_on_slice` pour déplacer le centre de la caméra le long de l’axe Z (largeur) en fonction de la slice courante, tout en laissant X/Y centrés sur le milieu du volume.
+- Clampe l’index de slice sur la dimension Z avant de le convertir en focus, afin d’éviter de sortir des bornes si la profondeur diffère de la largeur.
+
+**Contexte:**
+La caméra se recadrait perpendiculairement à la pile (axe slices). La demande est de faire suivre le mouvement du slider en focalisant sur l’axe Z du volume au lieu de l’axe des slices, pour un point d’ancrage aligné sur la largeur (Z) plutôt que sur la profondeur (stack).
+
+**Décisions techniques:**
+1. Map le slider (slice index) sur l’axe Z via clamp `[0, width-1]`, en gardant le centre X/Y sur la moitié du volume pour conserver la stabilité des rotations.
+2. Ne pas toucher à l’orientation de la caméra (up/azimuth/elevation) déjà alignée sur l’Endview ; seul le point focal se déplace sur l’axe Z.
+
+**Implémentation (extrait):**
+```python
+z_focus = max(0, min(width - 1, int(self._current_slice)))
+self._view.camera.center = (
+    depth / 2.0,
+    height / 2.0,
+    float(z_focus),
+)
+```
+
+---
+### **2025-11-28** — Référence Volume/CScan mises à jour selon ui_mainwindow
+
+**Tags:** `#controllers/master_controller.py`, `#ui_mainwindow.py`, `#mvc`, `#views/volume_view.py`, `#views/cscan_view.py`
+
+**Actions effectuées:**
+- Inversé les références des vues dans `MasterController` pour suivre l’échange de frames dans `ui_mainwindow.py`: `cscan_view` pointe maintenant sur `frame_4` et `volume_view` sur `frame_5`.
+
+**Contexte:**
+Le fichier Designer a été modifié pour intervertir les frames (CScanView sur `frame_4`, VolumeView sur `frame_5`). Le contrôleur devait refléter ce mapping pour que les signaux et mises à jour utilisent les bons widgets.
+
+**Décisions techniques:**
+1. Mettre à jour uniquement les affectations de références sans toucher au wiring existant, afin de conserver la logique MVC tout en alignant le contrôleur avec la nouvelle structure UI.
+
+---
+### **2025-11-28** — Caméra VolumeView flippée de 180°
+
+**Tags:** `#views/volume_view.py`, `#camera`, `#orientation`, `#vispy`, `#mvc`
+
+**Actions effectuées:**
+- Modifié l’azimuth de la TurntableCamera à 270° (au lieu de 90°) dans l’initialisation et dans `_configure_camera`, appliquant un flip de 180° de la vue 3D tout en conservant `up="+y"` et `elevation=180°`.
+
+**Contexte:**
+La vue 3D devait être inversée de 180° pour correspondre à l’orientation souhaitée. Seule la direction de vue change, la focalisation sur la slice courante et le point d’ancrage existant restent inchangés.
+
+**Décisions techniques:**
+1. Ajuster l’azimuth à 270° et l’elevation à 180° pour obtenir le flip sans modifier up ou la logique de focus sur la slice.
+2. Garder `_configure_camera` en cohérence pour que tout rebuild conserve l’orientation inversée.
+
+**Implémentation (extrait):**
+```python
+self._view.camera = scene.TurntableCamera(
+    fov=45,
+    elevation=180,
+    azimuth=270,
+    up="+y",
+    center=(0.0, 0.0, 0.0),
+)
+...
+self._view.camera.azimuth = 270.0
+self._view.camera.elevation = 180.0
+```
+
+---
+### **2025-11-28** — Flip vertical (Y) de la scène VolumeView
+
+**Tags:** `#views/volume_view.py`, `#camera`, `#orientation`, `#vispy`, `#mvc`
+
+**Actions effectuées:**
+- Ajouté un transform de scène `STTransform(scale=(1, -1, 1), translate=(0, height, 0))` dans `_configure_camera` pour inverser l’axe Y du rendu 3D (sol ↔ plafond) sans modifier les données du volume.
+
+**Contexte:**
+Le volume était correct mais la perception devait être entièrement « retournée » comme si on plaçait le bloc à l’envers. Plutôt que de modifier les données, on applique un flip vertical au niveau de la scène VisPy.
+
+**Décisions techniques:**
+1. Utiliser un `STTransform` de la scène pour inverser Y avec une translation égale à la hauteur afin de garder le volume dans le champ visuel après inversion.
+2. Laisser la configuration caméra (azimuth 270°, elevation 180°, up "+y") intacte pour conserver le reste de l’orientation et le focus slice existant.
+
+**Implémentation (extrait):**
+```python
+self._view.scene.transform = STTransform(
+    scale=(1.0, -1.0, 1.0),
+    translate=(0.0, float(height), 0.0),
+)
+```
+
+---
+### **2025-11-28** — Flip Y appliqué aux visuels VolumeView
+
+**Tags:** `#views/volume_view.py`, `#camera`, `#orientation`, `#vispy`, `#mvc`
+
+**Actions effectuées:**
+- Appliqué le flip vertical directement sur chaque visuel (`Volume`, `slice_highlight`, `Image`) via `STTransform(scale=(1,-1,1), translate=(0, height, 0))`, au lieu de la scène globale.
+- Refixé l’elevation caméra à 0 tout en conservant azimuth 270 et up "+y"; la mise au point slice reste en place.
+
+**Contexte:**
+Le flip de scène ne produisait pas l’effet visuel attendu. En flippant chaque visuel, le rendu s’inverse réellement sans modifier les données, avec la caméra conservant son orientation et son focus sur la slice.
+
+**Décisions techniques:**
+1. Placer le transform sur les visuels pour garantir l’inversion de rendu même avec la caméra actuelle, et translater de `height` pour garder le volume dans le cadre après flip.
+2. Laisser la configuration caméra (azimuth 270, elevation 0, up "+y") et `_focus_camera_on_slice` intacts pour isoler le flip au niveau des visuels.
+
+**Implémentation (extrait):**
+```python
+flip_y = STTransform(scale=(1.0, -1.0, 1.0), translate=(0.0, float(height), 0.0))
+self._volume_visual.transform = flip_y
+self._slice_highlight_visual.transform = flip_y
+...
+self._slice_image.transform = STTransform(
+    scale=(1.0, -1.0, 1.0),
+    translate=(0.0, float(height), 0.0),
+)
+```
+
+---
+### **2025-11-28** — Flip appliqué aux mises à jour d’image de slice
+
+**Tags:** `#views/volume_view.py`, `#vispy`, `#orientation`, `#mvc`
+
+**Actions effectuées:**
+- `_update_slice_image` réapplique désormais le flip vertical lors de chaque mise à jour, en utilisant `STTransform(scale=(1,-1,1), translate=(0, height, slice_idx))` pour conserver l’inversion visuelle du slider/plane lorsqu’on change de slice.
+
+**Contexte:**
+Le flip de l’Image était écrasé par `_update_slice_image` qui remplaçait la transform par une simple translation; la slice mise en évidence ne reflétait plus l’inversion. La transform est maintenant cohérente à chaque rafraîchissement.
+
+**Décisions techniques:**
+1. Inclure le flip (scale Y = -1, translate = height) dans `_update_slice_image` pour ne pas perdre l’inversion après un changement de slice.
+2. Conserver la translation Z sur `current_slice` pour aligner l’overlay avec la position du slider.
+
+**Implémentation (extrait):**
+```python
+if self._volume is not None:
+    height = self._volume.shape[1]
+    self._slice_image.transform = STTransform(
+        scale=(1.0, -1.0, 1.0),
+        translate=(0.0, float(height), float(self._current_slice)),
+    )
+```
+
+---

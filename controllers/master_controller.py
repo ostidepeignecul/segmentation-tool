@@ -28,11 +28,12 @@ class MasterController:
 
         # References to Designer-created views.
         self.endview_view = self.ui.frame_3
-        self.volume_view = self.ui.frame_4
-        self.cscan_view = self.ui.frame_5
+        self.cscan_view = self.ui.frame_4
+        self.volume_view = self.ui.frame_5
         self.ascan_view = self.ui.frame_7
         self.tools_panel = self.ui.dockWidgetContents_2
         self._current_point: Optional[tuple[int, int]] = None
+        self._rotation_actions_connected = False
 
         self._connect_actions()
         self._connect_signals()
@@ -44,6 +45,26 @@ class MasterController:
         self.ui.actionSauvegarder.triggered.connect(self._on_save)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
+        self._rotation_actions_connected = self._connect_rotation_actions()
+
+    def _connect_rotation_actions(self) -> bool:
+        """Connect rotation menu actions if present in the UI Designer output."""
+        connected = False
+        rotations = [
+            ("actionRotate90", 1),
+            ("actionRotate180", 2),
+            ("actionRotate270", 3),
+            ("actionRotateReset", 0),
+        ]
+        for attr, quarter_turns in rotations:
+            action = getattr(self.ui, attr, None)
+            if action is None or not hasattr(action, "triggered"):
+                continue
+            action.triggered.connect(
+                lambda _checked=False, turns=quarter_turns: self.nde_loader.set_rotation(turns)
+            )
+            connected = True
+        return connected
 
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
@@ -111,6 +132,9 @@ class MasterController:
             return
 
         try:
+            if not self._rotation_actions_connected:
+                # Default rotation (90°) when no explicit action was triggered.
+                self.nde_loader.set_rotation(1)
             loaded_model = self.nde_loader.load_nde_model(file_path)
             self.nde_model = loaded_model
             self.nde_model.set_current_slice(0)
