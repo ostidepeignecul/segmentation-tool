@@ -15,6 +15,23 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 2. Removed unused exports to avoid import failures when loading models package; maintained skeleton-only behavior.
 
 ---
+# 2025-11-27 — VolumeView coupe 3D style volume_plane
+
+**Tags :** `#views/volume_view.py`, `#3d-visualization`, `#vispy`, `#slider`, `#mvc`
+
+**Actions effectuées :**
+- Rebuild VolumeView scene : normalisation du volume, création d’un Volume VisPy + plane et Image de slice alignés sur l’axe Z (orientation endview) avec transforms calées sur la slice courante.
+- Le slider pilote `set_slice_index` qui met à jour plane/image, clamp l’index et émet `slice_changed` + `camera_changed` pour la synchro contrôleur.
+- Plan jaune opaque (depth off, ordre élevé) et image sous-jacente pour rendre la slice visible ; fallback colormap par nom de chaîne et nettoyage de la scène avant rebuild.
+
+**Contexte :**
+Le slider 3D devait illuminer la slice correspondante dans le volume, à la manière de l’exemple VisPy volume_plane. La vue 3D affiche désormais la slice courante comme texture plus un plan repère, synchronisés avec le slider et le contrôleur.
+
+**Décisions techniques :**
+1. Normaliser avec min/max du volume et utiliser l’axe 0 comme pile de slices ; Image placée à z = slice, plan au même z avec `order=10` et `depth_test=False`.
+2. Conserver les signaux de navigation (`slice_changed`/`camera_changed`) pour que MasterController puisse réutiliser `_on_slice_changed` sans autre câblage.
+
+---
 
 ### **2025-11-27** — Forcer l’orientation Domain sur l’axe lengthwise
 
@@ -377,5 +394,22 @@ def _update_cursor(self, z: int, x: int) -> None:
     # ... mise à jour des lignes ...
     self._current_crosshair = (z_clamped, x_clamped)
 ```
+
+---
+
+### **2025-11-27** — VolumeView slice highlight via plane-mode Volume
+
+**Tags :** `#views/volume_view.py`, `#vispy`, `#3d-visualization`, `#raycasting`
+
+**Actions effectuées :**
+- Conservé le Volume principal en mode `mip` et ajouté un second `scene.visuals.Volume` en `raycasting_mode="plane"` pour surligner la slice courante (axe 0), avec `plane_normal=(1, 0, 0)` et `plane_position=(slice, height/2, width/2)` configurés dans `_build_scene`.
+- Mis à jour `_update_slice_plane` pour ne déplacer que `plane_position` du volume de surlignage selon `_current_slice`, en clampant la profondeur et en gardant l’image 2D de slice comme overlay de référence.
+
+**Contexte :**
+L’ancien plan séparé était mal aligné; on suit l’exemple VisPy volume_plane en laissant le volume gérer la coupe interne. Le volume complet reste visible tandis que la slice courante est mise en évidence via le volume en mode plane, alignée sur l’axe de pile (z=axis 0).
+
+**Décisions techniques :**
+1. Utiliser un Volume dédié en mode plane plutôt que modifier le Volume principal pour conserver le rendu volumique global et un surlignage clair de la slice active.
+2. Aligner `plane_normal` sur l’axe 0 (stack) et centrer `plane_position` en x/y pour éviter les décalages; clamp de l’index pour rester dans les bornes du volume.
 
 ---
