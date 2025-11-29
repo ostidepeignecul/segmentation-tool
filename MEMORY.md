@@ -1140,3 +1140,22 @@ Objectif de déplacer l’orchestration corrosion hors du contrôleur vers un se
 3. Injection du même `CScanCorrosionService` dans le workflow et le contrôleur pour éviter des instanciations divergentes et faciliter les tests/mocking.
 
 ---
+
+### **2025-11-29** — Extraction overlay vers AnnotationController
+
+**Tags :** `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#overlay`, `#mvc`, `#pyqt6`, `#service-layer`
+
+**Actions effectuées :**
+- Création d’un `AnnotationController` dédié aux overlays (labels, visibilité, couleurs) utilisant `OverlayService` pour générer l’overlay BGRA et pousser vers Endview/VolumeView, avec sync des OverlaySettings et conversion BGRA/QColor internalisée.
+- MasterController instancie et injecte ce contrôleur (annotation_model, view_state_model, overlay_service, endview/volume/overlay_settings views) puis connecte actions/signaux overlay (menu, checkbox, settings events) vers lui.
+- Remplacement de tous les `_push_overlay`/handlers overlay du MasterController par `annotation_controller.refresh_overlay` et helpers dédiés (`clear_labels`, `sync_overlay_settings`), suppression des méthodes overlay locales.
+
+**Contexte :**
+Alignement MVC : la gestion overlay quitte MasterController pour un contrôleur spécialisé sans logique UI dans le modèle. OverlaySettingsView reste pilotée par ce contrôleur, et le toggle overlay se fait via ViewStateModel + recalcul de l’overlay via OverlayService.
+
+**Décisions techniques :**
+1. `refresh_overlay` nettoie d’abord les vues pour éviter les overlays obsolètes puis pousse l’overlay si `show_overlay` est actif, en loggant la forme/dtype.
+2. Les signaux OverlaySettings (ajout/couleur/visibilité) et le menu « Paramètres overlay » transitent maintenant par AnnotationController, isolant la plomberie overlay du MasterController.
+3. Chargement NDE/NPZ : MasterController s’appuie sur `annotation_controller.clear_labels()/sync_overlay_settings()/refresh_overlay` pour garder palette/visibilité synchronisées après reset ou import de masques.
+
+---

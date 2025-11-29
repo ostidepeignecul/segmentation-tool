@@ -1,10 +1,9 @@
 import logging
 from typing import Any, Optional
 
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QStackedLayout, QWidget
 
-from config.constants import MASK_COLORS_BGRA
+from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
 from models.annotation_model import AnnotationModel
@@ -76,6 +75,17 @@ class MasterController:
 
             self.cscan_stack = stack
 
+        # Annotation controller (overlays)
+        self.annotation_controller = AnnotationController(
+            annotation_model=self.annotation_model,
+            view_state_model=self.view_state_model,
+            overlay_service=self.overlay_service,
+            endview_view=self.endview_view,
+            volume_view=self.volume_view,
+            overlay_settings_view=self.overlay_settings_view,
+            logger=self.logger,
+        )
+
         self.cscan_controller = CScanController(
             standard_view=self.cscan_view,
             corrosion_view=self.cscan_view_corrosion,
@@ -101,25 +111,13 @@ class MasterController:
         self._connect_actions()
         self._connect_signals()
 
-    @staticmethod
-    def _bgra_to_qcolor(color: tuple[int, int, int, int]) -> QColor:
-        """Convert BGRA tuple to QColor."""
-        b, g, r, a = color
-        return QColor(r, g, b, a)
-
-    @staticmethod
-    def _qcolor_to_bgra(color: QColor) -> tuple[int, int, int, int]:
-        """Convert QColor to BGRA tuple."""
-        r, g, b, a = color.getRgb()
-        return (b, g, r, a)
-
     def _connect_actions(self) -> None:
         """Wire menu actions to controller handlers."""
         self.ui.actionopen_nde.triggered.connect(self._on_open_nde)
         self.ui.actioncharger_npz.triggered.connect(self._on_load_npz)
         self.ui.actionSauvegarder.triggered.connect(self._on_save)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
-        self.ui.actionParam_tres_2.triggered.connect(self._on_open_overlay_settings)
+        self.ui.actionParam_tres_2.triggered.connect(self.annotation_controller.open_overlay_settings)
         self.ui.actionCorrosion_analyse.triggered.connect(self.cscan_controller.run_corrosion_analysis)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
 
@@ -153,7 +151,7 @@ class MasterController:
         self.tools_panel.threshold_changed.connect(self._on_threshold_changed)
         self.tools_panel.threshold_auto_toggled.connect(self._on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self._on_apply_volume_toggled)
-        self.tools_panel.overlay_toggled.connect(self._on_overlay_toggled)
+        self.tools_panel.overlay_toggled.connect(self.annotation_controller.on_overlay_toggled)
         self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
         self.tools_panel.roi_persistence_toggled.connect(self._on_roi_persistence_toggled)
         self.tools_panel.roi_recompute_requested.connect(self._on_roi_recompute_requested)
@@ -180,50 +178,13 @@ class MasterController:
 
         self.volume_view.volume_needs_update.connect(self._on_volume_needs_update)
         self.volume_view.camera_changed.connect(self._on_camera_changed)
-        self.overlay_settings_view.label_visibility_changed.connect(self._on_label_visibility_changed)
-        self.overlay_settings_view.label_color_changed.connect(self._on_label_color_changed)
-        self.overlay_settings_view.label_added.connect(self._on_label_added)
-
-    def _on_open_overlay_settings(self) -> None:
-        """Open the overlay settings window and sync current labels."""
-        self._sync_overlay_settings_with_model()
-        self.overlay_settings_view.show()
-        self.overlay_settings_view.raise_()
-        self.overlay_settings_view.activateWindow()
-
-    def _on_label_visibility_changed(self, label_id: int, visible: bool) -> None:
-        """Handle overlay label visibility toggles."""
-        if label_id not in self.annotation_model.label_palette:
-            default_color = MASK_COLORS_BGRA.get(label_id, (255, 0, 255, 160))
-            self.annotation_model.ensure_label(label_id, default_color, visible=visible)
-        self.annotation_model.set_label_visibility(label_id, visible)
-        self._push_overlay()
-
-    def _on_label_color_changed(self, label_id: int, color: QColor) -> None:
-        """Handle overlay label color updates."""
-        bgra = self._qcolor_to_bgra(color)
-        self.annotation_model.set_label_color(label_id, bgra)
-        self.annotation_model.set_label_visibility(label_id, True)
-        self._push_overlay()
-
-    def _on_label_added(self, label_id: int, color: QColor) -> None:
-        """Handle new label creation from overlay settings."""
-        bgra = self._qcolor_to_bgra(color)
-        self.annotation_model.set_label_color(label_id, bgra)
-        self.annotation_model.set_label_visibility(label_id, True)
-        self._push_overlay()
-
-    def _sync_overlay_settings_with_model(self) -> None:
-        """Populate the overlay settings window with current model palette/visibility."""
-        entries = []
-        palette = self.annotation_model.label_palette
-        visibility = self.annotation_model.label_visibility
-        for label_id in sorted(palette.keys()):
-            color = palette[label_id]
-            qcolor = self._bgra_to_qcolor(color)
-            visible = visibility.get(label_id, True)
-            entries.append((label_id, qcolor, visible))
-        self.overlay_settings_view.set_labels(entries)
+        self.overlay_settings_view.label_visibility_changed.connect(
+            self.annotation_controller.on_label_visibility_changed
+        )
+        self.overlay_settings_view.label_color_changed.connect(
+            self.annotation_controller.on_label_color_changed
+        )
+        self.overlay_settings_view.label_added.connect(self.annotation_controller.on_label_added)
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
@@ -252,7 +213,7 @@ class MasterController:
             self._current_point = None
             self.annotation_model.clear()
             self.annotation_model.initialize(volume.shape)
-            self.overlay_settings_view.clear_labels()
+            self.annotation_controller.clear_labels()
             self.cscan_controller.reset_corrosion()
 
             self.tools_panel.set_slice_bounds(0, num_slices - 1)
@@ -303,10 +264,10 @@ class MasterController:
             self.annotation_model.clear()
             mask_volume = self.overlay_loader.load(file_path, target_shape=volume.shape)
             self.annotation_model.set_mask_volume(mask_volume)
-            self.overlay_settings_view.clear_labels()
+            self.annotation_controller.clear_labels()
             self.cscan_controller.reset_corrosion()
-            self._sync_overlay_settings_with_model()
-            self._push_overlay()
+            self.annotation_controller.sync_overlay_settings()
+            self.annotation_controller.refresh_overlay()
             self.status_message(f"Overlay chargé: {file_path}")
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur overlay", str(exc))
@@ -356,11 +317,6 @@ class MasterController:
     def _on_apply_volume_toggled(self, enabled: bool) -> None:
         """Handle volume application toggle."""
         self.view_state_model.set_apply_volume(enabled)
-
-    def _on_overlay_toggled(self, enabled: bool) -> None:
-        """Handle overlay visibility toggle."""
-        self.view_state_model.toggle_overlay(enabled)
-        self._push_overlay()
 
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
@@ -499,7 +455,7 @@ class MasterController:
         # Met à jour l’Endview (pas de changement ici)
         self.endview_view.set_volume(volume)
         self.endview_view.set_slice(slice_idx)
-        self._push_overlay()
+        self.annotation_controller.refresh_overlay()
 
         # Met à jour la C‑scan (standard ou corrosion)
         self.cscan_controller.update_views(volume)
@@ -541,26 +497,3 @@ class MasterController:
         )
         self._current_point = self.view_state_model.current_point
 
-    # ------------------------------------------------------------------ #
-    # Overlay helpers
-    # ------------------------------------------------------------------ #
-    def _push_overlay(self) -> None:
-        """Push overlay to the view according to toggle."""
-        if not self.view_state_model.show_overlay:
-            self.logger.info("Overlay hidden by toggle; clearing views.")
-            self.endview_view.set_overlay(None)
-            self.volume_view.set_overlay(None)
-            return
-        mask_volume = self.annotation_model.get_mask_volume()
-        palette = self.annotation_model.get_label_palette()
-        visible_labels = self.annotation_model.get_visible_labels()
-        overlay = self.overlay_service.build_overlay_rgba(mask_volume, palette, visible_labels)
-        # Force refresh in the views to avoid stale overlays when visibility changes
-        self.endview_view.set_overlay(None)
-        self.volume_view.set_overlay(None)
-        if overlay is not None:
-            self.logger.info("Pushing overlay to views | shape=%s dtype=%s", overlay.shape, overlay.dtype)
-        else:
-            self.logger.info("No overlay available to push; clearing views.")
-        self.endview_view.set_overlay(overlay)
-        self.volume_view.set_overlay(overlay)
