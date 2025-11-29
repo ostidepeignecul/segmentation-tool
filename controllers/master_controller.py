@@ -5,11 +5,12 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from config.constants import MASK_COLORS_BGRA
+from controllers.ascan_controller import AScanController
+from controllers.cscan_controller import CScanController
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService
-from services.cscan_service import CScanService
 from services.overlay_loader import OverlayLoader
 from services.nde_loader import NdeLoader
 from ui_mainwindow import Ui_MainWindow
@@ -29,8 +30,6 @@ class MasterController:
         self.annotation_model = AnnotationModel()
         self.view_state_model = ViewStateModel()
         self.nde_loader = NdeLoader()
-        self.cscan_service = CScanService()
-        self.ascan_service = AScanService()
         self.overlay_loader = OverlayLoader()
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
 
@@ -41,6 +40,28 @@ class MasterController:
         self.ascan_view = self.ui.frame_7
         self.tools_panel = self.ui.dockWidgetContents_2
         self._current_point: Optional[tuple[int, int]] = None
+
+        self.cscan_controller = CScanController(
+            ui=self.ui,
+            view_state_model=self.view_state_model,
+            annotation_model=self.annotation_model,
+            get_volume=self._current_volume,
+            get_nde_model=lambda: self.nde_model,
+            status_callback=self.status_message,
+            logger=self.logger,
+        )
+        # Expose standard/corrosion views for signal wiring
+        self.cscan_view = self.cscan_controller.standard_view or self.cscan_view
+        self.cscan_view_corrosion = self.cscan_controller.corrosion_view
+
+        self.ascan_service = AScanService()
+        self.ascan_controller = AScanController(
+            ascan_service=self.ascan_service,
+            ascan_view=self.ascan_view,
+            endview_view=self.endview_view,
+            view_state_model=self.view_state_model,
+            set_cscan_crosshair=self.cscan_controller.set_crosshair,
+        )
 
         self._connect_actions()
         self._connect_signals()
@@ -64,7 +85,7 @@ class MasterController:
         self.ui.actionSauvegarder.triggered.connect(self._on_save)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionParam_tres_2.triggered.connect(self._on_open_overlay_settings)
-        self.ui.actionCorrosion_analyse.triggered.connect(self._on_corrosion_analysis)
+        self.ui.actionCorrosion_analyse.triggered.connect(self.cscan_controller.run_corrosion_analysis)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
 
     def _connect_signals(self) -> None:
@@ -113,10 +134,14 @@ class MasterController:
         self.endview_view.point_selected.connect(self._on_endview_point_selected)
         self.endview_view.drag_update.connect(self._on_endview_drag_update)
 
-        self.cscan_view.crosshair_changed.connect(self._on_cscan_crosshair_changed)
-        self.cscan_view.slice_requested.connect(self._on_cscan_slice_requested)
+        if self.cscan_view is not None:
+            self.cscan_view.crosshair_changed.connect(self._on_cscan_crosshair_changed)
+            self.cscan_view.slice_requested.connect(self._on_cscan_slice_requested)
         self.ascan_view.position_changed.connect(self._on_ascan_position_changed)
         self.ascan_view.cursor_moved.connect(self._on_ascan_cursor_moved)
+        if self.cscan_view_corrosion is not None:
+            self.cscan_view_corrosion.crosshair_changed.connect(self._on_cscan_crosshair_changed)
+            self.cscan_view_corrosion.slice_requested.connect(self._on_cscan_slice_requested)
 
         self.volume_view.volume_needs_update.connect(self._on_volume_needs_update)
         self.volume_view.camera_changed.connect(self._on_camera_changed)
@@ -186,18 +211,21 @@ class MasterController:
 
             self.nde_model = loaded_model
             num_slices = volume.shape[0]
-            self.view_state_model.set_slice(0, num_slices - 1)
+            self.view_state_model.set_slice_bounds(0, num_slices - 1)
+            self.view_state_model.set_slice(0)
             self.view_state_model.set_current_point(None)
             self._current_point = None
             self.annotation_model.clear()
             self.annotation_model.initialize(volume.shape)
             self.overlay_settings_view.clear_labels()
+            self.cscan_controller.reset_corrosion()
 
             self.tools_panel.set_slice_bounds(0, num_slices - 1)
             self.tools_panel.set_slice_value(0)
 
             axis_order = loaded_model.metadata.get("axis_order", [])
             positions = loaded_model.metadata.get("positions") or {}
+            self.view_state_model.set_axis_order(axis_order)
             axes_info = []
             for idx, name in enumerate(axis_order):
                 shape_len = volume.shape[idx] if idx < len(volume.shape) else "?"
@@ -241,6 +269,7 @@ class MasterController:
             mask_volume = self.overlay_loader.load(file_path, target_shape=volume.shape)
             self.annotation_model.set_mask_volume(mask_volume)
             self.overlay_settings_view.clear_labels()
+            self.cscan_controller.reset_corrosion()
             self._sync_overlay_settings_with_model()
             self._push_overlay()
             self.status_message(f"Overlay chargé: {file_path}")
@@ -255,10 +284,6 @@ class MasterController:
         """Open the settings dialog."""
         pass
 
-    def _on_corrosion_analysis(self) -> None:
-        """Launch corrosion analysis (placeholder)."""
-        self.logger.info("Corrosion analysis requested (TODO: implement workflow).")
-
     def _on_quit(self) -> None:
         """Quit the application."""
         self.main_window.close()
@@ -269,10 +294,11 @@ class MasterController:
         if volume is None:
             return
         clamped = max(0, min(volume.shape[0] - 1, int(index)))
-        self.view_state_model.set_slice(clamped, volume.shape[0] - 1)
+        self.view_state_model.set_slice(index)
+        clamped = self.view_state_model.current_slice
         self.tools_panel.set_slice_value(clamped)
         self.endview_view.set_slice(clamped)
-        self.cscan_view.highlight_slice(clamped)
+        self.cscan_controller.highlight_slice(clamped)
         self.volume_view.set_slice_index(clamped, update_slider=True)
         self._update_ascan_trace()
 
@@ -305,7 +331,7 @@ class MasterController:
         """Handle crosshair visibility toggle."""
         self.view_state_model.set_show_cross(enabled)
         self.endview_view.set_cross_visible(enabled)
-        self.cscan_view.set_cross_visible(enabled)
+        self.cscan_controller.set_cross_visible(enabled)
         self.ascan_view.set_marker_visible(enabled)
 
     def _on_roi_persistence_toggled(self, enabled: bool) -> None:
@@ -349,7 +375,7 @@ class MasterController:
         if not isinstance(pos, tuple) or len(pos) != 2:
             return
         x, y = int(pos[0]), int(pos[1])
-        self.view_state_model.set_cursor_position(x, y)
+        self.view_state_model.update_crosshair(x, y)
         self.tools_panel.set_position_label(x, y)
         self._update_ascan_trace(point=(x, y))
 
@@ -366,12 +392,16 @@ class MasterController:
         volume = self._current_volume()
         if volume is None:
             return
-        clamped_slice = max(0, min(volume.shape[0] - 1, int(slice_idx)))
-        self.view_state_model.set_slice(clamped_slice, volume.shape[0] - 1)
+        self.view_state_model.set_slice(slice_idx)
+        clamped_slice = self.view_state_model.current_slice
         self.tools_panel.set_slice_value(clamped_slice)
         self.endview_view.set_slice(clamped_slice)
-        self.cscan_view.highlight_slice(clamped_slice)
-        y = self.view_state_model.current_point[1] if self.view_state_model.current_point else volume.shape[1] // 2
+        self.cscan_controller.highlight_slice(clamped_slice)
+        self.cscan_controller.set_crosshair(clamped_slice, x)
+        y_default = volume.shape[1] // 2
+        current_y = self.view_state_model.current_point[1] if self.view_state_model.current_point else y_default
+        self.view_state_model.update_crosshair(x, current_y)
+        y = self.view_state_model.current_point[1] if self.view_state_model.current_point else y_default
         self._update_ascan_trace(point=(x, y))
 
     def _on_cscan_slice_requested(self, z: int) -> None:
@@ -380,9 +410,7 @@ class MasterController:
 
     def _on_ascan_position_changed(self, profile_idx: int) -> None:
         """Handle A-Scan position changes."""
-        if self.nde_model is None:
-            return
-        selection = self.ascan_service.map_profile_index_to_point(
+        selection = self.ascan_controller.map_profile_index_to_point(
             self.nde_model,
             profile_idx,
             self.view_state_model.current_point,
@@ -407,6 +435,8 @@ class MasterController:
         """Handle camera/navigation changes in the volume view."""
         if isinstance(view_params, dict) and "slice" in view_params:
             self._on_slice_changed(int(view_params["slice"]))
+        if isinstance(view_params, dict):
+            self.view_state_model.set_camera_state(view_params)
 
     def run(self) -> None:
         """Launch the main window."""
@@ -426,23 +456,21 @@ class MasterController:
         volume = self._current_volume()
         if volume is None:
             return
+        self.view_state_model.set_slice_bounds(0, volume.shape[0] - 1)
 
         # Sélectionne l’indice de tranche courant dans les bornes valides
-        slice_idx = max(0, min(volume.shape[0] - 1, self.view_state_model.current_slice))
+        slice_idx = self.view_state_model.clamp_slice(self.view_state_model.current_slice)
 
         # Met à jour l’Endview (pas de changement ici)
         self.endview_view.set_volume(volume)
         self.endview_view.set_slice(slice_idx)
         self._push_overlay()
 
-        # Met à jour la C‑scan
-        projection, value_range = self.cscan_service.compute_top_projection(volume)
-        self.cscan_view.set_projection(projection, value_range)
+        # Met à jour la C‑scan (standard ou corrosion)
+        self.cscan_controller.update_views(volume)
 
         # Récupère l'ordre des axes depuis le modèle, s'il existe
-        axis_order = None
-        if self.nde_model is not None:
-            axis_order = self.nde_model.metadata.get("axis_order")
+        axis_order = self.view_state_model.axis_order
 
         # Envoie le volume à la vue 3D en précisant l’ordre des axes
         self.volume_view.set_volume(volume, slice_idx=slice_idx, axis_order=axis_order)
@@ -450,7 +478,7 @@ class MasterController:
         # Reste des mises à jour
         self._update_ascan_trace()
         self.endview_view.set_cross_visible(self.view_state_model.show_cross)
-        self.cscan_view.set_cross_visible(self.view_state_model.show_cross)
+        self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_view.set_marker_visible(self.view_state_model.show_cross)
 
 
@@ -470,29 +498,13 @@ class MasterController:
             return
 
     def _update_ascan_trace(self, point: Optional[tuple[int, int]] = None) -> None:
-        if self.nde_model is None:
-            return
         volume = self._current_volume()
-        if volume is None:
-            return
-        profile = self.ascan_service.build_profile(
+        self.ascan_controller.update_trace(
             self.nde_model,
-            slice_idx=self.view_state_model.current_slice,
-            point_hint=point or self.view_state_model.current_point,
+            volume,
+            point=point,
         )
-        if profile is None:
-            self.ascan_view.clear()
-            self._current_point = None
-            self.view_state_model.set_current_point(None)
-            return
-
-        self.ascan_view.set_signal(profile.signal_percent, positions=profile.positions)
-        self.ascan_view.set_marker(profile.marker_index)
-        self.endview_view.set_crosshair(*profile.crosshair)
-        slice_idx = self.view_state_model.current_slice
-        self.cscan_view.set_crosshair(slice_idx, profile.crosshair[0])
-        self._current_point = profile.crosshair
-        self.view_state_model.set_current_point(profile.crosshair)
+        self._current_point = self.view_state_model.current_point
 
     # ------------------------------------------------------------------ #
     # Overlay helpers

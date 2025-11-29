@@ -16,6 +16,27 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-11-29** — Refactor corrosion workflow (C-scan/AScan controllers)
+
+**Tags :** `#controllers/master_controller.py`, `#controllers/cscan_controller.py`, `#controllers/ascan_controller.py`, `#services/cscan_corrosion_service.py`, `#services/ascan_service.py`, `#services/distance_measurement.py`, `#views/cscan_view_corrosion.py`, `#mvc`, `#corrosion`, `#ascan`
+
+**Actions effectuées :**
+- Fusionné l’extraction A-Scan dans `services/ascan_service.py` (classe `AScanExtractor` + `export_ascan_values_to_json`) et supprimé `ascan_extractor.py`.
+- Fusionné l’orchestrateur corrosion dans `services/cscan_corrosion_service.py` (ex-`CorrosionAnalysisService`) avec calcul distances, carte (Z×X) et overlay lignes; supprimé `corrosion_analysis_service.py`.
+- Ajouté `controllers/cscan_controller.py` pour gérer la pile C-scan standard/corrosion, le workflow corrosion et la sélection stricte de 2 labels visibles; `controllers/ascan_controller.py` pour l’affichage A-Scan et synchro crosshair.
+- Nettoyé `controllers/master_controller.py` pour déléguer C-scan/AScan, connecter l’action corrosion au contrôleur dédié et réinitialiser corrosion au chargement.
+- Mis à jour `views/cscan_view_corrosion.py` (LUT cachée) et `services/distance_measurement.py` pour pointer vers la nouvelle extraction.
+
+**Contexte :**
+Le workflow corrosion devait fonctionner avec labels dynamiques (exactement 2 visibles), afficher une heatmap de distances (Z×X) avec colormap rouge→orange→jaune→bleu, et utiliser une vue/service dédiés sans impacter la C-scan standard. L’architecture a été recentrée en MVC : contrôleurs spécialisés pour C-scan et A-Scan, services fusionnés pour réduire les dépendances et clarifier les imports. La sélection des labels provient de la visibilité overlay ; en cas de nombre ≠2, le contrôleur journalise une erreur et n’exécute pas l’analyse.
+
+**Décisions techniques :**
+1. `CScanCorrosionService` orchestre extraction A-Scan filtrée, distances (pixels par défaut), carte de distances et overlay NPZ; projection corrosion nettoie NaN/inf.
+2. `CScanController` possède la pile de vues (standard + `CscanViewCorrosion`), bascule la vue, met à jour les projections et lance l’analyse en validant les labels visibles; reset corrosion sur chargement.
+3. `AScanController` gère l’affichage du profil, met à jour l’endview et synchronise le crosshair C-scan via un callback, allégeant `MasterController`.
+4. `AScanExtractor` demeure vectorisé et acceptant un filtre de labels; les pixels sont indexés par id string, avec nom conservé pour métadonnées; carte de distances produite via `DistanceMeasurementService.build_distance_map` (pixels/mm optionnel).
+
+---
 ### **2025-11-29** — Gestion overlay centralisée et labels dynamiques
 
 **Tags :** `#controllers/master_controller.py`, `#models/annotation_model.py`, `#views/overlay_settings_view.py`, `#services/overlay_loader.py`, `#overlay`, `#mvc`
@@ -1040,5 +1061,25 @@ Harmonisation du naming NDE/overlay pour cohérence avec les autres services et 
 **Décisions techniques :**
 1. Aucun alias conservé pour les anciens noms afin d’éviter la dérive; tous les imports/usages pointent sur les nouveaux fichiers/classes.
 2. Pas de changement fonctionnel ni de dépendance : refactor strict de nommage avec vérification par recherche textuelle (`rg`).
+
+---
+
+### **2025-11-29** — ViewStateModel centralisation & controller cleanup
+
+**Tags :** `#models/view_state_model.py`, `#controllers/master_controller.py`, `#controllers/cscan_controller.py`, `#controllers/ascan_controller.py`, `#mvc`, `#corrosion`, `#state-management`
+
+**Actions effectuées :**
+- Remplacé `ViewStateModel` par une version riche: bornes de slices (set_slice_bounds/clamp_slice/set_slice), gestion crosshair/cursor (update_crosshair, set_current_point), toggles overlay/volume/crosshair, axes/camera state, et état corrosion (activate/deactivate + projection).
+- Ajusté `MasterController` pour déléguer le clamping/état au modèle (set_slice/limits, update_crosshair), stocker axis_order, synchroniser camera_state, et laisser `CScanController`/`AScanController` piloter les vues.
+- Mis à jour `CScanController` pour utiliser l’état corrosion du modèle (activate/deactivate_corrosion, projection stockée dans le modèle) et réinitialiser en cas d’erreur ou d’input invalide.
+- Mis à jour `AScanController` pour mettre à jour le crosshair via le modèle et nettoyer current_point/cursor_position lors des clear.
+
+**Contexte :**
+Objectif: sortir la logique de state (clamping, crosshair, corrosion flags) des contrôleurs vers `ViewStateModel`, réduire la duplication et faciliter la bascule standard/corrosion.
+
+**Décisions techniques :**
+1. `ViewStateModel` porte désormais les bornes de tranches, l’état corrosion (flag + projection), l’axis_order et le camera_state pour éviter du code dans les contrôleurs.
+2. Les contrôleurs appellent `set_slice`, `update_crosshair`, `activate_corrosion`/`deactivate_corrosion`; tout clamping passe par `ViewStateModel.clamp_slice`.
+3. En cas d’échec du workflow corrosion (volume/mask manquants, labels ≠2, exceptions), `CScanController` désactive systématiquement le mode corrosion via le modèle avant de sortir.
 
 ---

@@ -1,5 +1,5 @@
-=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/nde test/SB70_MGO_151272_40M_45M/SB70_MGO_151272_40M_45M.nde ===
+=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde ===
 
-[0.004s] A-SCAN PREVIEW slice=1704 x=56 y=138
-  normalized: {'len': 276, 'min': 1.0353227853775024, 'max': 51.97591018676758, 'mean': 9.007857322692871, 'head5': [4.669102668762207, 5.961564540863037, 6.5502777099609375, 6.57734489440918, 6.049533367156982], 'marker': 138, 'crosshair': (56, 138)}
-  raw: {'ultrasound_axis': 1, 'len': 276, 'min': 153.0, 'max': 7681.0, 'mean': 1331.18115234375, 'head5': [690.0, 881.0, 968.0, 972.0, 894.0]}
+[0.002s] A-SCAN PREVIEW slice=100 x=155 y=162
+  normalized: {'len': 324, 'min': 0.08545182645320892, 'max': 98.37336730957031, 'mean': 11.99488639831543, 'head5': [0.08545182645320892, 0.1983703076839447, 0.35401469469070435, 0.5371257662773132, 0.7385479211807251], 'marker': 162, 'crosshair': (155, 162)}
+  raw: {'ultrasound_axis': 1, 'len': 324, 'min': 28.0, 'max': 32234.0, 'mean': 3930.3642578125, 'head5': [28.0, 65.0, 116.0, 176.0, 242.0]}

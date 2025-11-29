@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -235,3 +237,295 @@ class AScanService:
             tail_axes.sort(key=lambda item: item[1], reverse=True)
             return tail_axes[0][0]
         return max(0, len(shape) - 1)
+
+
+class AScanExtractor:
+    """
+    Extrait les valeurs A-scan pour chaque pixel annoté dans les masques.
+    Version vectorisée avec mapping de coordonnées exact + optimisations.
+    """
+
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.ENABLE_PERF_LOGS = True
+
+        # Mapping par défaut (compat historique)
+        self.class_names = {
+            0: "background",
+            1: "frontwall",
+            2: "backwall",
+            3: "flaw",
+            4: "indication",
+        }
+
+    def extract_ascan_values_from_masks(
+        self,
+        global_masks_array: List[np.ndarray],
+        volume_data: np.ndarray,
+        orientation: str,
+        transpose: bool,
+        rotation_applied: bool = False,
+        nde_filename: str = "unknown.nde",
+        allowed_labels: Optional[Iterable[int]] = None,
+    ) -> Dict:
+        try:
+            if self.ENABLE_PERF_LOGS:
+                start_time_total = time.perf_counter()
+
+            self.logger.info(
+                "Extraction des valeurs A-scan pour %d endviews...", len(global_masks_array)
+            )
+            label_filter: Optional[Set[int]] = (
+                set(int(x) for x in allowed_labels) if allowed_labels is not None else None
+            )
+
+            result = {
+                "metadata": {
+                    "nde_file": nde_filename,
+                    "num_endviews": len(global_masks_array),
+                    "orientation": orientation,
+                    "volume_shape": list(volume_data.shape),
+                    "transpose": transpose,
+                    "rotation_applied": rotation_applied,
+                    "classes": self.class_names,
+                    "extractor_version": "2.1_vectorized",
+                },
+                "endviews": {},
+            }
+
+            label_names: Dict[str, str] = {}
+            total_pixels = 0
+            total_endviews = len(global_masks_array)
+            progress_step = max(1, total_endviews // 10)
+
+            for slice_idx, mask in enumerate(global_masks_array):
+                endview_data = self._extract_endview_ascan_values(
+                    mask=mask,
+                    slice_idx=slice_idx,
+                    volume_data=volume_data,
+                    orientation=orientation,
+                    transpose=transpose,
+                    rotation_applied=rotation_applied,
+                    label_filter=label_filter,
+                )
+
+                pixels_count = sum(len(pixels) for pixels in endview_data.values())
+                total_pixels += pixels_count
+
+                if pixels_count > 0:
+                    for key, pixel_list in endview_data.items():
+                        if pixel_list:
+                            label_names.setdefault(key, pixel_list[0].get("label_name", key))
+                    result["endviews"][str(slice_idx)] = endview_data
+
+                if (slice_idx + 1) % progress_step == 0 or (slice_idx + 1) == total_endviews:
+                    progress_pct = ((slice_idx + 1) / total_endviews) * 100
+                    if self.ENABLE_PERF_LOGS:
+                        elapsed_so_far = time.perf_counter() - start_time_total
+                        avg_time_per_endview = elapsed_so_far / (slice_idx + 1)
+                        eta_seconds = avg_time_per_endview * (total_endviews - (slice_idx + 1))
+                        pixels_per_sec = total_pixels / elapsed_so_far if elapsed_so_far > 0 else 0
+                        print(
+                            f"   → Progression: {slice_idx + 1}/{total_endviews} endviews "
+                            f"({progress_pct:.0f}%) - {total_pixels} pixels | "
+                            f"{pixels_per_sec:.0f} px/s | ETA: {eta_seconds:.1f}s"
+                        )
+                    else:
+                        print(
+                            f"   → Progression: {slice_idx + 1}/{total_endviews} endviews "
+                            f"({progress_pct:.0f}%) - {total_pixels} pixels annotés"
+                        )
+
+            if self.ENABLE_PERF_LOGS:
+                elapsed_total = time.perf_counter() - start_time_total
+                pixels_per_sec = total_pixels / elapsed_total if elapsed_total > 0 else 0
+                self.logger.info("[PERF] ⚡ TOTAL extraction: %.2fs pour %d pixels", elapsed_total, total_pixels)
+                self.logger.info("[PERF] ⚡ Débit: %.0f pixels/seconde", pixels_per_sec)
+                self.logger.info(
+                    "[PERF] ⚡ Moyenne: %.2fms par endview", elapsed_total / total_endviews * 1000
+                )
+
+            self.logger.info(
+                "Extraction terminée: %d pixels annotés au total | endviews avec annotations: %d/%d",
+                total_pixels,
+                len(result["endviews"]),
+                len(global_masks_array),
+            )
+            print(f"   → Total: {total_pixels} pixels annotés dans {len(result['endviews'])} endviews")
+
+            result["metadata"]["label_names"] = label_names
+            return result
+
+        except Exception as e:
+            self.logger.error("Erreur lors de l'extraction des valeurs A-scan: %s", e)
+            raise
+
+    def _extract_endview_ascan_values(
+        self,
+        mask: np.ndarray,
+        slice_idx: int,
+        volume_data: np.ndarray,
+        orientation: str,
+        transpose: bool,
+        rotation_applied: bool,
+        label_filter: Optional[Set[int]],
+    ) -> Dict[str, List[Dict]]:
+        if self.ENABLE_PERF_LOGS:
+            start_time = time.perf_counter()
+
+        endview_data = {}
+        unique_labels = np.unique(mask)
+        unique_labels = unique_labels[unique_labels > 0]
+        if label_filter is not None:
+            unique_labels = np.array(
+                [v for v in unique_labels if v in label_filter], dtype=unique_labels.dtype
+            )
+
+        for class_value in unique_labels.tolist():
+            class_name = self.class_names.get(class_value, f"label_{class_value}")
+
+            pixel_coords = np.argwhere(mask == class_value)
+            if len(pixel_coords) == 0:
+                continue
+
+            ascan_values = self._extract_ascan_values_vectorized(
+                pixel_coords=pixel_coords,
+                slice_idx=slice_idx,
+                volume_data=volume_data,
+                orientation=orientation,
+                transpose=transpose,
+                rotation_applied=rotation_applied,
+            )
+
+            pixel_data = []
+            for coord, val in zip(pixel_coords, ascan_values):
+                if np.isnan(val):
+                    continue
+                pixel_data.append(
+                    {
+                        "x": int(coord[1]),
+                        "y": int(coord[0]),
+                        "ascan_value": float(val),
+                        "label_id": int(class_value),
+                        "label_name": class_name,
+                    }
+                )
+
+            if pixel_data:
+                endview_data[str(class_value)] = pixel_data
+
+        if self.ENABLE_PERF_LOGS:
+            elapsed = (time.perf_counter() - start_time) * 1000
+            total_pixels = sum(len(data) for data in endview_data.values())
+            self.logger.debug("[PERF] Endview %s: %d pixels extraits en %.2fms", slice_idx, total_pixels, elapsed)
+
+        return endview_data
+
+    def _extract_ascan_values_vectorized(
+        self,
+        pixel_coords: np.ndarray,
+        slice_idx: int,
+        volume_data: np.ndarray,
+        orientation: str,
+        transpose: bool,
+        rotation_applied: bool,
+    ) -> np.ndarray:
+        num_pixels = len(pixel_coords)
+        ascan_values = np.full(num_pixels, np.nan, dtype=np.float32)
+
+        ys = pixel_coords[:, 0]
+        xs = pixel_coords[:, 1]
+
+        try:
+            if orientation == "lengthwise":
+                if rotation_applied:
+                    crosswise_indices = volume_data.shape[1] - 1 - xs
+                    valid_mask = (
+                        (crosswise_indices >= 0)
+                        & (crosswise_indices < volume_data.shape[1])
+                        & (ys >= 0)
+                        & (ys < volume_data.shape[2])
+                    )
+                    valid_indices = np.where(valid_mask)[0]
+                    if len(valid_indices) > 0:
+                        ascan_values[valid_indices] = volume_data[
+                            slice_idx, crosswise_indices[valid_indices], ys[valid_indices]
+                        ]
+                else:
+                    valid_mask = (
+                        (xs >= 0)
+                        & (xs < volume_data.shape[1])
+                        & (ys >= 0)
+                        & (ys < volume_data.shape[2])
+                    )
+                    valid_indices = np.where(valid_mask)[0]
+                    if len(valid_indices) > 0:
+                        ascan_values[valid_indices] = volume_data[slice_idx, xs[valid_indices], ys[valid_indices]]
+
+            elif orientation == "crosswise":
+                if rotation_applied:
+                    lengthwise_indices = volume_data.shape[0] - 1 - xs
+                    valid_mask = (
+                        (lengthwise_indices >= 0)
+                        & (lengthwise_indices < volume_data.shape[0])
+                        & (ys >= 0)
+                        & (ys < volume_data.shape[2])
+                    )
+                    valid_indices = np.where(valid_mask)[0]
+                    if len(valid_indices) > 0:
+                        ascan_values[valid_indices] = volume_data[
+                            lengthwise_indices[valid_indices], slice_idx, ys[valid_indices]
+                        ]
+                else:
+                    valid_mask = (
+                        (xs >= 0)
+                        & (xs < volume_data.shape[0])
+                        & (ys >= 0)
+                        & (ys < volume_data.shape[2])
+                    )
+                    valid_indices = np.where(valid_mask)[0]
+                    if len(valid_indices) > 0:
+                        ascan_values[valid_indices] = volume_data[xs[valid_indices], slice_idx, ys[valid_indices]]
+
+            else:  # ultrasound
+                lengthwise_indices = volume_data.shape[0] - 1 - xs
+                crosswise_indices = volume_data.shape[1] - 1 - ys
+
+                valid_mask = (
+                    (lengthwise_indices >= 0)
+                    & (lengthwise_indices < volume_data.shape[0])
+                    & (crosswise_indices >= 0)
+                    & (crosswise_indices < volume_data.shape[1])
+                )
+                valid_indices = np.where(valid_mask)[0]
+
+                if len(valid_indices) > 0:
+                    for i in valid_indices:
+                        profile = volume_data[lengthwise_indices[i], crosswise_indices[i], :]
+                        ascan_values[i] = np.max(profile)
+
+        except (IndexError, ValueError) as e:
+            self.logger.warning("Erreur lors de l'extraction vectorisée: %s", e)
+
+        return ascan_values
+
+
+def export_ascan_values_to_json(
+    global_masks_array: List[np.ndarray],
+    volume_data: np.ndarray,
+    orientation: str,
+    transpose: bool,
+    rotation_applied: bool = False,
+    nde_filename: str = "unknown.nde",
+    allowed_labels: Optional[Iterable[int]] = None,
+) -> Dict:
+    extractor = AScanExtractor()
+    return extractor.extract_ascan_values_from_masks(
+        global_masks_array=global_masks_array,
+        volume_data=volume_data,
+        orientation=orientation,
+        transpose=transpose,
+        rotation_applied=rotation_applied,
+        nde_filename=nde_filename,
+        allowed_labels=allowed_labels,
+    )

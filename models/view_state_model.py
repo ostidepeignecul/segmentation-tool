@@ -1,80 +1,128 @@
-from typing import Optional
+from typing import Optional, Tuple, Any
 
 
 class ViewStateModel:
-    """Stores UI state such as overlays, volume, tool mode, threshold, and color settings."""
+    """
+    Stores UI-related state: slice navigation, crosshair, overlay visibility,
+    drawing tools, thresholding, corrosion mode, etc.
+    Pure model — no UI, no Qt, no services.
+    """
 
     def __init__(self) -> None:
+
+        # --- Overlay & Display ---
         self.overlay_alpha: float = 1.0
         self.colormap: Optional[str] = None
         self.show_overlay: bool = True
         self.show_volume: bool = True
         self.show_cross: bool = True
+
+        # --- Tools / Interaction ---
         self.tool_mode: Optional[str] = None
         self.threshold: Optional[int] = None
         self.threshold_auto: bool = False
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
-        self.cursor_position: Optional[tuple[int, int]] = None
+
+        # --- Navigation ---
+        self.cursor_position: Optional[Tuple[int, int]] = None
         self.current_slice: int = 0
-        self.current_point: Optional[tuple[int, int]] = None
+        self.slice_min: int = 0
+        self.slice_max: int = 0
+        self.current_point: Optional[Tuple[int, int]] = None
 
+        # --- Metadata for Views ---
+        self.axis_order: Optional[list[str]] = None
+        self.camera_state: dict = {}
 
-    def set_alpha(self, alpha: float) -> None:
-        """Adjust overlay alpha value."""
-        self.overlay_alpha = max(0.0, min(1.0, alpha))
+        # --- Corrosion Mode ---
+        self.corrosion_active: bool = False
+        self.corrosion_projection: Optional[Tuple[Any, Tuple[float, float]]] = None
 
-    def set_colormap(self, name: str) -> None:
-        """Change the active colormap."""
-        self.colormap = name
+    # ------------------------------------------------------------------ #
+    # Slice control
+    # ------------------------------------------------------------------ #
+    def set_slice_bounds(self, min_idx: int, max_idx: int) -> None:
+        """Define valid slice range."""
+        self.slice_min = int(min_idx)
+        self.slice_max = int(max_idx)
 
-    def toggle_overlay(self, visible: bool) -> None:
-        """Show or hide overlays."""
-        self.show_overlay = visible
+    def clamp_slice(self, index: int) -> int:
+        """Clamp slice index inside defined bounds."""
+        index = int(index)
+        return max(self.slice_min, min(self.slice_max, index))
 
-    def toggle_volume(self, visible: bool) -> None:
-        """Show or hide the 3D volume."""
-        self.show_volume = visible
+    def set_slice(self, index: int) -> None:
+        """Update current slice using clamping rules."""
+        self.current_slice = self.clamp_slice(index)
 
+    # ------------------------------------------------------------------ #
+    # Crosshair & point control
+    # ------------------------------------------------------------------ #
+    def update_crosshair(self, x: int, y: int) -> None:
+        """Store (x, y) as the active cursor AND crosshair point."""
+        p = (int(x), int(y))
+        self.cursor_position = p
+        self.current_point = p
+
+    def set_cursor_position(self, x: int, y: int) -> None:
+        """Only update the cursor position (used during drag)."""
+        self.cursor_position = (int(x), int(y))
+
+    def set_current_point(self, point: Optional[Tuple[int, int]]) -> None:
+        """Update the main crosshair point or clear it."""
+        if point is None:
+            self.current_point = None
+        else:
+            self.current_point = (int(point[0]), int(point[1]))
+
+    # ------------------------------------------------------------------ #
+    # Tool & threshold
+    # ------------------------------------------------------------------ #
     def set_tool_mode(self, mode: str) -> None:
-        """Update the active drawing tool."""
         self.tool_mode = mode
 
     def set_threshold(self, threshold: int) -> None:
-        """Update the threshold value."""
-        self.threshold = threshold
+        self.threshold = int(threshold)
 
     def set_threshold_auto(self, enabled: bool) -> None:
-        """Set whether automatic thresholding is enabled."""
-        self.threshold_auto = enabled
+        self.threshold_auto = bool(enabled)
 
     def set_apply_volume(self, enabled: bool) -> None:
-        """Set whether operations apply to the full volume."""
-        self.apply_volume = enabled
+        self.apply_volume = bool(enabled)
 
     def set_roi_persistence(self, enabled: bool) -> None:
-        """Set whether ROI persistence is enabled."""
-        self.roi_persistence = enabled
+        self.roi_persistence = bool(enabled)
+
+    # ------------------------------------------------------------------ #
+    # Visibility toggles
+    # ------------------------------------------------------------------ #
+    def toggle_overlay(self, visible: bool) -> None:
+        self.show_overlay = bool(visible)
+
+    def toggle_volume(self, visible: bool) -> None:
+        self.show_volume = bool(visible)
 
     def set_show_cross(self, visible: bool) -> None:
-        """Toggle crosshair visibility across views."""
-        self.show_cross = visible
+        self.show_cross = bool(visible)
 
-    def set_cursor_position(self, x: int, y: int) -> None:
-        """Store the latest cursor position from views."""
-        self.cursor_position = (int(x), int(y))
+    # ------------------------------------------------------------------ #
+    # Metadata
+    # ------------------------------------------------------------------ #
+    def set_axis_order(self, order) -> None:
+        self.axis_order = list(order) if order else None
 
-    def set_slice(self, index: int, maximum: Optional[int] = None) -> None:
-        """Track the current slice index with optional clamping."""
-        target = int(index)
-        if maximum is not None:
-            target = max(0, min(int(maximum), target))
-        self.current_slice = target
+    def set_camera_state(self, params: dict) -> None:
+        """Store arbitrary view navigation parameters."""
+        self.camera_state = dict(params)
 
-    def set_current_point(self, point: Optional[tuple[int, int]]) -> None:
-        """Track the latest crosshair (x, y) coordinates."""
-        if point is None:
-            self.current_point = None
-            return
-        x, y = point
-        self.current_point = (int(x), int(y))
+    # ------------------------------------------------------------------ #
+    # Corrosion state
+    # ------------------------------------------------------------------ #
+    def activate_corrosion(self, projection, value_range) -> None:
+        self.corrosion_active = True
+        self.corrosion_projection = (projection, value_range)
+
+    def deactivate_corrosion(self) -> None:
+        self.corrosion_active = False
+        self.corrosion_projection = None
