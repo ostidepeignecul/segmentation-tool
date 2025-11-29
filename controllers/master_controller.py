@@ -12,6 +12,7 @@ from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService
 from services.overlay_loader import OverlayLoader
+from services.overlay_service import OverlayService
 from services.nde_loader import NdeLoader
 from ui_mainwindow import Ui_MainWindow
 from views.overlay_settings_view import OverlaySettingsView
@@ -31,6 +32,7 @@ class MasterController:
         self.view_state_model = ViewStateModel()
         self.nde_loader = NdeLoader()
         self.overlay_loader = OverlayLoader()
+        self.overlay_service = OverlayService()
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
 
         # References to Designer-created views.
@@ -516,7 +518,10 @@ class MasterController:
             self.endview_view.set_overlay(None)
             self.volume_view.set_overlay(None)
             return
-        overlay = self.annotation_model.build_overlay_rgba(self.annotation_model.visible_labels())
+        mask_volume = self.annotation_model.get_mask_volume()
+        palette = self.annotation_model.get_label_palette()
+        visible_labels = self.annotation_model.get_visible_labels()
+        overlay = self.overlay_service.build_overlay_rgba(mask_volume, palette, visible_labels)
         # Force refresh in the views to avoid stale overlays when visibility changes
         self.endview_view.set_overlay(None)
         self.volume_view.set_overlay(None)

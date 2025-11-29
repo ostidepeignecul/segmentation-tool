@@ -1083,3 +1083,22 @@ Objectif: sortir la logique de state (clamping, crosshair, corrosion flags) des 
 3. En cas d’échec du workflow corrosion (volume/mask manquants, labels ≠2, exceptions), `CScanController` désactive systématiquement le mode corrosion via le modèle avant de sortir.
 
 ---
+
+### **2025-11-29** — Extraction du rendu overlay vers OverlayService
+
+**Tags :** `#services/overlay_service.py`, `#models/annotation_model.py`, `#controllers/master_controller.py`, `#overlay`, `#mvc`, `#numpy`, `#pyqt6`
+
+**Actions effectuées :**
+- Création de `OverlayService.build_overlay_rgba(mask_volume, label_palette, visible_labels)` qui génère un volume BGRA (Z,H,W,4) sans dépendance PyQt6 en appliquant la palette (avec fallback) et un filtrage des labels visibles.
+- Suppression de la logique de rendu RGBA dans `AnnotationModel`, ajout d’accesseurs `get_mask_volume`, `get_visible_labels`, `get_label_palette` pour exposer volume/palette/visibilité sans NumPy lié au rendu.
+- Mise à jour de `MasterController._push_overlay` pour appeler `OverlayService` après avoir récupéré volume/palette/labels visibles depuis `AnnotationModel`, avec instanciation `self.overlay_service` dans `__init__`.
+
+**Contexte :**
+Objectif d’aligner l’architecture sur un MVC plus strict : sortir le rendu d’overlay hors du modèle d’annotation. Le modèle conserve uniquement l’état (volume de masques, palette BGRA, visibilité). Le contrôleur orchestre désormais la construction RGBA via un service pur Python/NumPy, tout en conservant le flux de push overlay existant vers Endview et VolumeView. Aucun signal/slot PyQt6 modifié.
+
+**Décisions techniques :**
+1. Le service accepte `mask_volume` optionnel et renvoie `None` si absent, tout en validant une forme 3D pour éviter des erreurs silencieuses.
+2. Palette par défaut dérivée de `MASK_COLORS_BGRA` avec couleur de secours magenta semi-transparente pour tout label non mappé, afin de conserver le comportement historique.
+3. Maintien d’un alias `visible_labels` dans le modèle pour compatibilité, avec `get_visible_labels` utilisé côté contrôleur pour expliciter l’intention et réduire le couplage.
+
+---

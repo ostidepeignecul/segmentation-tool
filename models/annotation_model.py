@@ -10,7 +10,7 @@ FallbackColor = (255, 0, 255, 160)  # Magenta semi-transparent
 
 
 class AnnotationModel:
-    """Stores masks, label palette, visibility and builds RGBA overlays."""
+    """Stores masks, label palette and visibility (no rendering logic)."""
 
     def __init__(self) -> None:
         self.mask_volume: Optional[np.ndarray] = None
@@ -87,25 +87,16 @@ class AnnotationModel:
         return {lbl for lbl, vis in self.label_visibility.items() if vis}
 
     # ------------------------------------------------------------------ #
-    # Overlay building
+    # Accessors
     # ------------------------------------------------------------------ #
-    def build_overlay_rgba(self, visible_labels: Optional[set[int]] = None) -> Optional[np.ndarray]:
-        """Return an RGBA overlay volume (Z,H,W,4) respecting visibility."""
-        if self.mask_volume is None:
-            return None
+    def get_mask_volume(self) -> Optional[np.ndarray]:
+        """Expose the current mask volume."""
+        return self.mask_volume
 
-        masks = self.mask_volume
-        overlay = np.zeros((*masks.shape, 4), dtype=np.uint8)
-        palette: Dict[int, Tuple[int, int, int, int]] = self.label_palette or dict(MASK_COLORS_BGRA)
-        visible = visible_labels
+    def get_visible_labels(self) -> Optional[set[int]]:
+        """Return the set of labels currently marked visible (None = all)."""
+        return self.visible_labels()
 
-        for cls_value in np.unique(masks):
-            cls_int = int(cls_value)
-            if cls_int == 0:
-                continue
-            if visible is not None and cls_int not in visible:
-                continue
-            color = palette.get(cls_int, FallbackColor)
-            mask = masks == cls_int
-            overlay[mask] = color
-        return overlay
+    def get_label_palette(self) -> Dict[int, Tuple[int, int, int, int]]:
+        """Return the current label palette (BGRA), with defaults if empty."""
+        return self.label_palette or dict(MASK_COLORS_BGRA)
