@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from models.simple_nde_model import SimpleNDEModel
+from models.nde_model import NdeModel
 from services.ascan_debug_logger import ascan_debug_logger
 
 
@@ -26,7 +26,7 @@ class AScanService:
 
     def build_profile(
         self,
-        model: SimpleNDEModel,
+        model: NdeModel,
         slice_idx: int,
         point_hint: Optional[Tuple[int, int]] = None,
     ) -> Optional[AScanProfile]:
@@ -84,7 +84,7 @@ class AScanService:
     def log_preview(
         self,
         logger,
-        model: SimpleNDEModel,
+        model: NdeModel,
         volume: Optional[np.ndarray],
         *,
         slice_idx: Optional[int] = None,
@@ -156,7 +156,7 @@ class AScanService:
 
     def map_profile_index_to_point(
         self,
-        model: SimpleNDEModel,
+        model: NdeModel,
         profile_idx: int,
         current_point: Optional[Tuple[int, int]],
         slice_idx: int,
@@ -195,7 +195,7 @@ class AScanService:
             return 0
         return max(0, min(axis_length - 1, int(value)))
 
-    def _normalize_profile(self, profile: np.ndarray, model: SimpleNDEModel) -> np.ndarray:
+    def _normalize_profile(self, profile: np.ndarray, model: NdeModel) -> np.ndarray:
         if model.normalized_volume is not None:
             return np.clip(profile, 0.0, 1.0)
         min_value = model.metadata.get("min_value")
@@ -207,7 +207,7 @@ class AScanService:
 
     def _axis_positions_for_profile(
         self,
-        model: SimpleNDEModel,
+        model: NdeModel,
         expected_len: int,
         ultrasound_axis: int,
     ) -> np.ndarray:
@@ -224,7 +224,7 @@ class AScanService:
             return np.arange(expected_len, dtype=np.float32)
         return pos_array
 
-    def _ultrasound_axis_index(self, model: SimpleNDEModel, shape: Tuple[int, ...]) -> int:
+    def _ultrasound_axis_index(self, model: NdeModel, shape: Tuple[int, ...]) -> int:
         axis_order = model.metadata.get("axis_order", [])
         for idx, name in enumerate(axis_order):
             if isinstance(name, str) and name.lower() == "ultrasound":

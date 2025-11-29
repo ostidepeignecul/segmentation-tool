@@ -12,7 +12,7 @@ from config.constants import MASK_COLORS_BGRA
 from services.npz_debug_logger import npz_debug_logger
 
 
-class NPZOverlayService:
+class OverlayLoader:
     """Gère le chargement et la préparation de l'overlay de masques."""
 
     def __init__(self) -> None:

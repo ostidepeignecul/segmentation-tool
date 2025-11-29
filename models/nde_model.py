@@ -33,7 +33,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 import numpy as np
 
 
-class SimpleNDEModel:
+class NdeModel:
     """Lightweight container for NDE volume data and metadata.
 
     The model stores the raw 3‑D volume extracted from a .nde file, an

@@ -1003,3 +1003,22 @@ Centralisation du logging A-Scan hors contrôleur pour faciliter le diagnostic D
 2. Logs concis (head5, stats de base) et silencieux si volume/profil vide.
 
 ---
+
+### **2025-11-29** — Renommage NDE/overlay loaders et modèle
+
+**Tags :** `#services/nde_loader.py`, `#services/overlay_loader.py`, `#models/nde_model.py`, `#controllers/master_controller.py`, `#services/ascan_service.py`, `#models/__init__.py`, `#mvc`, `#rename`
+
+**Actions effectuées :**
+- Renommé `services/simple_nde_loader.py` en `services/nde_loader.py` et la classe `SimpleNdeLoader` en `NdeLoader`, mis à jour docstrings, imports et instanciations.
+- Renommé `services/npz_overlay.py` en `services/overlay_loader.py` et la classe `NPZOverlayService` en `OverlayLoader`, ajusté l’import du contrôleur.
+- Renommé `models/simple_nde_model.py` en `models/nde_model.py` et la classe `SimpleNDEModel` en `NdeModel`, exportée via `models/__init__.py` et retipée dans `AScanService` et `MasterController`.
+- Vérifié via `rg` qu’aucune référence code aux anciens noms/fichiers ne reste (hors historiques dans MEMORY.md).
+
+**Contexte :**
+Harmonisation du naming NDE/overlay pour cohérence avec les autres services et modèles. Le comportement reste identique : le loader NDE prépare toujours un `NdeModel`, le service overlay construit l’overlay RGBA, et le contrôleur consomme les nouveaux noms.
+
+**Décisions techniques :**
+1. Aucun alias conservé pour les anciens noms afin d’éviter la dérive; tous les imports/usages pointent sur les nouveaux fichiers/classes.
+2. Pas de changement fonctionnel ni de dépendance : refactor strict de nommage avec vérification par recherche textuelle (`rg`).
+
+---

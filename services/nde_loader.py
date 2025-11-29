@@ -3,7 +3,7 @@
 This loader implements a minimal subset of the NDE Open File Format
 specification.  It is designed to extract a single three‑dimensional dataset
 from the ``Public`` or ``Domain`` section of a .nde file, compute basic
-metadata and physical coordinates, and return a :class:`~simple_nde_model.SimpleNDEModel`
+metadata and physical coordinates, and return a :class:`~nde_model.NdeModel`
 instance containing the data.  The loader follows the official
 documentation guidelines:
 
@@ -45,21 +45,21 @@ from typing import Any, Dict, List, Optional, Tuple
 import h5py
 import numpy as np
 
-from models.simple_nde_model import SimpleNDEModel
+from models.nde_model import NdeModel
 
 logger = logging.getLogger(__name__)
 
 
-class SimpleNdeLoader:
+class NdeLoader:
     """Simple reader for .nde files.
 
     This loader opens a .nde file using :mod:`h5py`, identifies whether it
     contains the ``Public`` or ``Domain`` layout, and extracts a single
     dataset (preferably an ``AScanAmplitude`` dataset) along with its
-    metadata.  The result is wrapped into a :class:`~simple_nde_model.SimpleNDEModel`.
+    metadata.  The result is wrapped into a :class:`~nde_model.NdeModel`.
     """
 
-    def load(self, nde_file: str, group_idx: int = 1) -> SimpleNDEModel:
+    def load(self, nde_file: str, group_idx: int = 1) -> NdeModel:
         """Load a .nde file and return a model containing one dataset.
 
         Parameters
@@ -72,7 +72,7 @@ class SimpleNdeLoader:
 
         Returns
         -------
-        SimpleNDEModel
+        NdeModel
             A model containing the extracted volume and metadata.
         """
         with h5py.File(nde_file, "r") as handle:
@@ -86,7 +86,7 @@ class SimpleNdeLoader:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _load_public(self, handle: h5py.File, group_idx: int) -> SimpleNDEModel:
+    def _load_public(self, handle: h5py.File, group_idx: int) -> NdeModel:
         """Load a dataset from the ``Public`` structure."""
         # Read and decode the JSON Setup metadata
         json_str = handle["Public/Setup"][()]
@@ -149,11 +149,11 @@ class SimpleNdeLoader:
             "data_class": dataset_entry.get("dataClass"),
         }
 
-        model = SimpleNDEModel()
+        model = NdeModel()
         model.set_volume(data, metadata)
         return model
 
-    def _load_domain(self, handle: h5py.File, group_idx: int) -> SimpleNDEModel:
+    def _load_domain(self, handle: h5py.File, group_idx: int) -> NdeModel:
         """Load a dataset from the ``Domain`` structure.
 
         This implementation attempts to read the first dataset path listed in
@@ -221,7 +221,7 @@ class SimpleNdeLoader:
             "data_class": dataset_entry.get("dataClass") if dataset_entry else None,
         }
 
-        model = SimpleNDEModel()
+        model = NdeModel()
         model.set_volume(data, metadata)
         return model
 

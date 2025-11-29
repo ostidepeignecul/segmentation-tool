@@ -4,12 +4,12 @@ from typing import Any, Optional
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from models.annotation_model import AnnotationModel
-from models.simple_nde_model import SimpleNDEModel
+from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService
 from services.cscan_service import CScanService
-from services.npz_overlay import NPZOverlayService
-from services.simple_nde_loader import SimpleNdeLoader
+from services.overlay_loader import OverlayLoader
+from services.nde_loader import NdeLoader
 from ui_mainwindow import Ui_MainWindow
 
 
@@ -22,13 +22,13 @@ class MasterController:
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self.main_window)
 
-        self.nde_model: Optional[SimpleNDEModel] = None
+        self.nde_model: Optional[NdeModel] = None
         self.annotation_model = AnnotationModel()
         self.view_state_model = ViewStateModel()
-        self.nde_loader = SimpleNdeLoader()
+        self.nde_loader = NdeLoader()
         self.cscan_service = CScanService()
         self.ascan_service = AScanService()
-        self.overlay_service = NPZOverlayService()
+        self.overlay_service = OverlayLoader()
 
         # References to Designer-created views.
         self.endview_view = self.ui.frame_3
