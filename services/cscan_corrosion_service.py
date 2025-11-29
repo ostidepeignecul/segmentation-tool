@@ -10,6 +10,8 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from models.annotation_model import AnnotationModel
+from models.nde_model import NdeModel
 from services.ascan_service import export_ascan_values_to_json
 from services.cscan_service import CScanService
 from services.distance_measurement import DistanceMeasurementService
@@ -222,3 +224,125 @@ class CScanCorrosionService(CScanService):
         np.savez_compressed(npz_path, arr_0=overlay)
         self._logger.info("Overlay corrosion sauvegardé: %s", npz_path)
         return npz_path
+
+
+@dataclass
+class CorrosionWorkflowResult:
+    """Résultat du workflow d'analyse corrosion."""
+
+    ok: bool
+    message: str = ""
+    projection: Optional[np.ndarray] = None
+    value_range: Optional[Tuple[float, float]] = None
+
+
+class CorrosionWorkflowService:
+    """Orchestre le workflow complet d'analyse corrosion."""
+
+    def __init__(
+        self,
+        cscan_corrosion_service: CScanCorrosionService,
+    ) -> None:
+        self.cscan_corrosion_service = cscan_corrosion_service
+
+    def run(
+        self,
+        nde_model: NdeModel,
+        annotation_model: AnnotationModel,
+        volume: np.ndarray,
+    ) -> CorrosionWorkflowResult:
+        """
+        - Valide la présence du volume NDE et des masques
+        - Vérifie le nombre de labels visibles (exactement 2: frontwall/backwall)
+        - Prépare les masques globaux et les résolutions (mm_per_pixel, sample_spacing, etc.)
+        - Déduit un chemin d'output si nécessaire (à partir des metadata/filename)
+        - Lance CScanCorrosionService.run_analysis() et compute_corrosion_projection()
+        - Retourne une projection corrosion + plage de valeurs
+        """
+        # Validation volume et mask_volume
+        mask_volume = annotation_model.mask_volume
+        if volume is None or mask_volume is None:
+            return CorrosionWorkflowResult(
+                ok=False,
+                message="Corrosion analysis aborted: volume or masks missing.",
+            )
+
+        # Validation des shapes
+        if mask_volume.shape[0] != volume.shape[0]:
+            return CorrosionWorkflowResult(
+                ok=False,
+                message=f"Corrosion analysis aborted: mask depth {mask_volume.shape[0]} != volume depth {volume.shape[0]}",
+            )
+
+        # Extraction des labels visibles (uniquement frontwall/backwall)
+        visible_labels = [
+            lbl for lbl, vis in (annotation_model.label_visibility or {}).items() if vis and int(lbl) > 0
+        ]
+        if len(visible_labels) != 2:
+            return CorrosionWorkflowResult(
+                ok=False,
+                message=f"Corrosion analysis requires exactly 2 visible labels; found {len(visible_labels)}.",
+            )
+
+        class_A_id, class_B_id = sorted(int(x) for x in visible_labels[:2])
+
+        # Construction du masque global par label
+        global_masks = [mask_volume[idx] for idx in range(mask_volume.shape[0])]
+
+        # Récupération des résolutions dans NdeModel.metadata
+        resolution_cross, resolution_ultra = self._extract_resolutions(nde_model)
+
+        # Choix du output_directory
+        nde_filename = "unknown"
+        if nde_model is not None:
+            nde_filename = str(nde_model.metadata.get("path", "unknown"))
+        output_directory = os.path.dirname(nde_filename) if nde_filename not in ("", "unknown") else "."
+
+        try:
+            # Appel à CScanCorrosionService.run_analysis()
+            result = self.cscan_corrosion_service.run_analysis(
+                global_masks=global_masks,
+                volume_data=volume,
+                nde_data=nde_model.metadata if nde_model else {},
+                nde_filename=nde_filename,
+                orientation="lengthwise",
+                transpose=False,
+                rotation_applied=False,
+                resolution_crosswise_mm=resolution_cross,
+                resolution_ultrasound_mm=resolution_ultra,
+                output_directory=output_directory,
+                class_A_id=class_A_id,
+                class_B_id=class_B_id,
+                use_mm=False,
+            )
+
+            # Appel à compute_corrosion_projection()
+            projection, value_range = self.cscan_corrosion_service.compute_corrosion_projection(
+                result.distance_map,
+                value_range=result.distance_value_range,
+            )
+
+            return CorrosionWorkflowResult(
+                ok=True,
+                message="Analyse corrosion terminée",
+                projection=projection,
+                value_range=value_range,
+            )
+
+        except Exception as exc:
+            return CorrosionWorkflowResult(
+                ok=False,
+                message=f"Corrosion analysis failed: {exc}",
+            )
+
+    def _extract_resolutions(self, nde_model: Optional[NdeModel]) -> Tuple[float, float]:
+        """Get crosswise and ultrasound resolutions from metadata, defaults to 1.0."""
+        if nde_model is None:
+            return 1.0, 1.0
+        dimensions = nde_model.metadata.get("dimensions", [])
+        try:
+            cross = float(dimensions[1].get("resolution", 1.0)) if len(dimensions) >= 3 else 1.0
+            ultra = float(dimensions[2].get("resolution", 1.0)) if len(dimensions) >= 3 else 1.0
+        except Exception:
+            cross, ultra = 1.0, 1.0
+        return cross, ultra

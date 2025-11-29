@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import logging
-import os
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 import numpy as np
 from PyQt6.QtWidgets import QStackedLayout
@@ -12,7 +11,7 @@ from PyQt6.QtWidgets import QStackedLayout
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
-from services.cscan_corrosion_service import CScanCorrosionService
+from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
 from services.cscan_service import CScanService
 from views.cscan_view import CScanView
 from views.cscan_view_corrosion import CscanViewCorrosion
@@ -33,6 +32,7 @@ class CScanController:
         get_nde_model: Callable[[], Optional[NdeModel]],
         status_callback: Callable[[str, int], None],
         logger: logging.Logger,
+        corrosion_workflow_service: Optional[CorrosionWorkflowService] = None,
     ) -> None:
         self.standard_view: Optional[CScanView] = standard_view
         self.corrosion_view: Optional[CscanViewCorrosion] = corrosion_view
@@ -46,6 +46,14 @@ class CScanController:
 
         self.cscan_service = CScanService()
         self.corrosion_service = CScanCorrosionService()
+
+        if corrosion_workflow_service is None:
+            corrosion_workflow_service = CorrosionWorkflowService(
+                cscan_corrosion_service=self.corrosion_service
+            )
+        else:
+            self.corrosion_service = corrosion_workflow_service.cscan_corrosion_service
+        self.corrosion_workflow = corrosion_workflow_service
 
     # --- Stack & visibility ---------------------------------------------------------
     def show_standard(self) -> None:
@@ -105,81 +113,23 @@ class CScanController:
         """Execute corrosion analysis using exactly two visible labels."""
         volume = self.get_volume()
         nde_model = self.get_nde_model()
-        mask_volume = self.annotation_model.mask_volume
-
-        if volume is None or mask_volume is None:
-            self.logger.error("Corrosion analysis aborted: volume or masks missing.")
+        if volume is None or nde_model is None:
+            self.logger.error("Corrosion analysis aborted: volume or NDE model missing.")
             self.view_state_model.deactivate_corrosion()
             return
 
-        if mask_volume.shape[0] != volume.shape[0]:
-            self.logger.error(
-                "Corrosion analysis aborted: mask depth %s != volume depth %s",
-                mask_volume.shape[0],
-                volume.shape[0],
-            )
-            self.view_state_model.deactivate_corrosion()
-            return
-
-        visible_labels = [
-            lbl for lbl, vis in (self.annotation_model.label_visibility or {}).items() if vis and int(lbl) > 0
-        ]
-        if len(visible_labels) != 2:
-            self.logger.error(
-                "Corrosion analysis requires exactly 2 visible labels; found %d.",
-                len(visible_labels),
-            )
-            self.view_state_model.deactivate_corrosion()
-            return
-
-        class_A_id, class_B_id = sorted(int(x) for x in visible_labels[:2])
-        self.logger.info("Corrosion analysis started with labels %s and %s", class_A_id, class_B_id)
-
-        global_masks = [mask_volume[idx] for idx in range(mask_volume.shape[0])]
-        resolution_cross, resolution_ultra = self._extract_resolutions(nde_model)
-        nde_filename = "unknown"
-        if nde_model is not None:
-            nde_filename = str(nde_model.metadata.get("path", "unknown"))
-        output_directory = os.path.dirname(nde_filename) if nde_filename not in ("", "unknown") else "."
-
-        try:
-            result = self.corrosion_service.run_analysis(
-                global_masks=global_masks,
-                volume_data=volume,
-                nde_data=nde_model.metadata if nde_model else {},
-                nde_filename=nde_filename,
-                orientation="lengthwise",
-                transpose=False,
-                rotation_applied=False,
-                resolution_crosswise_mm=resolution_cross,
-                resolution_ultrasound_mm=resolution_ultra,
-                output_directory=output_directory,
-                class_A_id=class_A_id,
-                class_B_id=class_B_id,
-                use_mm=False,
-            )
-        except Exception as exc:
-            self.logger.error("Corrosion analysis failed: %s", exc)
-            self.view_state_model.deactivate_corrosion()
-            return
-
-        projection, value_range = self.corrosion_service.compute_corrosion_projection(
-            result.distance_map,
-            value_range=result.distance_value_range,
+        result = self.corrosion_workflow.run(
+            nde_model=nde_model,
+            annotation_model=self.annotation_model,
+            volume=volume,
         )
-        self.view_state_model.activate_corrosion(projection, value_range)
-        self.update_views(volume)
-        self.status_callback("Analyse corrosion terminée", 3000)
 
-    # --- Internals -----------------------------------------------------------------
-    def _extract_resolutions(self, nde_model: Optional[NdeModel]) -> tuple[float, float]:
-        """Get crosswise and ultrasound resolutions from metadata, defaults to 1.0."""
-        if nde_model is None:
-            return 1.0, 1.0
-        dimensions = nde_model.metadata.get("dimensions", [])
-        try:
-            cross = float(dimensions[1].get("resolution", 1.0)) if len(dimensions) >= 3 else 1.0
-            ultra = float(dimensions[2].get("resolution", 1.0)) if len(dimensions) >= 3 else 1.0
-        except Exception:
-            cross, ultra = 1.0, 1.0
-        return cross, ultra
+        if not result.ok:
+            self.logger.error(result.message)
+            self.status_callback(result.message, 5000)
+            self.view_state_model.deactivate_corrosion()
+            return
+
+        self.view_state_model.activate_corrosion(result.projection, result.value_range)
+        self.update_views(volume)
+        self.status_callback(result.message, 3000)

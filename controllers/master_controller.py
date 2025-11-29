@@ -14,6 +14,7 @@ from services.ascan_service import AScanService
 from services.overlay_loader import OverlayLoader
 from services.overlay_service import OverlayService
 from services.nde_loader import NdeLoader
+from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
 from ui_mainwindow import Ui_MainWindow
 from views.cscan_view_corrosion import CscanViewCorrosion
 from views.overlay_settings_view import OverlaySettingsView
@@ -34,6 +35,10 @@ class MasterController:
         self.nde_loader = NdeLoader()
         self.overlay_loader = OverlayLoader()
         self.overlay_service = OverlayService()
+        self.cscan_corrosion_service = CScanCorrosionService()
+        self.corrosion_workflow_service = CorrosionWorkflowService(
+            cscan_corrosion_service=self.cscan_corrosion_service
+        )
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
 
         # References to Designer-created views.
@@ -81,6 +86,7 @@ class MasterController:
             get_nde_model=lambda: self.nde_model,
             status_callback=self.status_message,
             logger=self.logger,
+            corrosion_workflow_service=self.corrosion_workflow_service,
         )
 
         self.ascan_service = AScanService()

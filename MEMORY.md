@@ -1120,3 +1120,23 @@ Objectif d’isoler la plomberie Qt hors du contrôleur pour respecter MVC : le 
 2. Le contrôleur reste tolérant si `stacked_layout` ou `corrosion_view` est absent (check None) afin d’éviter des crashes sur des environnements partiels ou des tests headless.
 
 ---
+
+### **2025-11-29** — Service de workflow corrosion injecté
+
+**Tags :** `#services/cscan_corrosion_service.py`, `#controllers/cscan_controller.py`, `#controllers/master_controller.py`, `#corrosion`, `#mvc`, `#service-layer`, `#pyqt6`
+
+**Actions effectuées :**
+- Ajout de `CorrosionWorkflowService` et `CorrosionWorkflowResult` dans `cscan_corrosion_service.py` : valide volume/masques, contrôle exactement 2 labels visibles, extrait résolutions depuis `NdeModel.metadata`, déduit l’output_dir, lance `CScanCorrosionService.run_analysis` puis `compute_corrosion_projection`, retourne projection/valeurs ou message d’erreur structuré.
+- Injection du workflow dans `CScanController` (`corrosion_workflow_service` optionnel) avec fallback auto ; le contrôleur se contente d’orchestrer et d’activer la corrosion via `ViewStateModel` après succès.
+- `run_corrosion_analysis` délègue entièrement au service, gère les erreurs via status_callback et désactive corrosion en cas d’échec ; suppression de l’ancien `_extract_resolutions` et de la logique locale (masques, labels, output dir).
+- `MasterController` instancie `CScanCorrosionService` + `CorrosionWorkflowService` et les passe à `CScanController` pour éviter toute dépendance au UI layout côté contrôleur.
+
+**Contexte :**
+Objectif de déplacer l’orchestration corrosion hors du contrôleur vers un service dédié, pour respecter MVC et centraliser validations/résolutions/output. Le contrôleur garde uniquement le pilotage des vues et de l’état (activation corrosion) sans toucher à la plomberie PyQt.
+
+**Décisions techniques :**
+1. Le workflow renvoie un objet résultat structuré (ok/message/projection/value_range) pour une gestion simple côté contrôleur et logging clair.
+2. Résolutions cross/ultra récupérées depuis `NdeModel.metadata.dimensions` avec défauts à 1.0 pour robustesse.
+3. Injection du même `CScanCorrosionService` dans le workflow et le contrôleur pour éviter des instanciations divergentes et faciliter les tests/mocking.
+
+---
