@@ -1,0 +1,5 @@
+=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/nde test/SB70_MGO_151272_40M_45M/SB70_MGO_151272_40M_45M.nde ===
+
+[0.906s] A-SCAN PREVIEW slice=1704 x=56 y=138
+  normalized: {'len': 276, 'min': 1.0353227853775024, 'max': 51.97591018676758, 'mean': 9.007857322692871, 'head5': [4.669102668762207, 5.961564540863037, 6.5502777099609375, 6.57734489440918, 6.049533367156982], 'marker': 138, 'crosshair': (56, 138)}
+  raw: {'ultrasound_axis': 1, 'len': 276, 'min': 153.0, 'max': 7681.0, 'mean': 1331.18115234375, 'head5': [690.0, 881.0, 968.0, 972.0, 894.0]}

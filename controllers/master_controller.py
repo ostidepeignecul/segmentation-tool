@@ -120,6 +120,8 @@ class MasterController:
             if volume is None or getattr(volume, "ndim", 0) != 3:
                 raise ValueError("Le fichier NDE ne contient pas de volume 3D exploitable.")
 
+            self.ascan_service_start_session(file_path)
+
             self.nde_model = loaded_model
             num_slices = volume.shape[0]
             self.view_state_model.set_slice(0, num_slices - 1)
@@ -146,6 +148,7 @@ class MasterController:
                 "; ".join(axes_info) if axes_info else "n/a",
                 loaded_model.metadata.get("path"),
             )
+            self.ascan_service.log_preview(self.logger, self.nde_model, volume)
 
             self._refresh_views()
 
@@ -386,6 +389,16 @@ class MasterController:
         if self.nde_model is None:
             return None
         return self.nde_model.get_active_volume()
+
+    def ascan_service_start_session(self, source: str) -> None:
+        """Initialize the A-Scan debug logging session."""
+        try:
+            from services.ascan_debug_logger import ascan_debug_logger
+
+            ascan_debug_logger.start_session(source)
+        except Exception:
+            # Fail silently if logger cannot start
+            return
 
     def _update_ascan_trace(self, point: Optional[tuple[int, int]] = None) -> None:
         if self.nde_model is None:

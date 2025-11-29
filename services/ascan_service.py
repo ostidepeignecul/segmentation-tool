@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from models.simple_nde_model import SimpleNDEModel
+from services.ascan_debug_logger import ascan_debug_logger
 
 
 @dataclass
@@ -79,6 +80,79 @@ class AScanService:
             marker_index=marker_index,
             crosshair=(px, py),
         )
+
+    def log_preview(
+        self,
+        logger,
+        model: SimpleNDEModel,
+        volume: Optional[np.ndarray],
+        *,
+        slice_idx: Optional[int] = None,
+        point: Optional[Tuple[int, int]] = None,
+    ) -> None:
+        """Log both normalized and raw A-Scan stats for a diagnostic snapshot."""
+        if logger is None or model is None or volume is None or getattr(volume, "ndim", 0) != 3:
+            return
+        depth, height, width = volume.shape[:3]
+        if depth == 0 or height == 0 or width == 0:
+            return
+        s_idx = depth // 2 if slice_idx is None else self._clamp(slice_idx, depth)
+        px = width // 2
+        py = height // 2
+        if point is not None and len(point) == 2:
+            px = self._clamp(point[0], width)
+            py = self._clamp(point[1], height)
+
+        profile = self.build_profile(model, slice_idx=s_idx, point_hint=(px, py))
+        if profile is None or profile.signal_percent.size == 0:
+            logger.info("AScan preview: unavailable (empty profile)")
+            ascan_debug_logger.log_preview(s_idx, (px, py), None, None)
+            return
+
+        sig = profile.signal_percent
+        stats = {
+            "len": int(sig.size),
+            "min": float(sig.min()),
+            "max": float(sig.max()),
+            "mean": float(sig.mean()),
+            "head5": [float(x) for x in sig[:5]],
+            "marker": profile.marker_index,
+            "crosshair": profile.crosshair,
+        }
+        logger.info("AScan preview (slice=%d, x=%d, y=%d): %s", s_idx, px, py, stats)
+
+        raw_volume = getattr(model, "volume", None)
+        if raw_volume is None or getattr(raw_volume, "ndim", 0) != 3:
+            return
+        d, h, w = raw_volume.shape[:3]
+        if d == 0 or h == 0 or w == 0:
+            return
+        s_idx_raw = self._clamp(s_idx, d)
+        px_raw = self._clamp(px, w)
+        py_raw = self._clamp(py, h)
+        ultrasound_axis = self._ultrasound_axis_index(model, raw_volume.shape)
+
+        if ultrasound_axis == 2:
+            raw_profile = raw_volume[s_idx_raw, py_raw, :]
+        elif ultrasound_axis == 1:
+            raw_profile = raw_volume[s_idx_raw, :, px_raw]
+        else:
+            raw_profile = raw_volume[:, py_raw, px_raw]
+
+        raw_arr = np.asarray(raw_profile, dtype=np.float32)
+        if raw_arr.size == 0:
+            ascan_debug_logger.log_preview(s_idx_raw, (px_raw, py_raw), stats, None)
+            return
+        raw_stats = {
+            "ultrasound_axis": ultrasound_axis,
+            "len": int(raw_arr.size),
+            "min": float(raw_arr.min()),
+            "max": float(raw_arr.max()),
+            "mean": float(raw_arr.mean()),
+            "head5": [float(x) for x in raw_arr[:5]],
+        }
+        logger.info("AScan raw preview (slice=%d, x=%d, y=%d): %s", s_idx_raw, px_raw, py_raw, raw_stats)
+        ascan_debug_logger.log_preview(s_idx_raw, (px_raw, py_raw), stats, raw_stats)
 
     def map_profile_index_to_point(
         self,
@@ -155,5 +229,9 @@ class AScanService:
         for idx, name in enumerate(axis_order):
             if isinstance(name, str) and name.lower() == "ultrasound":
                 return idx
-        # Default to last axis if metadata is missing or does not specify an ultrasound axis
+        # Heuristic fallback: pick the longest non-slice axis (after index 0)
+        if len(shape) >= 3:
+            tail_axes = list(enumerate(shape[1:], start=1))
+            tail_axes.sort(key=lambda item: item[1], reverse=True)
+            return tail_axes[0][0]
         return max(0, len(shape) - 1)

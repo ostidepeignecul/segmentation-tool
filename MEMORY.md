@@ -902,3 +902,104 @@ Chaque mouvement de slider déclenchait un push complet de l’overlay RGBA vers
 2. S’appuyer sur les vues (Endview/VolumeView) pour rafraîchir l’overlay slice côté rendu lors des changements d’index, évitant un repush volumique coûteux.
 
 ---
+
+### **2025-11-28** — Log diagnostique A-Scan au chargement
+
+**Tags :** `#controllers/master_controller.py`, `#services/ascan_service.py`, `#ascan`, `#logging`, `#mvc`
+
+**Actions effectuées :**
+- Ajout de `_log_ascan_preview` appelé juste après le chargement NDE : extrait un profil A-Scan au centre (slice, x, y) et loggue longueur, min/max/mean, head(5), marker et crosshair.
+
+**Contexte :**
+Les fichiers Domain sans métadonnées ont un A-Scan « spécial » après fallback d’orientation. Le log console permet d’inspecter rapidement le contenu du profil sans interagir dans l’UI.
+
+**Décisions techniques :**
+1. Utiliser `AScanService.build_profile` pour respecter l’axe ultrasound détecté et les positions ; log structuré seulement si profil non vide.
+2. Éviter le bruit : early return si volume invalide/vide, head limité à 5 valeurs, stats simples (len/min/max/mean) pour lecture console.
+
+---
+
+### **2025-11-28** — Compat numpy pour log A-Scan
+
+**Tags :** `#controllers/master_controller.py`, `#ascan`, `#logging`, `#numpy`
+
+**Actions effectuées :**
+- Supprimé l’usage de `initial=` dans `min/max/mean` pour le log A-Scan (incompatible avec certaines versions numpy). Utilisation directe de `sig.min()/max()/mean()` après vérification `size>0`.
+
+**Contexte :**
+Une exception `_mean() got an unexpected keyword argument 'initial'` apparaissait sur des environnements numpy plus anciens lors du chargement NDE. Le log diagnostic A-Scan fonctionne maintenant sans ce paramètre.
+
+**Décisions techniques :**
+1. Conserver le guard `size>0` avant calcul, ce qui rend inutile l’argument `initial`.
+
+---
+
+### **2025-11-28** — Logs A-Scan enrichis (axe ultrasound, brut)
+
+**Tags :** `#controllers/master_controller.py`, `#ascan`, `#logging`, `#diagnostic`
+
+**Actions effectuées :**
+- `_log_ascan_preview` appelle désormais `_log_raw_ascan` qui extrait le profil brut selon l’axe ultrasound détecté (mêmes règles que l’AScanService) et loggue len/min/max/mean/head(5) + axe utilisé.
+- Ajout de `_detect_ultrasound_axis` côté contrôleur pour refléter la logique de l’AScanService quand l’axe « ultrasound » n’est pas nommé, fallback sur le dernier axe.
+
+**Contexte :**
+Pour les NDE Domain sans métadonnées (axis_*), il faut comparer les profils normalisés et bruts afin d’identifier les axes et valeurs atypiques. Les logs bruts donnent un aperçu immédiat dans la console après chargement.
+
+**Décisions techniques :**
+1. Calculer le profil brut directement depuis `nde_model.volume` en suivant l’axe ultrasound détecté pour rester cohérent avec la construction du profil normalisé.
+2. Garder la sortie concise (head 5) et ignorer si volume/profil vide pour ne pas polluer la console.
+
+---
+
+### **2025-11-28** — Heuristique ultrasound sur axe le plus long
+
+**Tags :** `#services/ascan_service.py`, `#ascan`, `#domain-structure`, `#orientation`, `#mvc`
+
+**Actions effectuées :**
+- Ajusté `_ultrasound_axis_index` : si aucun axe n’est nommé « ultrasound », on choisit désormais l’axe le plus long parmi les axes > 0 (non-slice) au lieu du dernier axe par défaut.
+
+**Contexte :**
+Les fichiers Domain sans métadonnées `dimensions` voyaient l’axe ultrasound sélectionné par défaut sur le dernier axe (longueur 113), alors que l’axe attendu est de longueur 276. Cette heuristique sélectionne désormais l’axe le plus long (ici 276) pour obtenir des profils A-Scan corrects.
+
+**Décisions techniques :**
+1. Considérer les axes après l’axe slice (index 0) et prendre le plus long, tri décroissant, pour refléter l’axe ultrasound probable quand il n’est pas nommé.
+2. Garder le fallback `max(0, len(shape)-1)` si la shape est trop courte (<3 axes).
+
+---
+
+### **2025-11-28** — Logs A-Scan déplacés dans le service
+
+**Tags :** `#services/ascan_service.py`, `#controllers/master_controller.py`, `#ascan`, `#logging`, `#mvc`
+
+**Actions effectuées :**
+- Ajout de `AScanService.log_preview(logger, model, volume, slice_idx=None, point=None)` qui loggue profil normalisé et brut (longueur, min/max/mean, head5, marker/crosshair, axe ultrasound détecté) en réutilisant `_ultrasound_axis_index`.
+- `MasterController` délègue désormais le diagnostic A-Scan à `AScanService.log_preview` après chargement NDE ; suppression des méthodes de log internes et de l’import numpy inutile.
+
+**Contexte :**
+Centraliser les logs A-Scan dans la couche service évite la duplication de logique de détection d’axe ultrasound dans le contrôleur et facilite le diagnostic des NDE Domain/Public.
+
+**Décisions techniques :**
+1. Utiliser `build_profile` pour le profil normalisé (respect de l’axe ultrasound détecté), puis extraire un profil brut cohérent depuis `model.volume` pour comparaison.
+2. Garder des logs concis (head5, stats de base) et ignorer les cas volume/profil vides pour éviter le bruit.
+
+---
+
+### **2025-11-28** — Debug log A-Scan externalisé
+
+**Tags :** `#services/ascan_service.py`, `#controllers/master_controller.py`, `#services/ascan_debug_logger.py`, `#logging`, `#ascan`, `#mvc`
+
+**Actions effectuées :**
+- Créé `services/ascan_debug_logger.py` : singleton écrivant `ascan_debug_log.txt` (start_session/ensure_session/end_session, log_preview pour stats normalisées/brutes).
+- Créé `services/cscan_debug_logger.py` (squelette) pour futurs besoins C-Scan.
+- `AScanService.log_preview` loggue toujours via le logger standard et en parallèle via `ascan_debug_logger` (profil normalisé + brut). Si profil absent, log un message et envoie `normalized=None`.
+- `MasterController` démarre la session A-Scan debug lors du chargement NDE (`ascan_service_start_session(file_path)`) et délègue le diagnostic A-Scan au service (plus de code de log dans le contrôleur, import numpy supprimé).
+- Heuristique ultrasound inchangée (axe non nommé → plus long des axes > 0) utilisée aussi pour le brut.
+
+**Contexte :**
+Centralisation du logging A-Scan hors contrôleur pour faciliter le diagnostic Domain/Public, avec fichiers dédiés aux traces A-Scan et un squelette pour les futurs logs C-Scan.
+
+**Décisions techniques :**
+1. Un fichier de log par session NDE (`start_session(source)` écrase l’ancien fichier et ajoute l’en-tête).
+2. Logs concis (head5, stats de base) et silencieux si volume/profil vide.
+
+---
