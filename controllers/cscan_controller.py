@@ -7,7 +7,7 @@ import os
 from typing import Callable, Optional, Tuple
 
 import numpy as np
-from PyQt6.QtWidgets import QStackedLayout, QWidget
+from PyQt6.QtWidgets import QStackedLayout
 
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
@@ -24,7 +24,9 @@ class CScanController:
     def __init__(
         self,
         *,
-        ui,
+        standard_view: Optional[CScanView],
+        corrosion_view: Optional[CscanViewCorrosion],
+        stacked_layout: Optional[QStackedLayout],
         view_state_model: ViewStateModel,
         annotation_model: AnnotationModel,
         get_volume: Callable[[], Optional[np.ndarray]],
@@ -32,7 +34,9 @@ class CScanController:
         status_callback: Callable[[str, int], None],
         logger: logging.Logger,
     ) -> None:
-        self.ui = ui
+        self.standard_view: Optional[CScanView] = standard_view
+        self.corrosion_view: Optional[CscanViewCorrosion] = corrosion_view
+        self._stack: Optional[QStackedLayout] = stacked_layout
         self.view_state_model = view_state_model
         self.annotation_model = annotation_model
         self.get_volume = get_volume
@@ -43,42 +47,7 @@ class CScanController:
         self.cscan_service = CScanService()
         self.corrosion_service = CScanCorrosionService()
 
-        self._stack: Optional[QStackedLayout] = None
-        self.standard_view: Optional[CScanView] = None
-        self.corrosion_view: Optional[CscanViewCorrosion] = None
-
-        self._setup_stack()
-
     # --- Stack & visibility ---------------------------------------------------------
-    def _setup_stack(self) -> None:
-        """Wrap the standard C-scan view with the corrosion view into a stacked container."""
-        try:
-            splitter = self.ui.splitter
-            original_view = self.ui.frame_4
-        except Exception:
-            return
-
-        idx = splitter.indexOf(original_view)
-        container = QWidget(parent=splitter)
-        layout = QStackedLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        original_view.setParent(container)
-        layout.addWidget(original_view)
-
-        corrosion_view = CscanViewCorrosion(parent=container)
-        layout.addWidget(corrosion_view)
-
-        layout.setCurrentWidget(original_view)
-        if idx >= 0:
-            splitter.replaceWidget(idx, container)
-        else:
-            splitter.addWidget(container)
-
-        self._stack = layout
-        self.standard_view = original_view
-        self.corrosion_view = corrosion_view
-
     def show_standard(self) -> None:
         if self._stack is not None and self.standard_view is not None:
             self._stack.setCurrentWidget(self.standard_view)

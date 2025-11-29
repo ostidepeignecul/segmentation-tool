@@ -1102,3 +1102,21 @@ Objectif d’aligner l’architecture sur un MVC plus strict : sortir le rendu d
 3. Maintien d’un alias `visible_labels` dans le modèle pour compatibilité, avec `get_visible_labels` utilisé côté contrôleur pour expliciter l’intention et réduire le couplage.
 
 ---
+
+### **2025-11-29** — Pile C-scan construite dans MasterController
+
+**Tags :** `#controllers/master_controller.py`, `#controllers/cscan_controller.py`, `#views/cscan_view_corrosion.py`, `#mvc`, `#pyqt6`, `#layout`
+
+**Actions effectuées :**
+- Création du `QStackedLayout` C-scan dans `MasterController` en réparent `frame_4` comme vue standard, ajout d’une nouvelle `CscanViewCorrosion`, et insertion du container dans le splitter pour piloter standard/corrosion sans toucher au contrôleur.
+- `CScanController` reçoit désormais `standard_view`, `corrosion_view` et `stacked_layout` injectés, sans dépendance à `ui_mainwindow` ni manipulation du splitter/layout.
+- `show_standard` / `show_corrosion` se contentent de sélectionner le widget courant du stack existant, tout en conservant les helpers de crosshair/projection.
+
+**Contexte :**
+Objectif d’isoler la plomberie Qt hors du contrôleur pour respecter MVC : le contrôleur orchestre les vues existantes mais ne construit plus les layouts Designer. MasterController instancie et insère les vues C-scan dans un `QStackedLayout` dédié, puis injecte ces références dans le contrôleur.
+
+**Décisions techniques :**
+1. Utilisation d’un container `QWidget` parent du splitter pour contenir le `QStackedLayout`, en remplaçant le slot de `frame_4` afin de préserver la hiérarchie UI existante tout en ajoutant la vue corrosion.
+2. Le contrôleur reste tolérant si `stacked_layout` ou `corrosion_view` est absent (check None) afin d’éviter des crashes sur des environnements partiels ou des tests headless.
+
+---

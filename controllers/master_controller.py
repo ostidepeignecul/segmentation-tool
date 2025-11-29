@@ -2,7 +2,7 @@ import logging
 from typing import Any, Optional
 
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QStackedLayout, QWidget
 
 from config.constants import MASK_COLORS_BGRA
 from controllers.ascan_controller import AScanController
@@ -15,6 +15,7 @@ from services.overlay_loader import OverlayLoader
 from services.overlay_service import OverlayService
 from services.nde_loader import NdeLoader
 from ui_mainwindow import Ui_MainWindow
+from views.cscan_view_corrosion import CscanViewCorrosion
 from views.overlay_settings_view import OverlaySettingsView
 
 
@@ -37,14 +38,43 @@ class MasterController:
 
         # References to Designer-created views.
         self.endview_view = self.ui.frame_3
-        self.cscan_view = self.ui.frame_4
         self.volume_view = self.ui.frame_5
         self.ascan_view = self.ui.frame_7
         self.tools_panel = self.ui.dockWidgetContents_2
         self._current_point: Optional[tuple[int, int]] = None
 
+        # C-scan stacked layout (standard + corrosion)
+        self.cscan_view = self.ui.frame_4
+        self.cscan_view_corrosion = None
+        self.cscan_stack = None
+        try:
+            splitter = self.ui.splitter
+        except Exception:
+            splitter = None
+        if splitter is not None and self.cscan_view is not None:
+            container = QWidget(parent=splitter)
+            stack = QStackedLayout(container)
+            stack.setContentsMargins(0, 0, 0, 0)
+            idx = splitter.indexOf(self.cscan_view)
+
+            self.cscan_view.setParent(container)
+            stack.addWidget(self.cscan_view)
+
+            self.cscan_view_corrosion = CscanViewCorrosion(parent=container)
+            stack.addWidget(self.cscan_view_corrosion)
+            stack.setCurrentWidget(self.cscan_view)
+
+            if idx >= 0:
+                splitter.replaceWidget(idx, container)
+            else:
+                splitter.addWidget(container)
+
+            self.cscan_stack = stack
+
         self.cscan_controller = CScanController(
-            ui=self.ui,
+            standard_view=self.cscan_view,
+            corrosion_view=self.cscan_view_corrosion,
+            stacked_layout=self.cscan_stack,
             view_state_model=self.view_state_model,
             annotation_model=self.annotation_model,
             get_volume=self._current_volume,
@@ -52,9 +82,6 @@ class MasterController:
             status_callback=self.status_message,
             logger=self.logger,
         )
-        # Expose standard/corrosion views for signal wiring
-        self.cscan_view = self.cscan_controller.standard_view or self.cscan_view
-        self.cscan_view_corrosion = self.cscan_controller.corrosion_view
 
         self.ascan_service = AScanService()
         self.ascan_controller = AScanController(
