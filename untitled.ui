@@ -91,9 +91,17 @@
      <string>Overlay</string>
     </property>
     <addaction name="actioncharger_npz"/>
+    <addaction name="actionParam_tres_2"/>
+   </widget>
+   <widget class="QMenu" name="menuAnalyse">
+    <property name="title">
+     <string>Analyse</string>
+    </property>
+    <addaction name="actionCorrosion_analyse"/>
    </widget>
    <addaction name="menuFichier"/>
    <addaction name="menuOverlay"/>
+   <addaction name="menuAnalyse"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <widget class="QDockWidget" name="dockWidget_2">
@@ -306,6 +314,16 @@
   <action name="actionQuitter">
    <property name="text">
     <string>Quitter</string>
+   </property>
+  </action>
+  <action name="actionCorrosion_analyse">
+   <property name="text">
+    <string>Corrosion analyse</string>
+   </property>
+  </action>
+  <action name="actionParam_tres_2">
+   <property name="text">
+    <string>Paramètres overlay</string>
    </property>
   </action>
  </widget>

@@ -1,8 +1,10 @@
 import logging
 from typing import Any, Optional
 
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
+from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
@@ -11,6 +13,7 @@ from services.cscan_service import CScanService
 from services.overlay_loader import OverlayLoader
 from services.nde_loader import NdeLoader
 from ui_mainwindow import Ui_MainWindow
+from views.overlay_settings_view import OverlaySettingsView
 
 
 class MasterController:
@@ -28,7 +31,8 @@ class MasterController:
         self.nde_loader = NdeLoader()
         self.cscan_service = CScanService()
         self.ascan_service = AScanService()
-        self.overlay_service = OverlayLoader()
+        self.overlay_loader = OverlayLoader()
+        self.overlay_settings_view = OverlaySettingsView(self.main_window)
 
         # References to Designer-created views.
         self.endview_view = self.ui.frame_3
@@ -41,12 +45,26 @@ class MasterController:
         self._connect_actions()
         self._connect_signals()
 
+    @staticmethod
+    def _bgra_to_qcolor(color: tuple[int, int, int, int]) -> QColor:
+        """Convert BGRA tuple to QColor."""
+        b, g, r, a = color
+        return QColor(r, g, b, a)
+
+    @staticmethod
+    def _qcolor_to_bgra(color: QColor) -> tuple[int, int, int, int]:
+        """Convert QColor to BGRA tuple."""
+        r, g, b, a = color.getRgb()
+        return (b, g, r, a)
+
     def _connect_actions(self) -> None:
         """Wire menu actions to controller handlers."""
         self.ui.actionopen_nde.triggered.connect(self._on_open_nde)
         self.ui.actioncharger_npz.triggered.connect(self._on_load_npz)
         self.ui.actionSauvegarder.triggered.connect(self._on_save)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
+        self.ui.actionParam_tres_2.triggered.connect(self._on_open_overlay_settings)
+        self.ui.actionCorrosion_analyse.triggered.connect(self._on_corrosion_analysis)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
 
     def _connect_signals(self) -> None:
@@ -102,6 +120,50 @@ class MasterController:
 
         self.volume_view.volume_needs_update.connect(self._on_volume_needs_update)
         self.volume_view.camera_changed.connect(self._on_camera_changed)
+        self.overlay_settings_view.label_visibility_changed.connect(self._on_label_visibility_changed)
+        self.overlay_settings_view.label_color_changed.connect(self._on_label_color_changed)
+        self.overlay_settings_view.label_added.connect(self._on_label_added)
+
+    def _on_open_overlay_settings(self) -> None:
+        """Open the overlay settings window and sync current labels."""
+        self._sync_overlay_settings_with_model()
+        self.overlay_settings_view.show()
+        self.overlay_settings_view.raise_()
+        self.overlay_settings_view.activateWindow()
+
+    def _on_label_visibility_changed(self, label_id: int, visible: bool) -> None:
+        """Handle overlay label visibility toggles."""
+        if label_id not in self.annotation_model.label_palette:
+            default_color = MASK_COLORS_BGRA.get(label_id, (255, 0, 255, 160))
+            self.annotation_model.ensure_label(label_id, default_color, visible=visible)
+        self.annotation_model.set_label_visibility(label_id, visible)
+        self._push_overlay()
+
+    def _on_label_color_changed(self, label_id: int, color: QColor) -> None:
+        """Handle overlay label color updates."""
+        bgra = self._qcolor_to_bgra(color)
+        self.annotation_model.set_label_color(label_id, bgra)
+        self.annotation_model.set_label_visibility(label_id, True)
+        self._push_overlay()
+
+    def _on_label_added(self, label_id: int, color: QColor) -> None:
+        """Handle new label creation from overlay settings."""
+        bgra = self._qcolor_to_bgra(color)
+        self.annotation_model.set_label_color(label_id, bgra)
+        self.annotation_model.set_label_visibility(label_id, True)
+        self._push_overlay()
+
+    def _sync_overlay_settings_with_model(self) -> None:
+        """Populate the overlay settings window with current model palette/visibility."""
+        entries = []
+        palette = self.annotation_model.label_palette
+        visibility = self.annotation_model.label_visibility
+        for label_id in sorted(palette.keys()):
+            color = palette[label_id]
+            qcolor = self._bgra_to_qcolor(color)
+            visible = visibility.get(label_id, True)
+            entries.append((label_id, qcolor, visible))
+        self.overlay_settings_view.set_labels(entries)
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
@@ -127,9 +189,9 @@ class MasterController:
             self.view_state_model.set_slice(0, num_slices - 1)
             self.view_state_model.set_current_point(None)
             self._current_point = None
+            self.annotation_model.clear()
             self.annotation_model.initialize(volume.shape)
-            self.overlay_service.initialize_empty(volume.shape)
-            self.annotation_model.mask_volume = self.overlay_service.mask_volume
+            self.overlay_settings_view.clear_labels()
 
             self.tools_panel.set_slice_bounds(0, num_slices - 1)
             self.tools_panel.set_slice_value(0)
@@ -175,8 +237,11 @@ class MasterController:
             QMessageBox.warning(self.main_window, "Overlay", "Volume NDE indisponible.")
             return
         try:
-            self.overlay_service.load(file_path, target_shape=volume.shape)
-            self.annotation_model.mask_volume = self.overlay_service.mask_volume
+            self.annotation_model.clear()
+            mask_volume = self.overlay_loader.load(file_path, target_shape=volume.shape)
+            self.annotation_model.set_mask_volume(mask_volume)
+            self.overlay_settings_view.clear_labels()
+            self._sync_overlay_settings_with_model()
             self._push_overlay()
             self.status_message(f"Overlay chargé: {file_path}")
         except Exception as exc:
@@ -189,6 +254,10 @@ class MasterController:
     def _on_open_settings(self) -> None:
         """Open the settings dialog."""
         pass
+
+    def _on_corrosion_analysis(self) -> None:
+        """Launch corrosion analysis (placeholder)."""
+        self.logger.info("Corrosion analysis requested (TODO: implement workflow).")
 
     def _on_quit(self) -> None:
         """Quit the application."""
@@ -435,7 +504,10 @@ class MasterController:
             self.endview_view.set_overlay(None)
             self.volume_view.set_overlay(None)
             return
-        overlay = self.overlay_service.get_rgba_volume()
+        overlay = self.annotation_model.build_overlay_rgba(self.annotation_model.visible_labels())
+        # Force refresh in the views to avoid stale overlays when visibility changes
+        self.endview_view.set_overlay(None)
+        self.volume_view.set_overlay(None)
         if overlay is not None:
             self.logger.info("Pushing overlay to views | shape=%s dtype=%s", overlay.shape, overlay.dtype)
         else:

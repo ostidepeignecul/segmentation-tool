@@ -16,6 +16,26 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-11-29** — Gestion overlay centralisée et labels dynamiques
+
+**Tags :** `#controllers/master_controller.py`, `#models/annotation_model.py`, `#views/overlay_settings_view.py`, `#services/overlay_loader.py`, `#overlay`, `#mvc`
+
+**Actions effectuées :**
+- Déplacé la palette/visibilité des labels dans `AnnotationModel` : masque 3D, palette BGRA et visibilité vides par défaut, rebuild à partir d’un volume ou d’un NPZ (`set_mask_volume` réinitialise palette/visibilités et enregistre les classes présentes).
+- Simplifié `OverlayLoader` : ne fait plus que charger un NPZ/NPY et retourner un volume uint8 (Z,H,W) aligné (transpose toléré 0,2,1), plus de palette/visibilité.
+- `MasterController` : sur chargement NDE ou NPZ, clear `AnnotationModel` et `OverlaySettingsView`, sync des labels via `_sync_overlay_settings_with_model`, overlay poussé depuis `annotation_model.build_overlay_rgba()` après avoir vidé les overlays des vues pour éviter un stale render.
+- `OverlaySettingsView` : plus de label par défaut, ajoute `clear_labels()` et nettoie avant `set_labels`; ajout manuel de labels conserve l’ID suivant via roue de teinte.
+
+**Contexte :**
+Le label “1” forcé créait des IDs fantômes et un overlay incohérent lors du chargement de NPZ (classes 1/2 devenaient 5/6). La palette/visibilité devait vivre dans le modèle d’annotation plutôt que dans la vue ou le loader pour garantir la cohérence entre overlay calculé et UI.
+
+**Décisions techniques :**
+1. Toujours repartir d’une palette/visibilité vide lors d’un nouveau volume ou NPZ pour refléter exactement les classes présentes.
+2. Forcer un clear de l’overlay dans les vues avant de pousser le nouvel overlay afin d’éviter que VisPy/QPixmap conservent l’ancien rendu quand des labels sont masqués/affichés.
+3. Laisser `OverlaySettingsView` purement déclarative : elle reflète l’état du modèle et ne crée rien tant qu’on ne lui passe pas de labels ou qu’on n’appuie pas sur “Ajouter un label”.
+
+---
+
 ### **2025-11-28** — Overlay NPZ/NPY géré via NPZOverlayService et annotation_model
 
 **Tags :** `#services/npz_overlay.py`, `#controllers/master_controller.py`, `#views/endview_view.py`, `#overlay`, `#mvc`

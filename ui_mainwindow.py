@@ -51,6 +51,8 @@ class Ui_MainWindow(object):
         self.menuFichier.setObjectName("menuFichier")
         self.menuOverlay = QtWidgets.QMenu(parent=self.menubar)
         self.menuOverlay.setObjectName("menuOverlay")
+        self.menuAnalyse = QtWidgets.QMenu(parent=self.menubar)
+        self.menuAnalyse.setObjectName("menuAnalyse")
         MainWindow.setMenuBar(self.menubar)
         self.statusbar = QtWidgets.QStatusBar(parent=MainWindow)
         self.statusbar.setObjectName("statusbar")
@@ -145,6 +147,10 @@ class Ui_MainWindow(object):
         self.actionParam_tres.setObjectName("actionParam_tres")
         self.actionQuitter = QtGui.QAction(parent=MainWindow)
         self.actionQuitter.setObjectName("actionQuitter")
+        self.actionCorrosion_analyse = QtGui.QAction(parent=MainWindow)
+        self.actionCorrosion_analyse.setObjectName("actionCorrosion_analyse")
+        self.actionParam_tres_2 = QtGui.QAction(parent=MainWindow)
+        self.actionParam_tres_2.setObjectName("actionParam_tres_2")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addAction(self.actionSauvegarder)
         self.menuFichier.addSeparator()
@@ -152,8 +158,11 @@ class Ui_MainWindow(object):
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionQuitter)
         self.menuOverlay.addAction(self.actioncharger_npz)
+        self.menuOverlay.addAction(self.actionParam_tres_2)
+        self.menuAnalyse.addAction(self.actionCorrosion_analyse)
         self.menubar.addAction(self.menuFichier.menuAction())
         self.menubar.addAction(self.menuOverlay.menuAction())
+        self.menubar.addAction(self.menuAnalyse.menuAction())
 
         self.retranslateUi(MainWindow)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
@@ -163,6 +172,7 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
         self.menuFichier.setTitle(_translate("MainWindow", "Fichier"))
         self.menuOverlay.setTitle(_translate("MainWindow", "Overlay"))
+        self.menuAnalyse.setTitle(_translate("MainWindow", "Analyse"))
         self.label_3.setText(_translate("MainWindow", "current_slice"))
         self.pushButton.setText(_translate("MainWindow", "goto"))
         self.label.setText(_translate("MainWindow", "Label choisi :"))
@@ -184,6 +194,8 @@ class Ui_MainWindow(object):
         self.actionSauvegarder.setText(_translate("MainWindow", "Sauvegarder"))
         self.actionParam_tres.setText(_translate("MainWindow", "Paramètres"))
         self.actionQuitter.setText(_translate("MainWindow", "Quitter"))
+        self.actionCorrosion_analyse.setText(_translate("MainWindow", "Corrosion analyse"))
+        self.actionParam_tres_2.setText(_translate("MainWindow", "Paramètres overlay"))
 from views.ascan_view import AScanView
 from views.cscan_view import CScanView
 from views.endview_view import EndviewView
