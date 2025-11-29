@@ -45,7 +45,6 @@ class MasterController:
         self.volume_view = self.ui.frame_5
         self.ascan_view = self.ui.frame_7
         self.tools_panel = self.ui.dockWidgetContents_2
-        self._current_point: Optional[tuple[int, int]] = None
 
         # C-scan stacked layout (standard + corrosion)
         self.cscan_view = self.ui.frame_4
@@ -210,7 +209,6 @@ class MasterController:
             self.view_state_model.set_slice_bounds(0, num_slices - 1)
             self.view_state_model.set_slice(0)
             self.view_state_model.set_current_point(None)
-            self._current_point = None
             self.annotation_model.clear()
             self.annotation_model.initialize(volume.shape)
             self.annotation_controller.clear_labels()
@@ -495,5 +493,4 @@ class MasterController:
             volume,
             point=point,
         )
-        self._current_point = self.view_state_model.current_point
 

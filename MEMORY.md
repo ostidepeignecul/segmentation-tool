@@ -1159,3 +1159,20 @@ Alignement MVC : la gestion overlay quitte MasterController pour un contrôleur 
 3. Chargement NDE/NPZ : MasterController s’appuie sur `annotation_controller.clear_labels()/sync_overlay_settings()/refresh_overlay` pour garder palette/visibilité synchronisées après reset ou import de masques.
 
 ---
+
+### **2025-11-29** — État de navigation centralisé dans ViewStateModel
+
+**Tags :** `#controllers/master_controller.py`, `#models/view_state_model.py`, `#mvc`, `#state-management`
+
+**Actions effectuées :**
+- Supprimé le champ privé `_current_point` de `MasterController` et remplacé son usage par `view_state_model.current_point` via les méthodes existantes.
+- Nettoyé les assignations inutiles (reset et update) afin de conserver ViewStateModel comme source de vérité pour la sélection/crosshair.
+
+**Contexte :**
+Objectif d’alléger le contrôleur et de centraliser l’état de navigation/sélection dans `ViewStateModel`, déjà responsable des bornes de slice et du crosshair.
+
+**Décisions techniques :**
+1. Pas de nouvelle API nécessaire dans `ViewStateModel`, les setters existants (`set_current_point`, `update_crosshair`) couvrent les usages.
+2. `MasterController._update_ascan_trace` ne recopie plus l’état localement, évitant toute divergence avec `ViewStateModel`.
+
+---
