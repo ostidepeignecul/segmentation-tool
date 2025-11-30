@@ -212,7 +212,6 @@ class nnUNetPostprocessOutput:
     report: dict
     pipeline_input: PipelineInput
     metadata: dict = field(default_factory=dict)
-    measurements: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

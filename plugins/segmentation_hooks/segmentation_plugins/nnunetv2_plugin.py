@@ -56,7 +56,6 @@ from ..segmentation_plugin_manager import (
 )
 from ..step_registration import register_step, StepPlugin
 from ._nnunetv2_utils import parse_folder_structure, log_std, ProgressIterator
-from .thickness_processing import extract_ascan_peak_positions
 from PIL import Image
 
 if TYPE_CHECKING:
@@ -779,7 +778,6 @@ class nnUNetv2Postprocessor(StepPlugin[InferenceOutput, nnUNetPostprocessOutput]
         mask = input_data.segmentation_mask["mask"]
         # Keep the original (Z, Y, X) orientation returned by nnUNet; ensure contiguous for downstream use.
         mask = np.ascontiguousarray(mask)
-        measurements: dict[str, Any] = {}
 
         # # fix the transposition back for 2d
         # if input_data.pipeline_input.config["nnunet_model_type"] == "2d":
@@ -796,48 +794,15 @@ class nnUNetv2Postprocessor(StepPlugin[InferenceOutput, nnUNetPostprocessOutput]
         #     if label_id == 0:
         #         continue
 
-        # ═══════════════════════════════════════════════════════════════
-        # Extract A-scan peak positions for each class
-        # ═══════════════════════════════════════════════════════════════
-        # IMPORTANT: Utiliser raw_data_array pour avoir les VRAIES valeurs d'amplitude NDE
-        # au lieu de data_array qui contient les valeurs normalisées [0-255]
-        volume_data = input_data.pipeline_input.raw_data_array
-        logger.info(
-            f"Extracting A-scan peak positions from RAW NDE volume shape: {volume_data.shape}"
-        )
-        volume_min = float(volume_data.min())
-        volume_max = float(volume_data.max())
-        logger.debug(
-            f"Volume data type: {volume_data.dtype}, range: [{volume_min:.1f}, {volume_max:.1f}]"
-        )
-
-        logger.debug(f"Mask shape after transpose: {mask.shape}")
-        logger.debug(f"Volume data shape: {volume_data.shape}")
-
-        ascan_peaks = extract_ascan_peak_positions(
-            mask=mask,
-            volume_data=volume_data,
-            labels=labels,
-        )
-
-        logger.info(f"Extracted A-scan peaks for {len(ascan_peaks)} classes")
-        for class_name, peaks in ascan_peaks.items():
-            logger.info(f"  - {class_name}: {len(peaks)} peak positions")
-
-        # ═══════════════════════════════════════════════════════════════
-        # Créer un masque avec des lignes entre frontwall et backwall
-        # ═══════════════════════════════════════════════════════════════
         # bounding box in numpy slice coords
         coords = self._bbox_from_mask(mask)
 
         report = {
             "voxels_foreground": int(mask.sum()),
             "bbox": coords,
-            "ascan_peaks_count": {name: len(peaks) for name, peaks in ascan_peaks.items()},
         }
 
         logger.info(f"Final nnUnet Mask shape: {mask.shape}")
-        
         return nnUNetPostprocessOutput(
             group_index=input_data.group_index,
             dataset_id=input_data.dataset_id,
@@ -849,11 +814,7 @@ class nnUNetv2Postprocessor(StepPlugin[InferenceOutput, nnUNetPostprocessOutput]
             labels_mapping=input_data.labels_mapping,
             probabilities_array=input_data.probabilities_array,
             pipeline_input=input_data.pipeline_input,
-            metadata={
-                **input_data.pipeline_input.metadata,
-                "ascan_peaks": ascan_peaks,  # ← NOUVEAU : positions des pics A-scan
-            },
-            measurements=measurements,
+            metadata=input_data.pipeline_input.metadata,
         )
     # -------------------- helpers -------------------------------
     @staticmethod
