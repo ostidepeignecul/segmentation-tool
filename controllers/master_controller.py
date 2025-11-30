@@ -1,15 +1,18 @@
 import logging
 from typing import Any, Optional
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QStackedLayout, QWidget
 
 from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
+from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService
+from services.nnunet_service import NnUnetResult, NnUnetService
 from services.overlay_loader import OverlayLoader
 from services.overlay_service import OverlayService
 from services.nde_loader import NdeLoader
@@ -38,6 +41,7 @@ class MasterController:
         self.corrosion_workflow_service = CorrosionWorkflowService(
             cscan_corrosion_service=self.cscan_corrosion_service
         )
+        self.nnunet_service = NnUnetService(logger=self.logger)
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
 
         # References to Designer-created views.
@@ -118,6 +122,7 @@ class MasterController:
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionParam_tres_2.triggered.connect(self.annotation_controller.open_overlay_settings)
         self.ui.actionCorrosion_analyse.triggered.connect(self.cscan_controller.run_corrosion_analysis)
+        self.ui.actionnnunet.triggered.connect(self._on_run_nnunet)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
 
     def _connect_signals(self) -> None:
@@ -271,6 +276,82 @@ class MasterController:
             self.status_message(f"Overlay chargé: {file_path}")
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur overlay", str(exc))
+
+    def _on_run_nnunet(self) -> None:
+        """Launch nnUNet inference on the loaded NDE volume."""
+        if self.nde_model is None:
+            QMessageBox.warning(self.main_window, "nnUNet", "Chargez un NDE avant de lancer l'inférence.")
+            return
+
+        volume = self._current_volume()
+        if volume is None:
+            QMessageBox.warning(self.main_window, "nnUNet", "Volume NDE indisponible.")
+            return
+
+        model_path, _ = QFileDialog.getOpenFileName(
+            self.main_window,
+            "Choisir le modèle nnUNet (zip ou dossier)",
+            "",
+            "Modèles nnUNet (*.zip);;Tous les fichiers (*)",
+        )
+        if not model_path:
+            return
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self.main_window,
+            "Enregistrer le résultat nnUNet (.npz)",
+            "",
+            "NPZ Files (*.npz)",
+        )
+        if not save_path:
+            return
+
+        raw_volume = getattr(self.nde_model, "volume", None)
+        dataset_id = self.nde_model.metadata.get("path") if self.nde_model.metadata else "current"
+
+        def _on_success(result: NnUnetResult) -> None:
+            def _apply() -> None:
+                try:
+                    self.annotation_model.clear()
+                    self.annotation_model.set_mask_volume(result.mask)
+                    labels = result.labels_mapping.get("labels", {}) if isinstance(result.labels_mapping, dict) else {}
+                    for _, label_id in labels.items():
+                        color = MASK_COLORS_BGRA.get(int(label_id), (255, 0, 255, 160))
+                        self.annotation_model.ensure_label(int(label_id), color, visible=True)
+                    # S'assure que l'overlay est visible
+                    self.view_state_model.toggle_overlay(True)
+                    self.tools_panel.set_overlay_checked(True)
+                    self.annotation_controller.sync_overlay_settings()
+                    self.annotation_controller.refresh_overlay()
+                    self.status_message(f"nnUNet terminé, masque sauvegardé : {result.output_path}", timeout_ms=5000)
+                    QMessageBox.information(
+                        self.main_window,
+                        "nnUNet",
+                        f"Résultat enregistré dans :\n{result.output_path}",
+                    )
+                except Exception as exc:
+                    QMessageBox.critical(self.main_window, "nnUNet", str(exc))
+            QTimer.singleShot(0, _apply)
+
+        def _on_error(exc: Exception) -> None:
+            def _show() -> None:
+                QMessageBox.critical(self.main_window, "nnUNet", str(exc))
+                self.status_message("Echec de l'inférence nnUNet", timeout_ms=5000)
+            QTimer.singleShot(0, _show)
+
+        try:
+            self.status_message("Inférence nnUNet en cours...", timeout_ms=4000)
+            self.nnunet_service.run_inference(
+                volume=volume,
+                raw_volume=raw_volume,
+                model_path=model_path,
+                output_path=save_path,
+                dataset_id=str(dataset_id) if dataset_id else "current",
+                on_success=_on_success,
+                on_error=_on_error,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "nnUNet", str(exc))
 
     def _on_save(self) -> None:
         """Handle saving current session or annotations."""

@@ -99,9 +99,16 @@
     </property>
     <addaction name="actionCorrosion_analyse"/>
    </widget>
+   <widget class="QMenu" name="menuInf_rence">
+    <property name="title">
+     <string>Inférence</string>
+    </property>
+    <addaction name="actionnnunet"/>
+   </widget>
    <addaction name="menuFichier"/>
    <addaction name="menuOverlay"/>
    <addaction name="menuAnalyse"/>
+   <addaction name="menuInf_rence"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <widget class="QDockWidget" name="dockWidget_2">
@@ -255,7 +262,7 @@
       <rect>
        <x>9</x>
        <y>419</y>
-       <width>261</width>
+       <width>271</width>
        <height>91</height>
       </rect>
      </property>
@@ -324,6 +331,11 @@
   <action name="actionParam_tres_2">
    <property name="text">
     <string>Paramètres overlay</string>
+   </property>
+  </action>
+  <action name="actionnnunet">
+   <property name="text">
+    <string>nnunet</string>
    </property>
   </action>
  </widget>

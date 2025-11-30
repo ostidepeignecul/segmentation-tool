@@ -1,6 +1,10 @@
 from PyQt6.QtWidgets import QApplication
+import os
 import sys
 import logging
+
+# Prevent duplicate OpenMP runtime crashes (libiomp5md.dll) when nnunet/torch/numpy are imported.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from controllers.master_controller import MasterController
 
