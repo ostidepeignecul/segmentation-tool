@@ -209,6 +209,7 @@ class MasterController:
             self.view_state_model.set_slice_bounds(0, num_slices - 1)
             self.view_state_model.set_slice(0)
             self.view_state_model.set_current_point(None)
+            self.annotation_controller.reset_overlay_state()
             self.annotation_model.clear()
             self.annotation_model.initialize(volume.shape)
             self.annotation_controller.clear_labels()
@@ -259,6 +260,7 @@ class MasterController:
             QMessageBox.warning(self.main_window, "Overlay", "Volume NDE indisponible.")
             return
         try:
+            self.annotation_controller.reset_overlay_state()
             self.annotation_model.clear()
             mask_volume = self.overlay_loader.load(file_path, target_shape=volume.shape)
             self.annotation_model.set_mask_volume(mask_volume)

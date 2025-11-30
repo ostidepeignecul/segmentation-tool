@@ -104,9 +104,14 @@ class AnnotationController:
             self.volume_view.set_overlay(None)
             return
 
+        mask_label_count = len(overlay_data.label_volumes)
+        palette_count = len(palette)
+        visible_count = len(visible_labels) if visible_labels is not None else palette_count
         self.logger.info(
-            "Pushing overlay to views | labels=%d",
-            len(overlay_data.label_volumes),
+            "Pushing overlay to views | mask_labels=%d | palette=%d | visible=%s",
+            mask_label_count,
+            palette_count,
+            visible_count if visible_labels is not None else "all",
         )
 
         self.endview_view.set_overlay(overlay_data, visible_labels=visible_labels)
@@ -123,6 +128,13 @@ class AnnotationController:
     def sync_overlay_settings(self) -> None:
         """Synchronise la vue de paramètres overlay avec le modèle d'annotation."""
         self._sync_overlay_settings_with_model()
+
+    def reset_overlay_state(self) -> None:
+        """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""
+        self._overlay_cache = None
+        self.endview_view.set_overlay(None)
+        self.volume_view.set_overlay(None)
+        self.overlay_settings_view.clear_labels()
 
     # ------------------------------------------------------------------ #
     # Internal helpers

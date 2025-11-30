@@ -1339,3 +1339,51 @@ return Colormap(colors=[(0,0,0,0), (r/255.0, g/255.0, b/255.0, a/255.0)])
 ```
 
 ---
+
+### **2025-11-30** — Log overlay counts (mask/palette/visible)
+
+**Tags :** `#controllers/annotation_controller.py`, `#overlay`, `#logging`
+
+**Actions effectuées :**
+- Remplacé le log d’envoi overlay pour afficher trois compteurs: labels présents dans le masque (`mask_labels`), labels dans la palette, et nombre de labels visibles (ou "all").
+- Supprimé le message trompeur qui indiquait toujours `labels=2` même quand plus de labels existaient.
+
+**Contexte :**
+Le précédent log ne comptait que `overlay_data.label_volumes` (labels avec des pixels), ce qui restait souvent à 2 malgré l’ajout de nouveaux labels. Le nouveau message clarifie les volumes effectivement poussés (masque), la palette définie et l’ensemble visible, pour diagnostiquer correctement l’overlay.
+
+**Décisions techniques :**
+1. `mask_labels` = `len(overlay_data.label_volumes)` pour refléter uniquement les labels ayant des pixels.
+2. `palette` = `len(palette)` pour suivre les labels définis côté modèle.
+3. `visible` = `len(visible_labels)` ou `"all"` si aucun filtrage, pour éviter la confusion lorsque la visibilité est totale.
+
+**Implémentation (extrait) :**
+```python
+mask_label_count = len(overlay_data.label_volumes)
+palette_count = len(palette)
+visible_count = len(visible_labels) if visible_labels is not None else palette_count
+self.logger.info(
+    "Pushing overlay to views | mask_labels=%d | palette=%d | visible=%s",
+    mask_label_count,
+    palette_count,
+    visible_count if visible_labels is not None else "all",
+)
+```
+
+---
+
+### **2025-11-30** — Reset overlay state on NDE load
+
+**Tags :** `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#overlay`, `#reset`
+
+**Actions effectuées :**
+- Ajout d’une méthode `reset_overlay_state` dans `AnnotationController` pour vider le cache overlay, nettoyer les vues (Endview/Volume) et réinitialiser la fenêtre de paramètres overlay.
+- Appel de `reset_overlay_state` lors du chargement d’un nouveau NDE et lors du chargement d’un overlay NPZ afin d’éviter la réutilisation d’overlays de taille incompatible.
+
+**Contexte :**
+Un overlay mis en cache sur un précédent volume causait un crash (mismatch de shapes) après chargement d’un nouveau NDE puis toggle overlay. Il fallait repartir d’un état propre avant de reconstruire les overlays.
+
+**Décisions techniques :**
+1. Centraliser le reset overlay dans le contrôleur pour éviter la duplication et garantir que cache + vues sont vidés.
+2. Appeler le reset avant de réinitialiser les masques/labels lors des chargements NDE ou NPZ afin que tout nouveau build d’overlay reparte du volume courant.
+
+---
