@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Module de logging pour le debug du chargement et des interactions avec les fichiers NPZ.
-Trace toutes les opérations liées aux masques NPZ : chargement, affichage, interactions 3D, slider.
+Module de logging pour le debug du chargement et des interactions avec les overlays (NPZ/NPY).
+Trace toutes les opérations liées aux masques overlay : chargement, affichage, interactions 3D, slider.
 
 Singleton pattern pour accès global depuis n'importe quel module.
 """
@@ -11,10 +11,10 @@ import numpy as np
 from typing import Any, Dict, Tuple, Optional
 
 
-class NPZDebugLogger:
+class OverlayDebugLogger:
     """
-    Logger singleton pour tracer les opérations NPZ.
-    Écrit dans npz_debug_log.txt.
+    Logger singleton pour tracer les opérations overlay.
+    Écrit dans overlay_debug_log.txt.
     """
     
     _instance = None
@@ -36,27 +36,27 @@ class NPZDebugLogger:
         self._first_occurrence_tracker = {}  # Pour éviter de logger les mêmes événements répétitifs
         self._initialized = True
     
-    def start_session(self, npz_filename: str):
+    def start_session(self, overlay_filename: str):
         """
-        Démarre une nouvelle session de logging pour un fichier NPZ.
+        Démarre une nouvelle session de logging pour un overlay (NPZ/NPY).
         
         Args:
-            npz_filename: Nom du fichier NPZ chargé
+            overlay_filename: Nom du fichier overlay chargé
         """
         if not self._enabled:
             return
         
         try:
-            self._log_file = open("npz_debug_log.txt", "w", encoding="utf-8")
+            self._log_file = open("overlay_debug_log.txt", "w", encoding="utf-8")
             self._start_time = time.time()
             self._session_active = True
             self._first_occurrence_tracker.clear()
             
-            self.log_section(f"NPZ DEBUG SESSION: {npz_filename}")
+            self.log_section(f"OVERLAY DEBUG SESSION: {overlay_filename}")
             self.log_separator()
             
         except Exception as e:
-            print(f"[NPZDebugLogger] Erreur lors du démarrage de session: {e}")
+            print(f"[OverlayDebugLogger] Erreur lors du démarrage de session: {e}")
             self._enabled = False
     
     def end_session(self):
@@ -76,7 +76,7 @@ class NPZDebugLogger:
             self._session_active = False
             
         except Exception as e:
-            print(f"[NPZDebugLogger] Erreur lors de la fin de session: {e}")
+            print(f"[OverlayDebugLogger] Erreur lors de la fin de session: {e}")
     
     def log_section(self, title: str):
         """Log un titre de section."""
@@ -94,20 +94,20 @@ class NPZDebugLogger:
             return
         self._write(f"\n{'-'*80}\n")
     
-    def log_npz_loading(self, npz_path: str, masks_shape: Tuple, num_slices: int):
+    def log_overlay_loading(self, overlay_path: str, masks_shape: Tuple, num_slices: int):
         """
-        Log le chargement d'un fichier NPZ.
+        Log le chargement d'un overlay.
         
         Args:
-            npz_path: Chemin du fichier NPZ
+            overlay_path: Chemin du fichier overlay
             masks_shape: Shape du tableau de masques (num_slices, height, width)
             num_slices: Nombre de slices chargées
         """
         if not self._enabled or not self._session_active:
             return
         
-        self.log_section("CHARGEMENT NPZ")
-        self.log_variable("npz_path", npz_path)
+        self.log_section("CHARGEMENT OVERLAY")
+        self.log_variable("overlay_path", overlay_path)
         self.log_variable("masks_shape", masks_shape)
         self.log_variable("num_slices", num_slices)
         self.log_variable("dtype", "uint8 (classes 0-9)")
@@ -325,5 +325,5 @@ class NPZDebugLogger:
 
 
 # Instance globale singleton
-npz_debug_logger = NPZDebugLogger()
+overlay_debug_logger = OverlayDebugLogger()
 

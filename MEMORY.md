@@ -1176,3 +1176,21 @@ Objectif d’alléger le contrôleur et de centraliser l’état de navigation/s
 2. `MasterController._update_ascan_trace` ne recopie plus l’état localement, évitant toute divergence avec `ViewStateModel`.
 
 ---
+
+### **2025-11-29** — Renommage OverlayDebugLogger
+
+**Tags :** `#services/overlay_debug_logger.py`, `#services/overlay_loader.py`, `#overlay`, `#logging`
+
+**Actions effectuées :**
+- Renommé le service de debug NPZ en `overlay_debug_logger.py` avec la classe `OverlayDebugLogger` et l’instance globale `overlay_debug_logger`, les sessions écrivent désormais dans `overlay_debug_log.txt` avec un header overlay explicite.
+- La méthode de traçage de chargement devient `log_overlay_loading` (paramètre `overlay_path`), conservant le log des shapes/dtypes et la déduplication des événements.
+- `OverlayLoader` importe le nouveau module/logger et utilise `log_overlay_loading` + `log_variable` pour tracer le chargement et les classes uniques.
+
+**Contexte :**
+Alignement du logger avec son usage overlay (NPZ/NPY) pour éviter la confusion avec l’ancien nom NPZ et rester cohérent avec l’OverlayLoader qui s’appuie sur ce service pour diagnostiquer les volumes de masques.
+
+**Décisions techniques :**
+1. Conserver le pattern singleton et l’API existante en ne changeant que les noms/logfile afin de limiter l’impact au seul OverlayLoader.
+2. Renommer le fichier de log en `overlay_debug_log.txt` pour que le nom reflète la portée (overlay) et faciliter le tri des traces aux côtés des autres fichiers de debug (ascan/cscan/etc.).
+
+---

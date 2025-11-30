@@ -8,7 +8,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from services.npz_debug_logger import npz_debug_logger
+from services.overlay_debug_logger import overlay_debug_logger
 
 
 class OverlayLoader:
@@ -53,13 +53,13 @@ class OverlayLoader:
 
         self.mask_volume = np.array(arr, dtype=np.uint8, copy=False)
 
-        npz_debug_logger.log_npz_loading(
-            npz_path=str(file_path),
+        overlay_debug_logger.log_overlay_loading(
+            overlay_path=str(file_path),
             masks_shape=self.mask_volume.shape,
             num_slices=self.mask_volume.shape[0],
         )
         unique_classes = np.unique(self.mask_volume)
-        npz_debug_logger.log_variable("unique_classes", unique_classes.tolist())
+        overlay_debug_logger.log_variable("unique_classes", unique_classes.tolist())
 
         return self.mask_volume
 
