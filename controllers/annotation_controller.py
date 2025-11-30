@@ -7,6 +7,7 @@ from PyQt6.QtGui import QColor
 
 from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
+from models.overlay_data import OverlayData
 from models.view_state_model import ViewStateModel
 from services.overlay_service import OverlayService
 from views.endview_view import EndviewView
@@ -35,6 +36,7 @@ class AnnotationController:
         self.volume_view = volume_view
         self.overlay_settings_view = overlay_settings_view
         self.logger = logger
+        self._overlay_cache: OverlayData | None = None
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -53,28 +55,28 @@ class AnnotationController:
             default_color = MASK_COLORS_BGRA.get(label_id, (255, 0, 255, 160))
             self.annotation_model.ensure_label(label_id, default_color, visible=visible)
         self.annotation_model.set_label_visibility(label_id, visible)
-        self.refresh_overlay()
+        self.refresh_overlay(defer_volume=True, rebuild=False)
 
     def on_label_color_changed(self, label_id: int, color: QColor) -> None:
         """Gère les changements de couleur des labels overlay."""
         bgra = self._qcolor_to_bgra(color)
         self.annotation_model.set_label_color(label_id, bgra)
         self.annotation_model.set_label_visibility(label_id, True)
-        self.refresh_overlay()
+        self.refresh_overlay(defer_volume=True, rebuild=False)
 
     def on_label_added(self, label_id: int, color: QColor) -> None:
         """Gère l'ajout d'un nouveau label depuis les paramètres overlay."""
         bgra = self._qcolor_to_bgra(color)
         self.annotation_model.set_label_color(label_id, bgra)
         self.annotation_model.set_label_visibility(label_id, True)
-        self.refresh_overlay()
+        self.refresh_overlay(defer_volume=True, rebuild=False)
 
     def on_overlay_toggled(self, enabled: bool) -> None:
         """Gère le toggle de visibilité de l'overlay."""
         self.view_state_model.toggle_overlay(enabled)
-        self.refresh_overlay()
+        self.refresh_overlay(rebuild=False)
 
-    def refresh_overlay(self) -> None:
+    def refresh_overlay(self, *, defer_volume: bool = False, rebuild: bool = True) -> None:
         """Recalcule et pousse l'overlay vers les vues selon l'état actuel."""
         if not self.view_state_model.show_overlay:
             self.logger.info("Overlay hidden by toggle; clearing views.")
@@ -85,19 +87,34 @@ class AnnotationController:
         mask_volume = self.annotation_model.get_mask_volume()
         palette = self.annotation_model.get_label_palette()
         visible_labels = self.annotation_model.get_visible_labels()
-        overlay = self.overlay_service.build_overlay_rgba(mask_volume, palette, visible_labels)
 
-        # Force refresh in the views to avoid stale overlays when visibility changes
-        self.endview_view.set_overlay(None)
-        self.volume_view.set_overlay(None)
-
-        if overlay is not None:
-            self.logger.info("Pushing overlay to views | shape=%s dtype=%s", overlay.shape, overlay.dtype)
+        overlay_data = None
+        if not rebuild and self._overlay_cache is not None:
+            overlay_data = OverlayData(
+                label_volumes=self._overlay_cache.label_volumes,
+                palette=palette,
+            )
         else:
-            self.logger.info("No overlay available to push; clearing views.")
+            overlay_data = self.overlay_service.build_overlay_data(mask_volume, palette)
+            self._overlay_cache = overlay_data
 
-        self.endview_view.set_overlay(overlay)
-        self.volume_view.set_overlay(overlay)
+        if overlay_data is None:
+            self.logger.info("No overlay available to push; clearing views.")
+            self.endview_view.set_overlay(None)
+            self.volume_view.set_overlay(None)
+            return
+
+        self.logger.info(
+            "Pushing overlay to views | labels=%d",
+            len(overlay_data.label_volumes),
+        )
+
+        self.endview_view.set_overlay(overlay_data, visible_labels=visible_labels)
+        self.volume_view.set_overlay(
+            overlay_data,
+            visible_labels=visible_labels,
+            defer_3d=defer_volume,
+        )
 
     def clear_labels(self) -> None:
         """Efface tous les labels de la vue de paramètres overlay."""

@@ -1194,3 +1194,148 @@ Alignement du logger avec son usage overlay (NPZ/NPY) pour éviter la confusion 
 2. Renommer le fichier de log en `overlay_debug_log.txt` pour que le nom reflète la portée (overlay) et faciliter le tri des traces aux côtés des autres fichiers de debug (ascan/cscan/etc.).
 
 ---
+
+### **2025-11-29** — Overlay alpha compact + refresh sans reset
+
+**Tags :** `#controllers/annotation_controller.py`, `#services/overlay_service.py`, `#views/volume_view.py`, `#views/endview_view.py`, `#models/overlay_data.py`, `#overlay`, `#performance`, `#mvc`
+
+**Actions effectuées :**
+- Ajout de `OverlayData` (mask uint8 filtré + alpha float32 + palette BGRA) pour transporter l’overlay sans volume RGBA complet.
+- `OverlayService.build_overlay_data` retourne ce payload compact en appliquant la visibilité sur le mask et en mappant l’alpha depuis la palette (sans créer de RGBA (Z,H,W,4)).
+- `AnnotationController.refresh_overlay` ne fait plus de reset `set_overlay(None)` avant push ; il ne nettoie que si l’overlay est absent/masqué et pousse `OverlayData` aux vues.
+- `VolumeView.set_overlay` consomme `OverlayData` (alpha pour le VolumeVisual, palette pour coloriser la slice) et met à jour les visuels sans recréer, avec helper de clear centralisé.
+- `EndviewView.set_overlay` accepte `OverlayData`, génère la slice RGBA à la volée via la palette (plus de stockage d’un volume RGBA complet).
+
+**Contexte :**
+Réduire les copies et uploads GPU du volume overlay 3D : le pipeline ne transmet plus un RGBA volumique, évite le double passage `None → set_overlay`, et met à jour les visuels existants. La colorisation par palette reste en vue 2D/3D slice, mais le 3D utilise uniquement l’alpha et un colormap léger.
+
+**Décisions techniques :**
+1. Overlay 3D = volume alpha float32 + colormap `_TranslucentMask` (pas de RGBA envoyé au GPU) ; slice overlay colorisée via palette côté vue pour garder les couleurs labels sans volume RGBA.
+2. Contrôleur overlay reste orchestration pure : pas de logique UI/métier, pas de reset inutile ; le service gère la visibilité et la génération du payload compact.
+3. Nettoyage overlay factorisé `_clear_overlay_visuals` pour éviter les visuels orphelins lors des changements d’overlay/volume ou des entrées invalides.
+
+**Implémentation (extrait) :**
+```python
+# services/overlay_service.py
+alpha = np.zeros_like(filtered_mask, dtype=np.float32)
+for cls_value in np.unique(filtered_mask):
+    cls_int = int(cls_value)
+    if cls_int == 0:
+        continue
+    a = float(palette.get(cls_int, FallbackColor)[3]) / 255.0
+    if a <= 0.0:
+        continue
+    alpha[filtered_mask == cls_int] = a
+return OverlayData(mask=filtered_mask, alpha=alpha, palette=palette)
+```
+
+---
+
+### **2025-11-29** — Fix asarray(copy) crash on overlay load
+
+**Tags :** `#views/volume_view.py`, `#overlay`, `#numpy`, `#bugfix`
+
+**Actions effectuées :**
+- Remplacé `np.asarray(..., dtype=np.float32, copy=False)` par `np.array(..., dtype=np.float32, copy=False)` dans `VolumeView.set_overlay` pour supporter les versions de numpy où `asarray` n’accepte pas `copy`.
+
+**Contexte :**
+Chargement d’NPZ déclenchait `asarray() got an unexpected keyword argument 'copy'` lors de la conversion du volume alpha overlay; utiliser `np.array` supprime l’argument incompatible tout en conservant la conversion float32 sans copie inutile.
+
+**Décisions techniques :**
+1. Conversion alpha via `np.array(..., copy=False)` pour rester zéro-copy quand possible et compatible avec numpy <1.26.
+2. Aucun impact sur le pipeline overlay (payload compact mask+alpha+palette) ; uniquement la conversion d’entrée côté vue 3D.
+
+---
+
+### **2025-11-30** — OverlayService perf: filtrage sans copie globale
+
+**Tags :** `#services/overlay_service.py`, `#overlay`, `#performance`, `#numpy`, `#mvc`
+
+**Actions effectuées :**
+- `build_overlay_data` génère désormais un volume alpha par label pour tous les labels présents (pas de filtrage de visibilité dans le service).
+- Suppression du paramètre `visible_labels` pour clarifier que le filtrage se fait côté vues.
+
+**Contexte :**
+Le service fournit un overlay complet (tous labels) et laisse les vues gérer la visibilité pour éviter toute ambiguïté de responsabilité.
+
+**Décisions techniques :**
+1. Responsabilité unique : service = données complètes; vues = filtrage des labels visibles.
+2. Moins de confusion API en enlevant `visible_labels`.
+
+---
+
+### **2025-11-30** — Déferlement overlay 3D pour toggles rapides
+
+**Tags :** `#views/volume_view.py`, `#controllers/annotation_controller.py`, `#overlay`, `#performance`, `#vispy`, `#qt`
+
+**Actions effectuées :**
+- VolumeView : ajout d’un `defer_3d` dans `set_overlay`, avec QTimer (120ms) pour coalescer les uploads du VolumeVisual overlay ; mise à jour immédiate de l’overlay 2D, upload 3D différé via `_apply_pending_overlay_volume`, clear/stop du timer sur reset, application forcée si on change de slice pendant un upload en attente.
+- AnnotationController : les interactions OverlaySettings (visibility/color/add) appellent `refresh_overlay(defer_volume=True)`, qui pousse Endview immédiatement et VolumeView avec defer pour éviter le spam GPU ; les autres chemins (toggle global) restent immédiats.
+
+**Contexte :**
+Les cases de visibilité étaient lentes car chaque clic re-uploadait le volume overlay 3D. Le différé limite les uploads pendant les toggles rapides tout en gardant la slice 2D à jour.
+
+**Décisions techniques :**
+1. Timer single-shot 120ms pour regrouper les modifications, flag `_pending_overlay_apply` pour savoir si un upload est en attente.
+2. Application forcée avant un changement de slice pour garder 3D/slice cohérents.
+3. Chemins overlay_settings seuls passent en defer pour ne pas changer le comportement des autres toggles (on/off global).
+
+**Implémentation (extrait) :**
+```python
+# views/volume_view.py
+self._overlay_timer = QTimer(self)
+self._overlay_timer.setSingleShot(True)
+self._overlay_timer.timeout.connect(self._apply_pending_overlay_volume)
+...
+def set_overlay(self, overlay, *, defer_3d=False):
+    ...
+    if defer_3d:
+        if self._slice_overlay is None and self._view.scene is not None:
+            self._add_slice_overlay()
+        self._update_overlay_image()
+        self._schedule_overlay_volume_update()
+        return
+    self._apply_overlay_volume_now()
+
+# controllers/annotation_controller.py
+self.refresh_overlay(defer_volume=True)
+...
+self.volume_view.set_overlay(overlay_data, defer_3d=defer_volume)
+```
+
+---
+
+### **2025-11-30** — Overlays par label en mémoire + toggles visibles sans reupload
+
+**Tags :** `#services/overlay_service.py`, `#controllers/annotation_controller.py`, `#views/volume_view.py`, `#views/endview_view.py`, `#overlay`, `#performance`, `#vispy`, `#qt`
+
+**Actions effectuées :**
+- `OverlayData` stocke désormais un volume alpha par label (`label_volumes`), palette séparée.
+- `OverlayService.build_overlay_data` génère un alpha volume float32 pour chaque label présent (tous labels), sans filtrage par visibilité ; retourne None si aucun label.
+- `AnnotationController` maintient un cache OverlayData et, pour les toggles couleurs/visibilité, réutilise les volumes en mémoire (rebuild=False) en ne poussant que palette/visibilité vers les vues ; passe `visible_labels` aux vues ; log mis à jour (nombre de labels).
+- `VolumeView` gère des VolumeVisual par label (colormap 2 stops couleur du label) et ne réuploade les données que si le volume a changé ; les toggles ne modifient que `visible`; overlay 2D composé par slice en combinant les volumes visibles ; support du defer (timer 120ms) conservé mais appliqué aux volumes multi-label.
+- `EndviewView` compose la slice overlay via les volumes par label et les labels visibles, sans recomposer un volume RGBA complet stocké.
+
+**Contexte :**
+Objectif d’avoir un volume par label gardé en mémoire et rendre les toggles de visibilité quasi instantanés en évitant les reuploads complets ; cache OverlayData pour réutiliser les volumes existants quand seule la visibilité ou la palette change.
+
+**Décisions techniques :**
+1. Volume par label avec colormap dédiée pour conserver la couleur sans recalcul des données ; visibilité gérée au niveau du visual.
+2. Cache overlay au contrôleur pour différencier les cas “masque changé” (rebuild) vs “visibilité/couleur” (réutilisation + palette/visibilité).
+3. Composition 2D à la volée par slice (combine les volumes visibles) pour rester cohérent avec la vue 3D sans stocker un RGBA volumique.
+
+**Implémentation (extrait) :**
+```python
+# controllers/annotation_controller.py
+if not rebuild and self._overlay_cache is not None:
+    overlay_data = OverlayData(label_volumes=self._overlay_cache.label_volumes, palette=palette)
+else:
+    overlay_data = self.overlay_service.build_overlay_data(mask_volume, palette)
+...
+self.volume_view.set_overlay(overlay_data, visible_labels=visible_labels, defer_3d=defer_volume)
+
+# views/volume_view.py (colormap par label)
+return Colormap(colors=[(0,0,0,0), (r/255.0, g/255.0, b/255.0, a/255.0)])
+```
+
+---
