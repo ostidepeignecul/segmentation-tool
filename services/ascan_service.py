@@ -439,28 +439,28 @@ class AScanExtractor:
         try:
             if orientation == "lengthwise":
                 if rotation_applied:
-                    crosswise_indices = volume_data.shape[1] - 1 - xs
+                    x_indices = volume_data.shape[2] - 1 - xs
                     valid_mask = (
-                        (crosswise_indices >= 0)
-                        & (crosswise_indices < volume_data.shape[1])
+                        (x_indices >= 0)
+                        & (x_indices < volume_data.shape[2])
                         & (ys >= 0)
-                        & (ys < volume_data.shape[2])
+                        & (ys < volume_data.shape[1])
                     )
                     valid_indices = np.where(valid_mask)[0]
                     if len(valid_indices) > 0:
                         ascan_values[valid_indices] = volume_data[
-                            slice_idx, crosswise_indices[valid_indices], ys[valid_indices]
+                            slice_idx, ys[valid_indices], x_indices[valid_indices]
                         ]
                 else:
                     valid_mask = (
                         (xs >= 0)
-                        & (xs < volume_data.shape[1])
+                        & (xs < volume_data.shape[2])
                         & (ys >= 0)
-                        & (ys < volume_data.shape[2])
+                        & (ys < volume_data.shape[1])
                     )
                     valid_indices = np.where(valid_mask)[0]
                     if len(valid_indices) > 0:
-                        ascan_values[valid_indices] = volume_data[slice_idx, xs[valid_indices], ys[valid_indices]]
+                        ascan_values[valid_indices] = volume_data[slice_idx, ys[valid_indices], xs[valid_indices]]
 
             elif orientation == "crosswise":
                 if rotation_applied:
