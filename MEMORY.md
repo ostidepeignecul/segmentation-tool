@@ -1387,3 +1387,20 @@ Un overlay mis en cache sur un précédent volume causait un crash (mismatch de 
 2. Appeler le reset avant de réinitialiser les masques/labels lors des chargements NDE ou NPZ afin que tout nouveau build d’overlay reparte du volume courant.
 
 ---
+
+### **2025-12-01** — Zoom molette C-scan
+
+**Tags :** `#views/cscan_view.py`, `#views/cscan_view_corrosion.py`, `#ui`, `#zoom`, `#mvc`
+
+**Actions effectuées :**
+- Ajout d’un zoom à la molette sur CScanView avec ancre sous la souris (`ViewportAnchor.AnchorUnderMouse`) et facteur 1.15/-1.15.
+- Réinitialisation du transform du QGraphicsView lors de `set_projection` pour repartir à échelle 1 après changement de projection; CscanViewCorrosion hérite automatiquement.
+
+**Contexte :**
+Besoin de zoomer sur la heatmap C-scan sans casser la sélection existante au Shift-clic. L’interaction reste gérée dans la vue (UI) et se limite au scaling du QGraphicsView.
+
+**Décisions techniques :**
+1. Gestion du wheel event via l’eventFilter pour garder la logique d’interaction encapsulée dans la vue et préserver le Shift-clic existant.
+2. Reset du transform à chaque nouvelle projection afin d’éviter la persistance d’un zoom précédent qui pourrait induire une mauvaise lecture de la nouvelle image.
+
+---
