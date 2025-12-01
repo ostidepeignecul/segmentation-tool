@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QEvent, QPointF, Qt, pyqtSignal
-from PyQt6.QtGui import QImage, QPen, QPixmap
+from PyQt6.QtGui import QImage, QPen, QPixmap, QTransform
 from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -41,6 +41,7 @@ class CScanView(QFrame):
         self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.viewport().installEventFilter(self)
         self._view.setMouseTracking(True)
+        self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
 
         self._pixmap_item = QGraphicsPixmapItem()
         self._scene.addItem(self._pixmap_item)
@@ -91,6 +92,7 @@ class CScanView(QFrame):
             value_range = (float(self._projection.min()), float(self._projection.max()))
         self._value_range = value_range
         self._status.setText(f"Z={projection.shape[0]} · X={projection.shape[1]}")
+        self._view.setTransform(QTransform())  # reset zoom when updating projection
         self._current_crosshair = (
             projection.shape[0] // 2,
             projection.shape[1] // 2,
@@ -132,6 +134,15 @@ class CScanView(QFrame):
                         self.crosshair_changed.emit(z, x)
                         self.slice_requested.emit(z)
                     return True
+            if event.type() == QEvent.Type.Wheel:
+                delta = event.angleDelta().y()
+                if delta == 0:
+                    return False
+                zoom_in = delta > 0
+                factor = 1.15 if zoom_in else 1 / 1.15
+                self._view.scale(factor, factor)
+                event.accept()
+                return True
         return super().eventFilter(obj, event)
 
     def _render_pixmap(self) -> None:
