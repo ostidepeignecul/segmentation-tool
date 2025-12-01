@@ -1,5 +1,5 @@
-=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/nde test/Pipe_10mm_Flexoform_Rast_All/Pipe_10mm_Flexoform_Rast_All.nde ===
+=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/nde test/Cor_Tube_5mm_Hydro_steer_rast_all_0001/Cor_Tube_5mm_Hydro_steer_rast_all_0001.nde ===
 
-[0.003s] A-SCAN PREVIEW slice=300 x=326 y=214
-  normalized: {'len': 428, 'min': 0.0, 'max': 80.001220703125, 'mean': 5.916526794433594, 'head5': [0.22888882458209991, 0.15259253978729248, 0.07629626989364624, 0.0, 0.0], 'marker': 214, 'crosshair': (326, 214)}
-  raw: {'ultrasound_axis': 1, 'len': 428, 'min': 0.0, 'max': 26214.0, 'mean': 1938.668212890625, 'head5': [75.0, 50.0, 25.0, 0.0, 0.0]}
+[0.002s] A-SCAN PREVIEW slice=350 x=220 y=308
+  normalized: {'len': 616, 'min': 0.009155552834272385, 'max': 62.096012115478516, 'mean': 6.760558128356934, 'head5': [0.009155552834272385, 0.009155552834272385, 0.009155552834272385, 0.009155552834272385, 0.009155552834272385], 'marker': 308, 'crosshair': (220, 308)}
+  raw: {'ultrasound_axis': 1, 'len': 616, 'min': 3.0, 'max': 20347.0, 'mean': 2215.232177734375, 'head5': [3.0, 3.0, 3.0, 3.0, 3.0]}
