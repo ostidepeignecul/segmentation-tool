@@ -329,40 +329,39 @@ class nnUNetv2Preprocessor(StepPlugin[PipelineInput, nnUNetPreprocessOutput]):
         # ————————— decide slice strategy ————————— #
         is_3d = model_type.startswith("3d")
         flip = False
+        chunk_parts = int(input_data.config.get("chunk_parts", 8) or 8)
+        chunk_parts = max(1, chunk_parts)
+
         if flip is True:
             vol = np.flip(
                 vol, axis=1
             )  # (N, Z, Y, X) → (N, Z, Y, X) with flipped X axis
-        if is_3d:
-            # single element list → iterator will treat as one “case”
-            logger.info(f"Using 3D model type: {model_type}.")
-            inference_list: list[np.ndarray] = [vol]
-            slice_props = [
-                {
-                    "spacing": spacing,
-                    "original_shape": raw.shape,
-                }
-            ]
-        else:
-            # 2-D model: run inference slice by slice over the full volume (no chunking).
-            n_slices = vol.shape[1]  # number of slices in Z
-            inference_list = [
-                np.expand_dims(vol[:, z, ...], 1)  # (1,1,Y,X)
-                for z in range(n_slices)
-            ]
-            slice_props = [
-                {
-                    "slice_index": z,
-                    "spacing": spacing,
-                    "original_shape": raw.shape,
-                }
-                for z in range(n_slices)
-            ]
+
+        logger.info(
+            "Using %s model; chunking Z into %s part(s) (orig depth=%s).",
+            "3D" if is_3d else "2D",
+            chunk_parts,
+            vol.shape[1],
+        )
+
+        inference_list = np.array_split(vol, chunk_parts, axis=1)
+        inference_list = [part for part in inference_list if part.size > 0]
+
+        slice_props = [
+            {
+                "part_index": i,
+                "num_parts": len(inference_list),
+                "spacing": spacing,
+                "original_shape": raw.shape,
+            }
+            for i in range(len(inference_list))
+        ]
         meta = dict(
             original_shape=raw.shape,
             spacing=spacing,
             model_type=model_type,
             total_slices=len(inference_list),
+            chunk_parts=len(inference_list),
         )
         logger.debug("Input data props\n%s", pprint.pformat(meta, indent=2))
 
@@ -608,6 +607,15 @@ class nnUNetv2IteratorInference(StepPlugin[nnUNetPreprocessOutput, InferenceOutp
             )
             if segmentation_array.shape[0] != sinp.data_array.shape[0]:
                 segmentation_array = segmentation_array[: sinp.data_array.shape[0]]
+
+        expected_depth = sinp.data_array.shape[0]
+        if segmentation_array.shape[0] != expected_depth:
+            logger.info(
+                "Cropping/padding segmentation depth from %s to expected %s",
+                segmentation_array.shape[0],
+                expected_depth,
+            )
+            segmentation_array = segmentation_array[:expected_depth, ...]
 
         probabilities_array = None
         # if probabilities is not None:

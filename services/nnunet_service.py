@@ -37,6 +37,7 @@ class NnUnetService:
         model_path: str | Path,
         output_path: str | Path,
         dataset_id: str = "current",
+        chunk_parts: int = 8,
         on_success: Callable[[NnUnetResult], None],
         on_error: Callable[[Exception], None],
     ) -> None:
@@ -44,6 +45,9 @@ class NnUnetService:
         model_path = Path(model_path)
         if not model_path.exists():
             raise FileNotFoundError(f"Modèle nnUNet introuvable: {model_path}")
+
+        if chunk_parts < 1:
+            raise ValueError("chunk_parts must be a positive integer.")
 
         output_path = Path(output_path)
         if output_path.suffix.lower() != ".npz":
@@ -71,7 +75,9 @@ class NnUnetService:
         manager = PipelinePluginManager(cfg)
 
         seg_inp = PipelineInput(
-            config={},
+            config={
+                "chunk_parts": chunk_parts,
+            },
             pipeline_id="nnunet-inference",
             group_index=0,
             data_array=volume,
