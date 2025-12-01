@@ -12,9 +12,10 @@ from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
 from models.overlay_data import OverlayData
 from models.view_state_model import ViewStateModel
+from services.annotation_service import AnnotationService
 from services.overlay_service import OverlayService
 from services.overlay_export import OverlayExport
-from views.endview_view import EndviewView
+from views.annotation_view import AnnotationView
 from views.overlay_settings_view import OverlaySettingsView
 from views.volume_view import VolumeView
 
@@ -27,18 +28,20 @@ class AnnotationController:
         *,
         annotation_model: AnnotationModel,
         view_state_model: ViewStateModel,
+        annotation_service: AnnotationService,
         overlay_service: OverlayService,
         overlay_export: OverlayExport,
-        endview_view: EndviewView,
+        annotation_view: AnnotationView,
         volume_view: VolumeView,
         overlay_settings_view: OverlaySettingsView,
         logger: logging.Logger,
     ) -> None:
         self.annotation_model = annotation_model
         self.view_state_model = view_state_model
+        self.annotation_service = annotation_service
         self.overlay_service = overlay_service
         self.overlay_export = overlay_export
-        self.endview_view = endview_view
+        self.annotation_view = annotation_view
         self.volume_view = volume_view
         self.overlay_settings_view = overlay_settings_view
         self.logger = logger
@@ -86,7 +89,7 @@ class AnnotationController:
         """Recalcule et pousse l'overlay vers les vues selon l'état actuel."""
         if not self.view_state_model.show_overlay:
             self.logger.info("Overlay hidden by toggle; clearing views.")
-            self.endview_view.set_overlay(None)
+            self.annotation_view.set_overlay(None)
             self.volume_view.set_overlay(None)
             return
 
@@ -106,7 +109,7 @@ class AnnotationController:
 
         if overlay_data is None:
             self.logger.info("No overlay available to push; clearing views.")
-            self.endview_view.set_overlay(None)
+            self.annotation_view.set_overlay(None)
             self.volume_view.set_overlay(None)
             return
 
@@ -120,7 +123,7 @@ class AnnotationController:
             visible_count if visible_labels is not None else "all",
         )
 
-        self.endview_view.set_overlay(overlay_data, visible_labels=visible_labels)
+        self.annotation_view.set_overlay(overlay_data, visible_labels=visible_labels)
         self.volume_view.set_overlay(
             overlay_data,
             visible_labels=visible_labels,
@@ -138,9 +141,72 @@ class AnnotationController:
     def reset_overlay_state(self) -> None:
         """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""
         self._overlay_cache = None
-        self.endview_view.set_overlay(None)
+        self.annotation_view.set_overlay(None)
         self.volume_view.set_overlay(None)
         self.overlay_settings_view.clear_labels()
+
+    # ------------------------------------------------------------------ #
+    # Interaction handlers (stubs)
+    # ------------------------------------------------------------------ #
+    def on_tool_mode_changed(self, mode: str) -> None:
+        """Handle drawing tool changes (stub)."""
+        self.view_state_model.set_tool_mode(mode)
+
+    def on_threshold_changed(self, value: int) -> None:
+        """Handle manual threshold change (stub)."""
+        self.view_state_model.set_threshold(value)
+
+    def on_threshold_auto_toggled(self, enabled: bool) -> None:
+        """Handle auto-threshold toggle (stub)."""
+        self.view_state_model.set_threshold_auto(enabled)
+
+    def on_apply_volume_toggled(self, enabled: bool) -> None:
+        """Handle apply-to-volume toggle (stub)."""
+        self.view_state_model.set_apply_volume(enabled)
+
+    def on_roi_persistence_toggled(self, enabled: bool) -> None:
+        """Handle ROI persistence toggle (stub)."""
+        self.view_state_model.set_roi_persistence(enabled)
+
+    def on_roi_recompute_requested(self) -> None:
+        """Handle ROI recomputation request (stub)."""
+        pass
+
+    def on_roi_delete_requested(self) -> None:
+        """Handle ROI deletion request (stub)."""
+        pass
+
+    def on_selection_cancel_requested(self) -> None:
+        """Handle selection cancel request (stub)."""
+        pass
+
+    def on_annotation_mouse_clicked(self, pos: Any, button: Any) -> None:
+        """Handle mouse click in annotation view (stub)."""
+        pass
+
+    def on_annotation_polygon_started(self, pos: Any) -> None:
+        """Handle polygon start (stub)."""
+        pass
+
+    def on_annotation_polygon_point_added(self, pos: Any) -> None:
+        """Handle polygon point addition (stub)."""
+        pass
+
+    def on_annotation_polygon_completed(self, points: Any) -> None:
+        """Handle polygon completion (stub)."""
+        pass
+
+    def on_annotation_rectangle_drawn(self, rect: Any) -> None:
+        """Handle rectangle draw completion (stub)."""
+        pass
+
+    def on_annotation_point_selected(self, pos: Any) -> None:
+        """Handle point selection (stub)."""
+        pass
+
+    def on_annotation_drag_update(self, pos: Any) -> None:
+        """Handle drag update (stub)."""
+        pass
 
     # ------------------------------------------------------------------ #
     # Saving

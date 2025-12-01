@@ -24,7 +24,7 @@
        <property name="orientation">
         <enum>Qt::Orientation::Vertical</enum>
        </property>
-       <widget class="EndviewView" name="frame_3">
+       <widget class="AnnotationView" name="frame_3">
         <property name="frameShape">
          <enum>QFrame::Shape::Box</enum>
         </property>
@@ -335,12 +335,6 @@
  </widget>
  <customwidgets>
   <customwidget>
-   <class>EndviewView</class>
-   <extends>QFrame</extends>
-   <header>views/endview_view.h</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
    <class>VolumeView</class>
    <extends>QFrame</extends>
    <header>views/volume_view.h</header>
@@ -362,6 +356,12 @@
    <class>ToolsPanel</class>
    <extends>QWidget</extends>
    <header>views/tools_panel.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>AnnotationView</class>
+   <extends>QFrame</extends>
+   <header>views/annotation_view.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

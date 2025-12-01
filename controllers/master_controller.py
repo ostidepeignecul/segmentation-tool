@@ -9,6 +9,7 @@ from controllers.cscan_controller import CScanController
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
+from services.annotation_service import AnnotationService
 from services.ascan_service import AScanService
 from services.overlay_loader import OverlayLoader
 from services.overlay_service import OverlayService
@@ -16,6 +17,7 @@ from services.overlay_export import OverlayExport
 from services.nde_loader import NdeLoader
 from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
 from ui_mainwindow import Ui_MainWindow
+from views.annotation_view import AnnotationView
 from views.cscan_view_corrosion import CscanViewCorrosion
 from views.overlay_settings_view import OverlaySettingsView
 
@@ -43,7 +45,7 @@ class MasterController:
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
 
         # References to Designer-created views.
-        self.endview_view = self.ui.frame_3
+        self.annotation_view: AnnotationView = self.ui.frame_3
         self.volume_view = self.ui.frame_5
         self.ascan_view = self.ui.frame_7
         self.tools_panel = self.ui.dockWidgetContents_2
@@ -76,13 +78,16 @@ class MasterController:
 
             self.cscan_stack = stack
 
+        self.annotation_service = AnnotationService()
+
         # Annotation controller (overlays)
         self.annotation_controller = AnnotationController(
             annotation_model=self.annotation_model,
             view_state_model=self.view_state_model,
+            annotation_service=self.annotation_service,
             overlay_service=self.overlay_service,
             overlay_export=self.overlay_export,
-            endview_view=self.endview_view,
+            annotation_view=self.annotation_view,
             volume_view=self.volume_view,
             overlay_settings_view=self.overlay_settings_view,
             logger=self.logger,
@@ -105,7 +110,7 @@ class MasterController:
         self.ascan_controller = AScanController(
             ascan_service=self.ascan_service,
             ascan_view=self.ascan_view,
-            endview_view=self.endview_view,
+            endview_view=self.annotation_view,
             view_state_model=self.view_state_model,
             set_cscan_crosshair=self.cscan_controller.set_crosshair,
         )
@@ -149,25 +154,25 @@ class MasterController:
 
         self.tools_panel.slice_changed.connect(self._on_slice_changed)
         self.tools_panel.goto_requested.connect(self._on_goto_requested)
-        self.tools_panel.tool_mode_changed.connect(self._on_tool_mode_changed)
-        self.tools_panel.threshold_changed.connect(self._on_threshold_changed)
-        self.tools_panel.threshold_auto_toggled.connect(self._on_threshold_auto_toggled)
-        self.tools_panel.apply_volume_toggled.connect(self._on_apply_volume_toggled)
+        self.tools_panel.tool_mode_changed.connect(self.annotation_controller.on_tool_mode_changed)
+        self.tools_panel.threshold_changed.connect(self.annotation_controller.on_threshold_changed)
+        self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
+        self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
         self.tools_panel.overlay_toggled.connect(self.annotation_controller.on_overlay_toggled)
         self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
-        self.tools_panel.roi_persistence_toggled.connect(self._on_roi_persistence_toggled)
-        self.tools_panel.roi_recompute_requested.connect(self._on_roi_recompute_requested)
-        self.tools_panel.roi_delete_requested.connect(self._on_roi_delete_requested)
-        self.tools_panel.selection_cancel_requested.connect(self._on_selection_cancel_requested)
+        self.tools_panel.roi_persistence_toggled.connect(self.annotation_controller.on_roi_persistence_toggled)
+        self.tools_panel.roi_recompute_requested.connect(self.annotation_controller.on_roi_recompute_requested)
+        self.tools_panel.roi_delete_requested.connect(self.annotation_controller.on_roi_delete_requested)
+        self.tools_panel.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
 
-        self.endview_view.slice_changed.connect(self._on_slice_changed)
-        self.endview_view.mouse_clicked.connect(self._on_endview_mouse_clicked)
-        self.endview_view.polygon_started.connect(self._on_endview_polygon_started)
-        self.endview_view.polygon_point_added.connect(self._on_endview_polygon_point_added)
-        self.endview_view.polygon_completed.connect(self._on_endview_polygon_completed)
-        self.endview_view.rectangle_drawn.connect(self._on_endview_rectangle_drawn)
-        self.endview_view.point_selected.connect(self._on_endview_point_selected)
-        self.endview_view.drag_update.connect(self._on_endview_drag_update)
+        self.annotation_view.slice_changed.connect(self._on_slice_changed)
+        self.annotation_view.mouse_clicked.connect(self.annotation_controller.on_annotation_mouse_clicked)
+        self.annotation_view.polygon_started.connect(self.annotation_controller.on_annotation_polygon_started)
+        self.annotation_view.polygon_point_added.connect(self.annotation_controller.on_annotation_polygon_point_added)
+        self.annotation_view.polygon_completed.connect(self.annotation_controller.on_annotation_polygon_completed)
+        self.annotation_view.rectangle_drawn.connect(self.annotation_controller.on_annotation_rectangle_drawn)
+        self.annotation_view.point_selected.connect(self._on_endview_point_selected)
+        self.annotation_view.drag_update.connect(self._on_endview_drag_update)
 
         if self.cscan_view is not None:
             self.cscan_view.crosshair_changed.connect(self._on_cscan_crosshair_changed)
@@ -309,7 +314,7 @@ class MasterController:
         self.view_state_model.set_slice(index)
         clamped = self.view_state_model.current_slice
         self.tools_panel.set_slice_value(clamped)
-        self.endview_view.set_slice(clamped)
+        self.annotation_view.set_slice(clamped)
         self.cscan_controller.highlight_slice(clamped)
         self.volume_view.set_slice_index(clamped, update_slider=True)
         self._update_ascan_trace()
@@ -318,67 +323,15 @@ class MasterController:
         """Handle explicit goto action from tools panel."""
         self._on_slice_changed(slice_idx)
 
-    def _on_tool_mode_changed(self, mode: str) -> None:
-        """Handle drawing mode changes."""
-        self.view_state_model.set_tool_mode(mode)
-
-    def _on_threshold_changed(self, value: int) -> None:
-        """Handle manual threshold changes."""
-        self.view_state_model.set_threshold(value)
-
-    def _on_threshold_auto_toggled(self, enabled: bool) -> None:
-        """Handle auto-threshold toggle."""
-        self.view_state_model.set_threshold_auto(enabled)
-
-    def _on_apply_volume_toggled(self, enabled: bool) -> None:
-        """Handle volume application toggle."""
-        self.view_state_model.set_apply_volume(enabled)
-
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
         self.view_state_model.set_show_cross(enabled)
-        self.endview_view.set_cross_visible(enabled)
+        self.annotation_view.set_cross_visible(enabled)
         self.cscan_controller.set_cross_visible(enabled)
         self.ascan_view.set_marker_visible(enabled)
 
-    def _on_roi_persistence_toggled(self, enabled: bool) -> None:
-        """Handle ROI persistence toggle."""
-        self.view_state_model.set_roi_persistence(enabled)
-
-    def _on_roi_recompute_requested(self) -> None:
-        """Handle ROI recomputation requests."""
-        pass
-
-    def _on_roi_delete_requested(self) -> None:
-        """Handle ROI deletion requests."""
-        pass
-
-    def _on_selection_cancel_requested(self) -> None:
-        """Handle cancellation of current selection."""
-        pass
-
-    def _on_endview_mouse_clicked(self, pos: Any, button: Any) -> None:
-        """Handle mouse clicks in the endview."""
-        pass
-
-    def _on_endview_polygon_started(self, pos: Any) -> None:
-        """Handle polygon start."""
-        pass
-
-    def _on_endview_polygon_point_added(self, pos: Any) -> None:
-        """Handle polygon point addition."""
-        pass
-
-    def _on_endview_polygon_completed(self, points: Any) -> None:
-        """Handle polygon completion."""
-        pass
-
-    def _on_endview_rectangle_drawn(self, rect: Any) -> None:
-        """Handle rectangle draw completion."""
-        pass
-
     def _on_endview_point_selected(self, pos: Any) -> None:
-        """Handle point selection."""
+        """Handle point selection for crosshair sync."""
         if not isinstance(pos, tuple) or len(pos) != 2:
             return
         x, y = int(pos[0]), int(pos[1])
@@ -387,7 +340,7 @@ class MasterController:
         self._update_ascan_trace(point=(x, y))
 
     def _on_endview_drag_update(self, pos: Any) -> None:
-        """Handle drag updates during drawing."""
+        """Handle drag updates during drawing (cursor label only)."""
         if not isinstance(pos, tuple) or len(pos) != 2:
             return
         x, y = int(pos[0]), int(pos[1])
@@ -402,7 +355,7 @@ class MasterController:
         self.view_state_model.set_slice(slice_idx)
         clamped_slice = self.view_state_model.current_slice
         self.tools_panel.set_slice_value(clamped_slice)
-        self.endview_view.set_slice(clamped_slice)
+        self.annotation_view.set_slice(clamped_slice)
         self.cscan_controller.highlight_slice(clamped_slice)
         self.cscan_controller.set_crosshair(clamped_slice, x)
         y_default = volume.shape[1] // 2
@@ -469,8 +422,8 @@ class MasterController:
         slice_idx = self.view_state_model.clamp_slice(self.view_state_model.current_slice)
 
         # Met à jour l’Endview (pas de changement ici)
-        self.endview_view.set_volume(volume)
-        self.endview_view.set_slice(slice_idx)
+        self.annotation_view.set_volume(volume)
+        self.annotation_view.set_slice(slice_idx)
         self.annotation_controller.refresh_overlay()
 
         # Met à jour la C‑scan (standard ou corrosion)
@@ -484,7 +437,7 @@ class MasterController:
 
         # Reste des mises à jour
         self._update_ascan_trace()
-        self.endview_view.set_cross_visible(self.view_state_model.show_cross)
+        self.annotation_view.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_view.set_marker_visible(self.view_state_model.show_cross)
 

@@ -16,6 +16,45 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-12-01** — Nettoyage palette générique et suppression logging_config
+
+**Tags :** `#config/constants.py`, `#config/logging_config.py`, `#palette`, `#overlay`, `#cleanup`, `#branch:annotation`
+
+**Actions effectuées :**
+- Supprimé `CLASS_MAP`, `LABEL_SETTINGS` et `LABEL_COLORS_HEX` devenus inutiles; palettes `MASK_COLORS_*` conservées mais commentées de façon générique (labels numériques dynamiques).
+- Neutralisé les commentaires des palettes pour retirer toute référence frontwall/backwall et garder un fallback couleur par défaut.
+- Supprimé le fichier inutilisé `config/logging_config.py` (aucun import référencé).
+
+**Contexte :**
+Les labels sont désormais créés à la volée et ne portent plus de noms fixes; la seule palette requise est `MASK_COLORS_BGRA` (fallback overlay). Le reste des mappings nommés entretenait une dette inutile et ne servait plus.
+
+**Décisions techniques :**
+1. Conserver `MASK_COLORS_BGRA` (et variantes) comme palette par défaut/fallback pour l’overlay afin d’éviter un comportement sans couleur si la palette est vide.
+2. Retirer les structures de configuration non utilisées et le module de logging inutilisé pour réduire le bruit et les imports potentiels morts.
+
+---
+
+### **2025-12-01** — Squelettes annotation_view / annotation_service et routage ROI vers AnnotationController
+
+**Tags :** `#views/annotation_view.py`, `#services/annotation_service.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#mvc`, `#stubs`, `#branch:annotation`
+
+**Actions effectuées :**
+- Créé `AnnotationView` (sous-classe d’EndviewView) avec placeholders pour polygone/rectangle/temp ROI (`set_temp_polygon`, `set_temp_rectangle`, `clear_temp_shapes`, `set_roi_overlay`, `clear_roi_overlay`).
+- Ajouté `AnnotationService` stub (compute_threshold, build_roi_mask, apply_label_on_slice, propagate_volume) pour encapsuler la logique ROI/propagation future.
+- Étendu `AnnotationController` pour injecter le service + la nouvelle vue, ajouté des handlers stub pour threshold/ROI/dessin (`on_tool_mode_changed`, `on_threshold_*`, `on_roi_*`, événements souris/polygone/rectangle/point) et redirigé l’overlay vers `annotation_view`.
+- Reconfiguré `MasterController` : instancie `AnnotationService`, connecte ToolsPanel et signaux de la vue vers les handlers d’AnnotationController (ROI/threshold/dessin), utilise `AnnotationView` pour la fenêtre principale, passe la nouvelle vue aux contrôleurs concernés.
+- Mis à jour `ui_mainwindow.py` et `untitled.ui` pour instancier `AnnotationView` au lieu de `EndviewView` dans l’UI Designer.
+
+**Contexte :**
+Préparation du refactoring ROI/dessin : les handlers sont déplacés dans `AnnotationController` mais restent vides pour implémentation ultérieure; la nouvelle vue et le service servent de point d’ancrage pour l’affichage ROI et la logique métier. L’intégration UI est basculée sur la sous-classe afin de permettre l’enrichissement futur sans toucher aux autres vues.
+
+**Décisions techniques :**
+1. Garder les handlers vides dans `AnnotationController` et conserver l’état UI minimal (tool_mode/threshold/apply/persistence) pour ne pas casser les structures MVC tout en permettant la suite du développement.
+2. Sous-classer EndviewView en AnnotationView et mettre à jour l’UI générée pour garantir que toutes les futures fonctionnalités ROI/dessin s’appuient sur la vue dédiée plutôt que d’étendre la base générique.
+
+
+---
+
 ### **2025-12-01** — Export overlay NPZ via AnnotationController
 
 **Tags :** `#services/overlay_export.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#overlay`, `#npz`, `#mvc`, `#branch:main`

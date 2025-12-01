@@ -23,7 +23,7 @@ class Ui_MainWindow(object):
         self.splitter = QtWidgets.QSplitter(parent=self.splitter_3)
         self.splitter.setOrientation(QtCore.Qt.Orientation.Vertical)
         self.splitter.setObjectName("splitter")
-        self.frame_3 = EndviewView(parent=self.splitter)
+        self.frame_3 = AnnotationView(parent=self.splitter)
         self.frame_3.setFrameShape(QtWidgets.QFrame.Shape.Box)
         self.frame_3.setFrameShadow(QtWidgets.QFrame.Shadow.Plain)
         self.frame_3.setObjectName("frame_3")
@@ -200,9 +200,9 @@ class Ui_MainWindow(object):
         self.actionCorrosion_analyse.setText(_translate("MainWindow", "Corrosion analyse"))
         self.actionParam_tres_2.setText(_translate("MainWindow", "Paramètres overlay"))
         self.actionExporter_npz.setText(_translate("MainWindow", "Exporter .npz"))
+from views.annotation_view import AnnotationView
 from views.ascan_view import AScanView
 from views.cscan_view import CScanView
-from views.endview_view import EndviewView
 from views.tools_panel import ToolsPanel
 from views.volume_view import VolumeView
 
