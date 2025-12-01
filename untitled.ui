@@ -92,6 +92,7 @@
     </property>
     <addaction name="actioncharger_npz"/>
     <addaction name="actionParam_tres_2"/>
+    <addaction name="actionExporter_npz"/>
    </widget>
    <widget class="QMenu" name="menuAnalyse">
     <property name="title">
@@ -324,6 +325,11 @@
   <action name="actionParam_tres_2">
    <property name="text">
     <string>Paramètres overlay</string>
+   </property>
+  </action>
+  <action name="actionExporter_npz">
+   <property name="text">
+    <string>Exporter .npz</string>
    </property>
   </action>
  </widget>

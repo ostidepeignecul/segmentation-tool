@@ -16,6 +16,25 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-12-01** — Export overlay NPZ via AnnotationController
+
+**Tags :** `#services/overlay_export.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#overlay`, `#npz`, `#mvc`, `#branch:main`
+
+**Actions effectuées :**
+- Créé `OverlayExport.save_npz` pour valider un volume de masques (3D, uint8, non vide, shape optionnelle) et sauvegarder en `.npz` compressé avec extension auto.
+- Injecté `overlay_export` dans `AnnotationController` et ajouté `save_overlay_via_dialog` qui ouvre un QFileDialog, vérifie le shape du masque vs volume NDE, et appelle le service d’export.
+- Raccordé `_on_save` dans `MasterController` au menu Overlay > `actionExporter_npz` et délégué l’export au contrôleur d’annotation avec feedback UI (status/erreurs).
+
+**Contexte :**
+Le flux de sauvegarde d’overlay passe désormais par l’AnnotationController plutôt que le MasterController direct. Le service dédié centralise la validation et l’écriture NPZ, respectant l’architecture MVC et l’existant overlay_loader/overlay_service. Le menu Fichier>“Sauvegarder” n’est plus utilisé pour l’export, remplacé par Overlay>“Exporter .npz”.
+
+**Décisions techniques :**
+1. Service `OverlayExport` dédié pour isoler la logique d’export NPZ et assurer validation de shape avant écriture.
+2. Le contrôleur d’annotation reste l’unique point d’accès overlay: ajout d’une méthode dialog pour limiter le couplage UI côté master et réutiliser la même validation.
+3. Connexion UI déplacée vers `actionExporter_npz` (menu Overlay) pour aligner le geste utilisateur avec la fonction d’export mask volume.
+
+---
+
 ### **2025-11-29** — Refactor corrosion workflow (C-scan/AScan controllers)
 
 **Tags :** `#controllers/master_controller.py`, `#controllers/cscan_controller.py`, `#controllers/ascan_controller.py`, `#services/cscan_corrosion_service.py`, `#services/ascan_service.py`, `#services/distance_measurement.py`, `#views/cscan_view_corrosion.py`, `#mvc`, `#corrosion`, `#ascan`
@@ -1402,5 +1421,40 @@ Besoin de zoomer sur la heatmap C-scan sans casser la sélection existante au Sh
 **Décisions techniques :**
 1. Gestion du wheel event via l’eventFilter pour garder la logique d’interaction encapsulée dans la vue et préserver le Shift-clic existant.
 2. Reset du transform à chaque nouvelle projection afin d’éviter la persistance d’un zoom précédent qui pourrait induire une mauvaise lecture de la nouvelle image.
+
+---
+
+### **2025-12-01** — Chunked nnUNet inference (8 parts)
+
+**Tags :** `#services/nnunet_service.py`, `#plugins/segmentation_hooks/segmentation_plugins/nnunetv2_plugin.py`, `#nnunet`, `#segmentation`, `#batching`
+
+**Actions effectuées :**
+- Ajout d’un paramètre `chunk_parts` (défaut 8, validé >0) dans `NnUnetService.run_inference` et passage dans `PipelineInput.config` pour piloter le découpage en Z des inférences nnUNet.
+- `nnunetv2_preprocess` découpe désormais le volume en `chunk_parts` blocs contigus sur l’axe Z via `np.array_split(..., axis=1)` pour les modèles 2D et 3D, en conservant l’orientation existante et en ajoutant les métadonnées `part_index/num_parts/original_shape`.
+- `nnunetv2_inference_iter` recolle les prédictions chunkées, pad si le dernier bloc est plus court, concatène, puis recadre la profondeur finale sur celle du volume d’entrée pour garantir la forme du masque.
+
+**Contexte :**
+Le temps d’inférence est réduit en limitant les appels nnUNet (8 blocs au lieu d’un par slice), en s’alignant sur le comportement Sentinel observé dans les logs. L’orientation est inchangée (pas de transpose XY supplémentaire), et le chunking s’applique aussi aux modèles 3D pour maîtriser VRAM/latence. Le paramètre reste configurable via la config du service.
+
+**Décisions techniques :**
+1. Valeur par défaut `chunk_parts=8` exposée côté service pour pouvoir désactiver/ajuster sans changer les plugins, avec garde-fou `>0`.
+2. Préprocess et inference partagent la profondeur attendue (`sinp.data_array.shape[0]`) et recadrent le masque final pour éviter les divergences de shape liées aux splits ou au padding du dernier bloc.
+
+---
+
+### **2025-12-01** — Ajout règle de tag de branche dans AGENTS.md
+
+**Tags :** `#AGENTS.md`, `#MEMORY.md`, `#documentation`, `#tagging`
+
+**Actions effectuées :**
+- Ajout d’une sous-section \"Branches Git\" dans le système de tagging d’`AGENTS.md` décrivant le format de tag `#branch:<nom_de_branche_git>` avec exemples (`#branch:main`, `#branch:feature/...`).
+- Mise à jour des règles de tagging pour rendre obligatoire l’ajout d’un tag de branche pour chaque nouvelle entrée de mémoire (ByteRover + `MEMORY.md`).
+
+**Contexte :**
+On veut pouvoir rattacher chaque entrée de mémoire à la branche Git courante pour faciliter le debug, l’investigation d’historique et la compréhension du contexte de développement. Centraliser cette règle dans `AGENTS.md` garantit que tous les agents suivent la même convention lorsqu’ils documentent les tâches terminées.
+
+**Décisions techniques :**
+1. Utiliser un tag textuel standardisé `#branch:<nom_de_branche_git>` plutôt qu’un champ séparé, afin de rester compatible avec le système existant de tags plein-texte dans ByteRover et `MEMORY.md`.
+2. Limiter la modification à `AGENTS.md` (section Système de Tagging + règles de tagging) pour ne pas casser les templates existants, tout en rendant la règle explicite et non ambiguë pour les futures entrées de mémoire.
 
 ---

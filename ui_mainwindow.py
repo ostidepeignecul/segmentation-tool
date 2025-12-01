@@ -151,6 +151,8 @@ class Ui_MainWindow(object):
         self.actionCorrosion_analyse.setObjectName("actionCorrosion_analyse")
         self.actionParam_tres_2 = QtGui.QAction(parent=MainWindow)
         self.actionParam_tres_2.setObjectName("actionParam_tres_2")
+        self.actionExporter_npz = QtGui.QAction(parent=MainWindow)
+        self.actionExporter_npz.setObjectName("actionExporter_npz")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addAction(self.actionSauvegarder)
         self.menuFichier.addSeparator()
@@ -159,6 +161,7 @@ class Ui_MainWindow(object):
         self.menuFichier.addAction(self.actionQuitter)
         self.menuOverlay.addAction(self.actioncharger_npz)
         self.menuOverlay.addAction(self.actionParam_tres_2)
+        self.menuOverlay.addAction(self.actionExporter_npz)
         self.menuAnalyse.addAction(self.actionCorrosion_analyse)
         self.menubar.addAction(self.menuFichier.menuAction())
         self.menubar.addAction(self.menuOverlay.menuAction())
@@ -196,6 +199,7 @@ class Ui_MainWindow(object):
         self.actionQuitter.setText(_translate("MainWindow", "Quitter"))
         self.actionCorrosion_analyse.setText(_translate("MainWindow", "Corrosion analyse"))
         self.actionParam_tres_2.setText(_translate("MainWindow", "Paramètres overlay"))
+        self.actionExporter_npz.setText(_translate("MainWindow", "Exporter .npz"))
 from views.ascan_view import AScanView
 from views.cscan_view import CScanView
 from views.endview_view import EndviewView

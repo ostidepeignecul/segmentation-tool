@@ -12,6 +12,7 @@ from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService
 from services.overlay_loader import OverlayLoader
 from services.overlay_service import OverlayService
+from services.overlay_export import OverlayExport
 from services.nde_loader import NdeLoader
 from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
 from ui_mainwindow import Ui_MainWindow
@@ -34,6 +35,7 @@ class MasterController:
         self.nde_loader = NdeLoader()
         self.overlay_loader = OverlayLoader()
         self.overlay_service = OverlayService()
+        self.overlay_export = OverlayExport()
         self.cscan_corrosion_service = CScanCorrosionService()
         self.corrosion_workflow_service = CorrosionWorkflowService(
             cscan_corrosion_service=self.cscan_corrosion_service
@@ -79,6 +81,7 @@ class MasterController:
             annotation_model=self.annotation_model,
             view_state_model=self.view_state_model,
             overlay_service=self.overlay_service,
+            overlay_export=self.overlay_export,
             endview_view=self.endview_view,
             volume_view=self.volume_view,
             overlay_settings_view=self.overlay_settings_view,
@@ -114,7 +117,7 @@ class MasterController:
         """Wire menu actions to controller handlers."""
         self.ui.actionopen_nde.triggered.connect(self._on_open_nde)
         self.ui.actioncharger_npz.triggered.connect(self._on_load_npz)
-        self.ui.actionSauvegarder.triggered.connect(self._on_save)
+        self.ui.actionExporter_npz.triggered.connect(self._on_save)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionParam_tres_2.triggered.connect(self.annotation_controller.open_overlay_settings)
         self.ui.actionCorrosion_analyse.triggered.connect(self.cscan_controller.run_corrosion_analysis)
@@ -274,7 +277,20 @@ class MasterController:
 
     def _on_save(self) -> None:
         """Handle saving current session or annotations."""
-        pass
+        volume = self._current_volume()
+        if volume is None:
+            QMessageBox.warning(self.main_window, "Overlay", "Chargez un NDE avant de sauvegarder.")
+            return
+        try:
+            saved_path = self.annotation_controller.save_overlay_via_dialog(
+                parent=self.main_window,
+                volume_shape=volume.shape,
+            )
+            if not saved_path:
+                return
+            self.status_message(f"Overlay sauvegardé: {saved_path}")
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "Erreur sauvegarde overlay", str(exc))
 
     def _on_open_settings(self) -> None:
         """Open the settings dialog."""

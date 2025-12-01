@@ -398,12 +398,17 @@ Utiliser `#` suivi du nom du fichier ou concept :
 - `#testing`
 - `#optimization`
 
+**Branches Git :**
+- Toujours ajouter un tag de branche de la forme `#branch:<nom_de_branche_git>`
+- Exemple : `#branch:main`, `#branch:feature/segmentation-refactor`
+
 ### Règles de Tagging
 
 1. **Obligatoire** : Taguer tous les fichiers modifiés
 2. **Pertinent** : Ajouter les concepts/technologies impliqués
 3. **Consistant** : Utiliser les mêmes tags pour les mêmes concepts
 4. **Recherchable** : Faciliter la recherche dans `MEMORY.md`
+5. **Obligatoire** : Pour chaque nouvelle entrée de mémoire (ByteRover + `MEMORY.md`), ajouter un tag de branche `#branch:<nom_de_branche_git>` dans la liste des tags
 
 ---
 

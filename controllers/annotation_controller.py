@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, Optional
+
 from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QFileDialog
 
 from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
 from models.overlay_data import OverlayData
 from models.view_state_model import ViewStateModel
 from services.overlay_service import OverlayService
+from services.overlay_export import OverlayExport
 from views.endview_view import EndviewView
 from views.overlay_settings_view import OverlaySettingsView
 from views.volume_view import VolumeView
@@ -24,6 +28,7 @@ class AnnotationController:
         annotation_model: AnnotationModel,
         view_state_model: ViewStateModel,
         overlay_service: OverlayService,
+        overlay_export: OverlayExport,
         endview_view: EndviewView,
         volume_view: VolumeView,
         overlay_settings_view: OverlaySettingsView,
@@ -32,6 +37,7 @@ class AnnotationController:
         self.annotation_model = annotation_model
         self.view_state_model = view_state_model
         self.overlay_service = overlay_service
+        self.overlay_export = overlay_export
         self.endview_view = endview_view
         self.volume_view = volume_view
         self.overlay_settings_view = overlay_settings_view
@@ -135,6 +141,42 @@ class AnnotationController:
         self.endview_view.set_overlay(None)
         self.volume_view.set_overlay(None)
         self.overlay_settings_view.clear_labels()
+
+    # ------------------------------------------------------------------ #
+    # Saving
+    # ------------------------------------------------------------------ #
+
+    def save_overlay_via_dialog(self, *, parent: Any, volume_shape: Optional[tuple[int, int, int]]) -> Optional[str]:
+        """
+        Ouvre une boîte de dialogue et sauvegarde l'overlay courant en NPZ.
+
+        Returns le chemin sauvegardé ou None si annulé.
+        """
+        mask_volume = self.annotation_model.get_mask_volume()
+        if mask_volume is None:
+            raise ValueError("Aucun overlay à sauvegarder.")
+
+        # Validation de shape si fournie
+        if volume_shape is not None:
+            try:
+                tgt_shape = tuple(int(x) for x in volume_shape)
+            except Exception:
+                tgt_shape = None
+            else:
+                if mask_volume.shape != tgt_shape:
+                    raise ValueError(f"Overlay shape {mask_volume.shape} différent du volume {tgt_shape}.")
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            parent,
+            "Sauvegarder l'overlay (.npz)",
+            "",
+            "Overlay NPZ (*.npz);;All Files (*)",
+        )
+        if not file_path:
+            return None
+
+        saved_path = self.overlay_export.save_npz(mask_volume, file_path, expected_shape=volume_shape)
+        return saved_path
 
     # ------------------------------------------------------------------ #
     # Internal helpers
