@@ -93,10 +93,19 @@ class AnnotationModel:
         """Expose the current mask volume."""
         return self.mask_volume
 
+    def mask_shape_hw(self) -> Optional[tuple[int, int]]:
+        """Return (H, W) if mask_volume exists."""
+        if self.mask_volume is None:
+            return None
+        try:
+            return (self.mask_volume.shape[1], self.mask_volume.shape[2])
+        except Exception:
+            return None
+
     def get_visible_labels(self) -> Optional[set[int]]:
         """Return the set of labels currently marked visible (None = all)."""
         return self.visible_labels()
 
     def get_label_palette(self) -> Dict[int, Tuple[int, int, int, int]]:
-        """Return the current label palette (BGRA), with defaults if empty."""
-        return self.label_palette or dict(MASK_COLORS_BGRA)
+        """Return the current label palette (BGRA)."""
+        return dict(self.label_palette)

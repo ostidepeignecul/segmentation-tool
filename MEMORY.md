@@ -1497,3 +1497,80 @@ On veut pouvoir rattacher chaque entrée de mémoire à la branche Git courante 
 2. Limiter la modification à `AGENTS.md` (section Système de Tagging + règles de tagging) pour ne pas casser les templates existants, tout en rendant la règle explicite et non ambiguë pour les futures entrées de mémoire.
 
 ---
+
+### **2025-12-01** — Ajout modèles ROI/temp et préview rectangle
+
+**Tags :** `#models/roi_model.py`, `#models/temp_mask_model.py`, `#services/annotation_service.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#views/annotation_view.py`, `#roi`, `#overlay`, `#annotation`, `#branch:annotation`
+
+**Actions effectuées :**
+- Créé `RoiModel` (stocke ROIs typés rectangle/polygon/grow avec id, slice, points, label, threshold, persistance) et `TempMaskModel` (volume masque temporaire similaire à AnnotationModel, palette BGRA, visibilités, set_slice_mask avec option persistent/remplacement).
+- Étendu `AnnotationService` avec `build_rectangle_mask` (deux coins → masque binaire) et `apply_temp_rectangle` pour appliquer une ROI rectangulaire dans `TempMaskModel`.
+- Implémenté `on_annotation_rectangle_drawn` dans `AnnotationController`: normalise le rect, construit le masque rectangle via service, enregistre la ROI dans `RoiModel`, applique la preview dans `TempMaskModel`, et pousse la slice temporaire vers `AnnotationView.set_roi_overlay`. Reset overlay state nettoie aussi ROI/temp.
+- `AnnotationController` prend désormais `roi_model` et `temp_mask_model` en dépendances.
+- `MasterController` instancie/initialise `RoiModel` et `TempMaskModel`, les passe au contrôleur, et les reset lors du chargement NDE/overlay.
+- `AnnotationView` affiche un overlay ROI dédié (nouvel item QGraphicsPixmapItem opacité 0.35, couleur label 1, conversion masque→pixmap), avec clear sécurisé.
+
+**Contexte :**
+Première implémentation de ROI rectangle avec prévisualisation séparée du volume overlay. Les ROIs sont stockées à part et les masques temporaires servent de preview avant fusion dans l’overlay principal. La vue d’annotation dispose maintenant d’un canal visuel pour ces previews.
+
+**Décisions techniques :**
+1. Séparer stockage overlay (AnnotationModel) et preview (TempMaskModel) pour éviter d’altérer le volume tant que l’utilisateur n’a pas validé.
+2. Centraliser les métadonnées ROI dans `RoiModel` (type/slice/points/label/threshold/persistence) afin de supporter d’autres formes (polygon/grow) ultérieurement.
+3. Utiliser une couleur de palette existante (label 1) pour le ROI overlay et un item graphique dédié pour ne pas perturber l’overlay principal.
+
+---
+
+### **2025-12-01** — Fix rectangle ROI crash quand le volume masque est absent
+
+**Tags :** `#controllers/annotation_controller.py`, `#roi`, `#annotation`, `#branch:annotation`
+
+**Actions effectuées :**
+- Corrigé `on_annotation_rectangle_drawn` pour ne plus évaluer un `ndarray` dans un `or` (ambiguïté). On récupère d’abord le masque de `AnnotationModel`, sinon celui de `TempMaskModel`, et on quitte si aucun volume n’est disponible.
+
+**Contexte :**
+Le dessin rectangle plantait avec un `ValueError` (truth value of an array…) car l’expression `mask_a or mask_b` tentait d’évaluer la vérité d’un `ndarray`.
+
+**Décisions techniques :**
+1. Vérification explicite `None` pour les volumes masque avant usage, afin d’éviter l’ambiguïté des `ndarray`.
+
+### **2025-12-01** — Label actif dans le tools panel, couleur du polygone par label
+
+**Tags :** `#views/tools_panel.py`, `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#models/view_state_model.py`, `#roi`, `#labels`, `#ui`, `#branch:annotation`
+
+**Actions effectuées :**
+- ToolsPanel : ajout du scroll de labels avec sélection (signal `label_selected`), `set_labels` conserve la sélection et accepte un label courant.
+- ViewStateModel : nouvel attribut `active_label` + setter.
+- MasterController : synchronisation des labels du tools panel avec la palette de l’annotation model, sélection du label actif, mise à jour après ajout de label via la fenêtre overlay.
+- AnnotationController : les ROI utilisent `active_label` pour les masques temporaires ; la couleur du polygone temporaire est dérivée de la palette (fallback `MASK_COLORS_BGRA`). Correction du crash `clear_roi_rectangle` -> `clear_roi_rectangles`.
+
+**Contexte :**
+Permettre à l’utilisateur de choisir un label dans le tools panel (issu de la palette overlay) et d’appliquer ce label lors du dessin ROI/polygone, avec la couleur associée.
+
+**Décisions techniques :**
+1. Centraliser l’état du label actif dans `ViewStateModel` et le synchroniser avec l’UI des labels.
+2. Repasser par la palette des labels pour colorer le polygone temporaire (fallback sur `MASK_COLORS_BGRA` si non défini).
+
+---
+
+### **2025-12-02** — Session ROI/labels (extraction métier, palettes, preview)
+
+**Tags :** `#controllers/annotation_controller.py`, `#services/annotation_service.py`, `#models/roi_model.py`, `#models/temp_mask_model.py`, `#models/annotation_model.py`, `#models/view_state_model.py`, `#views/tools_panel.py`, `#views/annotation_view.py`, `#overlay`, `#roi`, `#labels`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Déplacé la logique rectangle dans `AnnotationService.apply_rectangle_roi` (normalisation, masque, enregistrement ROI, application TempMaskModel) et `rebuild_temp_masks_for_slice` (rebuild complet du masque temp depuis les ROI d’une slice).
+- `RoiModel` expose `rectangles_for_slice` et gère le filtrage slice/persistant ; le contrôleur ne filtre plus.
+- `AnnotationModel`/`TempMaskModel` fournissent `mask_shape_hw`; `TempMaskModel.clear` remet le volume à zéro sans effacer palette/visibilités et conserve la palette à l’init ; ajout de `set_label_color`.
+- Palette par défaut retirée : aucun label pré-créé, `active_label` peut être None ; `overlay_service` n’injecte la palette par défaut que si aucune n’est fournie.
+- Outil labels : ToolsPanel avec scroll de labels et signal `label_selected`; MasterController synchronise la palette vers le ToolsPanel (sans labels par défaut), sélectionne le label actif à l’ajout et reflète couleurs/visibilités. Les ROI utilisent le label actif ; la couleur du polygone temporaire vient de la palette (fallback BGRA si couleur manquante).
+- Vue/preview : AnnotationView gère plusieurs rectangles, masque temp colorisé par label, clears sécurisés ; refresh slice affiche masque temp + rectangles (slice ou persistants).
+- Nettoyages : helpers de filtrage ROI supprimés du contrôleur ; `_normalize_rect_input` dans le service.
+
+**Contexte :**
+Refactor ROI/labels pour séparer métier (services/models) du contrôleur, retirer les labels par défaut et aligner la couleur du polygone temporaire sur le label choisi. Permet plusieurs ROI/polygones, persistance, et sélection de label via le ToolsPanel.
+
+**Décisions techniques :**
+1. Centraliser la construction/apply masque dans le service pour éviter la duplication et respecter MVC.
+2. Ne pas pré-créer de labels ; l’utilisateur ajoute via Paramètres overlay, ce label devient actif et colorise la preview.
+3. Conserver la palette du TempMaskModel lors des reset pour garder les couleurs cohérentes après suppression/rebuild.
+
+---

@@ -5,11 +5,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+import numpy as np
+
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QFileDialog
 
 from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
+from models.roi_model import RoiModel
+from models.temp_mask_model import TempMaskModel
 from models.overlay_data import OverlayData
 from models.view_state_model import ViewStateModel
 from services.annotation_service import AnnotationService
@@ -28,6 +32,8 @@ class AnnotationController:
         *,
         annotation_model: AnnotationModel,
         view_state_model: ViewStateModel,
+        roi_model: RoiModel,
+        temp_mask_model: TempMaskModel,
         annotation_service: AnnotationService,
         overlay_service: OverlayService,
         overlay_export: OverlayExport,
@@ -38,6 +44,8 @@ class AnnotationController:
     ) -> None:
         self.annotation_model = annotation_model
         self.view_state_model = view_state_model
+        self.roi_model = roi_model
+        self.temp_mask_model = temp_mask_model
         self.annotation_service = annotation_service
         self.overlay_service = overlay_service
         self.overlay_export = overlay_export
@@ -71,13 +79,18 @@ class AnnotationController:
         bgra = self._qcolor_to_bgra(color)
         self.annotation_model.set_label_color(label_id, bgra)
         self.annotation_model.set_label_visibility(label_id, True)
+        self.temp_mask_model.set_label_color(label_id, bgra)
         self.refresh_overlay(defer_volume=True, rebuild=False)
+        # Rafraîchir la preview ROI si le label actif change de couleur
+        self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
 
     def on_label_added(self, label_id: int, color: QColor) -> None:
         """Gère l'ajout d'un nouveau label depuis les paramètres overlay."""
         bgra = self._qcolor_to_bgra(color)
         self.annotation_model.set_label_color(label_id, bgra)
         self.annotation_model.set_label_visibility(label_id, True)
+        self.temp_mask_model.ensure_label(label_id, bgra, visible=True)
+        self.view_state_model.set_active_label(label_id)
         self.refresh_overlay(defer_volume=True, rebuild=False)
 
     def on_overlay_toggled(self, enabled: bool) -> None:
@@ -142,8 +155,12 @@ class AnnotationController:
         """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""
         self._overlay_cache = None
         self.annotation_view.set_overlay(None)
+        self.annotation_view.clear_roi_overlay()
+        self.annotation_view.clear_temp_shapes()
         self.volume_view.set_overlay(None)
         self.overlay_settings_view.clear_labels()
+        self.temp_mask_model.clear()
+        self.roi_model.clear()
 
     # ------------------------------------------------------------------ #
     # Interaction handlers (stubs)
@@ -160,6 +177,10 @@ class AnnotationController:
         """Handle auto-threshold toggle (stub)."""
         self.view_state_model.set_threshold_auto(enabled)
 
+    def on_label_selected(self, label_id: int) -> None:
+        """Handle active label selection from the tools panel."""
+        self.view_state_model.set_active_label(label_id)
+
     def on_apply_volume_toggled(self, enabled: bool) -> None:
         """Handle apply-to-volume toggle (stub)."""
         self.view_state_model.set_apply_volume(enabled)
@@ -170,15 +191,27 @@ class AnnotationController:
 
     def on_roi_recompute_requested(self) -> None:
         """Handle ROI recomputation request (stub)."""
-        pass
+        slice_idx = self.view_state_model.current_slice
+        self._rebuild_slice_preview(slice_idx)
+        self.refresh_roi_overlay_for_slice(slice_idx)
 
     def on_roi_delete_requested(self) -> None:
         """Handle ROI deletion request (stub)."""
-        pass
+        # Supprime toutes les ROI (toutes slices) et nettoie les previews
+        self.roi_model.clear()
+        self.temp_mask_model.clear()
+        self.annotation_view.clear_roi_overlay()
+        self.annotation_view.clear_roi_rectangles()
+        self.annotation_view.clear_temp_shapes()
+        self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
 
     def on_selection_cancel_requested(self) -> None:
         """Handle selection cancel request (stub)."""
-        pass
+        slice_idx = self.view_state_model.current_slice
+        self.temp_mask_model.clear_slice(slice_idx)
+        self.annotation_view.clear_roi_overlay()
+        self.annotation_view.clear_temp_shapes()
+        self.refresh_roi_overlay_for_slice(slice_idx)
 
     def on_annotation_mouse_clicked(self, pos: Any, button: Any) -> None:
         """Handle mouse click in annotation view (stub)."""
@@ -198,7 +231,48 @@ class AnnotationController:
 
     def on_annotation_rectangle_drawn(self, rect: Any) -> None:
         """Handle rectangle draw completion (stub)."""
-        pass
+        mask_volume = self.annotation_model.get_mask_volume()
+        if mask_volume is None:
+            mask_volume = self.temp_mask_model.get_mask_volume()
+        if mask_volume is None:
+            return
+        if self.view_state_model.active_label is None:
+            return
+        label = self.view_state_model.active_label
+
+        try:
+            slice_idx = int(self.view_state_model.current_slice)
+            h, w = mask_volume.shape[1], mask_volume.shape[2]
+        except Exception:
+            return
+
+        palette = self.annotation_model.get_label_palette()
+        self.annotation_service.apply_rectangle_roi(
+            slice_idx=slice_idx,
+            rect=rect,
+            shape=(h, w),
+            label=label,
+            threshold=self.view_state_model.threshold,
+            persistent=self.view_state_model.roi_persistence,
+            roi_model=self.roi_model,
+            temp_mask_model=self.temp_mask_model,
+            palette=palette,
+        )
+        self.refresh_roi_overlay_for_slice(slice_idx)
+
+    def refresh_roi_overlay_for_slice(self, slice_idx: int) -> None:
+        """Refresh ROI preview overlay for the given slice."""
+        slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)
+        if slice_mask is None or not np.any(slice_mask):
+            self.annotation_view.clear_roi_overlay()
+        else:
+            self.annotation_view.set_roi_overlay(slice_mask, palette=self.temp_mask_model.label_palette)
+
+        rects = self.roi_model.rectangles_for_slice(slice_idx, include_persistent=True)
+        if rects:
+            self.annotation_view.set_roi_rectangles(rects)
+        else:
+            self.annotation_view.clear_roi_rectangles()
 
     def on_annotation_point_selected(self, pos: Any) -> None:
         """Handle point selection (stub)."""
@@ -271,3 +345,30 @@ class AnnotationController:
         """Convert QColor to BGRA tuple."""
         r, g, b, a = color.getRgb()
         return (b, g, r, a)
+
+    def _rebuild_slice_preview(self, slice_idx: int) -> None:
+        """Rebuild temporary mask and rectangle for a given slice from stored ROIs."""
+        mask_shape = self.annotation_model.mask_shape_hw() or self.temp_mask_model.mask_shape_hw()
+        if mask_shape is None:
+            return
+
+        rois = self.roi_model.list_on_slice(slice_idx) or self.roi_model.list_persistent()
+        rects = self.annotation_service.rebuild_temp_masks_for_slice(
+            rois=rois,
+            shape=mask_shape,
+            slice_idx=slice_idx,
+            temp_mask_model=self.temp_mask_model,
+            palette=self.annotation_model.get_label_palette(),
+            clear_slice=True,
+        )
+
+        slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)
+        if slice_mask is not None and np.any(slice_mask):
+            self.annotation_view.set_roi_overlay(slice_mask, palette=self.temp_mask_model.label_palette)
+        else:
+            self.annotation_view.clear_roi_overlay()
+
+        if rects:
+            self.annotation_view.set_roi_rectangles(rects)
+        else:
+            self.annotation_view.clear_roi_rectangles()

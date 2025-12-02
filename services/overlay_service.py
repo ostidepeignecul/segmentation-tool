@@ -26,7 +26,10 @@ class OverlayService:
         if masks.ndim != 3:
             raise ValueError("Mask volume must be 3D (Z,H,W).")
 
-        palette: Dict[int, Tuple[int, int, int, int]] = dict(label_palette or MASK_COLORS_BGRA)
+        if label_palette is None:
+            palette: Dict[int, Tuple[int, int, int, int]] = dict(MASK_COLORS_BGRA)
+        else:
+            palette = dict(label_palette)
         labels_present = [int(v) for v in np.unique(masks) if int(v) != 0]
         if not labels_present:
             return None

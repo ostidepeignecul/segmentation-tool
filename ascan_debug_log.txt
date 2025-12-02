@@ -1,5 +1,5 @@
 === A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde ===
 
-[0.006s] A-SCAN PREVIEW slice=100 x=155 y=162
+[0.003s] A-SCAN PREVIEW slice=100 x=155 y=162
   normalized: {'len': 324, 'min': 0.08545182645320892, 'max': 98.37336730957031, 'mean': 11.99488639831543, 'head5': [0.08545182645320892, 0.1983703076839447, 0.35401469469070435, 0.5371257662773132, 0.7385479211807251], 'marker': 162, 'crosshair': (155, 162)}
   raw: {'ultrasound_axis': 1, 'len': 324, 'min': 28.0, 'max': 32234.0, 'mean': 3930.3642578125, 'head5': [28.0, 65.0, 116.0, 176.0, 242.0]}

@@ -23,6 +23,7 @@ class ViewStateModel:
         self.threshold_auto: bool = False
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
+        self.active_label: Optional[int] = None
 
         # --- Navigation ---
         self.cursor_position: Optional[Tuple[int, int]] = None
@@ -93,6 +94,12 @@ class ViewStateModel:
 
     def set_roi_persistence(self, enabled: bool) -> None:
         self.roi_persistence = bool(enabled)
+
+    def set_active_label(self, label_id: Optional[int]) -> None:
+        if label_id is None:
+            self.active_label = None
+        else:
+            self.active_label = int(label_id)
 
     # ------------------------------------------------------------------ #
     # Visibility toggles

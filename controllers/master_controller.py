@@ -9,6 +9,8 @@ from controllers.cscan_controller import CScanController
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
+from models.roi_model import RoiModel
+from models.temp_mask_model import TempMaskModel
 from services.annotation_service import AnnotationService
 from services.ascan_service import AScanService
 from services.overlay_loader import OverlayLoader
@@ -34,6 +36,8 @@ class MasterController:
         self.nde_model: Optional[NdeModel] = None
         self.annotation_model = AnnotationModel()
         self.view_state_model = ViewStateModel()
+        self.roi_model = RoiModel()
+        self.temp_mask_model = TempMaskModel()
         self.nde_loader = NdeLoader()
         self.overlay_loader = OverlayLoader()
         self.overlay_service = OverlayService()
@@ -84,6 +88,8 @@ class MasterController:
         self.annotation_controller = AnnotationController(
             annotation_model=self.annotation_model,
             view_state_model=self.view_state_model,
+            roi_model=self.roi_model,
+            temp_mask_model=self.temp_mask_model,
             annotation_service=self.annotation_service,
             overlay_service=self.overlay_service,
             overlay_export=self.overlay_export,
@@ -117,6 +123,7 @@ class MasterController:
 
         self._connect_actions()
         self._connect_signals()
+        self._sync_tools_labels()
 
     def _connect_actions(self) -> None:
         """Wire menu actions to controller handlers."""
@@ -147,6 +154,7 @@ class MasterController:
             roi_recompute_button=self.ui.pushButton_2,
             roi_delete_button=self.ui.pushButton_3,
             selection_cancel_button=self.ui.pushButton_4,
+            label_container=self.ui.scrollAreaWidgetContents,
         )
 
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
@@ -164,6 +172,7 @@ class MasterController:
         self.tools_panel.roi_recompute_requested.connect(self.annotation_controller.on_roi_recompute_requested)
         self.tools_panel.roi_delete_requested.connect(self.annotation_controller.on_roi_delete_requested)
         self.tools_panel.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
+        self.tools_panel.label_selected.connect(self.annotation_controller.on_label_selected)
 
         self.annotation_view.slice_changed.connect(self._on_slice_changed)
         self.annotation_view.mouse_clicked.connect(self.annotation_controller.on_annotation_mouse_clicked)
@@ -171,6 +180,7 @@ class MasterController:
         self.annotation_view.polygon_point_added.connect(self.annotation_controller.on_annotation_polygon_point_added)
         self.annotation_view.polygon_completed.connect(self.annotation_controller.on_annotation_polygon_completed)
         self.annotation_view.rectangle_drawn.connect(self.annotation_controller.on_annotation_rectangle_drawn)
+        self.annotation_view.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
         self.annotation_view.point_selected.connect(self._on_endview_point_selected)
         self.annotation_view.drag_update.connect(self._on_endview_drag_update)
 
@@ -191,7 +201,7 @@ class MasterController:
         self.overlay_settings_view.label_color_changed.connect(
             self.annotation_controller.on_label_color_changed
         )
-        self.overlay_settings_view.label_added.connect(self.annotation_controller.on_label_added)
+        self.overlay_settings_view.label_added.connect(self._on_label_added)
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
@@ -220,11 +230,15 @@ class MasterController:
             self.annotation_controller.reset_overlay_state()
             self.annotation_model.clear()
             self.annotation_model.initialize(volume.shape)
+            self.temp_mask_model.clear()
+            self.temp_mask_model.initialize(volume.shape)
+            self.roi_model.clear()
             self.annotation_controller.clear_labels()
             self.cscan_controller.reset_corrosion()
 
             self.tools_panel.set_slice_bounds(0, num_slices - 1)
             self.tools_panel.set_slice_value(0)
+            self._sync_tools_labels()
 
             axis_order = loaded_model.metadata.get("axis_order", [])
             positions = loaded_model.metadata.get("positions") or {}
@@ -270,12 +284,16 @@ class MasterController:
         try:
             self.annotation_controller.reset_overlay_state()
             self.annotation_model.clear()
+            self.temp_mask_model.clear()
+            self.temp_mask_model.initialize(volume.shape)
+            self.roi_model.clear()
             mask_volume = self.overlay_loader.load(file_path, target_shape=volume.shape)
             self.annotation_model.set_mask_volume(mask_volume)
             self.annotation_controller.clear_labels()
             self.cscan_controller.reset_corrosion()
             self.annotation_controller.sync_overlay_settings()
             self.annotation_controller.refresh_overlay()
+            self._sync_tools_labels()
             self.status_message(f"Overlay chargé: {file_path}")
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur overlay", str(exc))
@@ -315,6 +333,7 @@ class MasterController:
         clamped = self.view_state_model.current_slice
         self.tools_panel.set_slice_value(clamped)
         self.annotation_view.set_slice(clamped)
+        self.annotation_controller.refresh_roi_overlay_for_slice(clamped)
         self.cscan_controller.highlight_slice(clamped)
         self.volume_view.set_slice_index(clamped, update_slider=True)
         self._update_ascan_trace()
@@ -397,6 +416,22 @@ class MasterController:
             self._on_slice_changed(int(view_params["slice"]))
         if isinstance(view_params, dict):
             self.view_state_model.set_camera_state(view_params)
+
+    def _on_label_added(self, label_id: int, color: Any) -> None:
+        """Forward label addition then resync tool panel labels."""
+        self.annotation_controller.on_label_added(label_id, color)
+        self.view_state_model.set_active_label(label_id)
+        self._sync_tools_labels(select_label_id=label_id)
+
+    def _sync_tools_labels(self, select_label_id: Optional[int] = None) -> None:
+        """Sync the label list in the tools panel with the annotation model."""
+        palette = self.annotation_model.get_label_palette()
+        labels = sorted(palette.keys()) if palette else []
+        current = select_label_id if select_label_id is not None else self.view_state_model.active_label
+        if current not in labels:
+            current = None
+        self.view_state_model.set_active_label(current)
+        self.tools_panel.set_labels(labels, current=current)
 
     def run(self) -> None:
         """Launch the main window."""

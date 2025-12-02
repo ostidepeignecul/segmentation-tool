@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Dict
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
@@ -10,8 +10,12 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSlider,
+    QVBoxLayout,
+    QWidget,
+    QButtonGroup,
+    QRadioButton as QBtn,
 )
-from PyQt6.QtWidgets import QInputDialog
+from PyQt6.QtWidgets import QInputDialog, QButtonGroup
 
 
 class ToolsPanel(QFrame):
@@ -29,6 +33,7 @@ class ToolsPanel(QFrame):
     selection_cancel_requested = pyqtSignal()
     overlay_toggled = pyqtSignal(bool)
     cross_toggled = pyqtSignal(bool)
+    label_selected = pyqtSignal(int)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -49,6 +54,10 @@ class ToolsPanel(QFrame):
         self._roi_recompute_button: Optional[QPushButton] = None
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
+        self._label_container: Optional[QWidget] = None
+        self._label_layout: Optional[QVBoxLayout] = None
+        self._label_group: Optional[QButtonGroup] = None
+        self._label_buttons: Dict[int, QBtn] = {}
 
         self._slice_min: int = 0
         self._slice_max: int = 0
@@ -73,6 +82,7 @@ class ToolsPanel(QFrame):
         roi_recompute_button: QPushButton,
         roi_delete_button: QPushButton,
         selection_cancel_button: QPushButton,
+        label_container: QWidget,
     ) -> None:
         """Receive Designer-created widgets and wire them to the exposed signals."""
         if self._wired:
@@ -94,6 +104,8 @@ class ToolsPanel(QFrame):
         self._roi_recompute_button = roi_recompute_button
         self._roi_delete_button = roi_delete_button
         self._selection_cancel_button = selection_cancel_button
+        self._label_container = label_container
+        self._ensure_label_layout()
 
         self._slice_slider.valueChanged.connect(self._on_slider_changed)
         self._goto_button.clicked.connect(self._emit_goto_requested)
@@ -118,6 +130,48 @@ class ToolsPanel(QFrame):
         )
 
         self._wired = True
+
+    def _ensure_label_layout(self) -> None:
+        if self._label_container is None:
+            return
+        if self._label_layout is None:
+            self._label_layout = QVBoxLayout(self._label_container)
+            self._label_layout.setContentsMargins(0, 0, 0, 0)
+            self._label_layout.setSpacing(4)
+        if self._label_group is None:
+            self._label_group = QButtonGroup(self)
+            self._label_group.idClicked.connect(self.label_selected.emit)
+
+    def set_labels(self, labels: list[int], *, current: Optional[int] = None) -> None:
+        """Populate the label list and select the requested/current label if possible."""
+        self._ensure_label_layout()
+        if self._label_layout is None or self._label_group is None:
+            return
+        # Clear old buttons
+        for btn in self._label_buttons.values():
+            self._label_group.removeButton(btn)
+            btn.setParent(None)
+        self._label_buttons.clear()
+
+        for lbl in labels:
+            btn = QBtn(f"Label {lbl}", self._label_container)
+            btn.setCheckable(True)
+            self._label_group.addButton(btn, lbl)
+            self._label_layout.addWidget(btn)
+            self._label_buttons[lbl] = btn
+
+        target = current if current in labels else (labels[0] if labels else None)
+        if target is not None:
+            self.select_label(target)
+        else:
+            # No selection if no labels
+            pass
+
+    def select_label(self, label_id: int) -> None:
+        """Programmatically select a label button."""
+        btn = self._label_buttons.get(int(label_id))
+        if btn:
+            btn.setChecked(True)
 
     def set_slice_bounds(self, minimum: int, maximum: int) -> None:
         """Configure slider bounds without emitting change signals."""
