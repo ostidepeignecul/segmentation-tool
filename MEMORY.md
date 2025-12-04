@@ -16,6 +16,37 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-12-04** — Bouton nnUNet branché dans MasterController
+
+**Tags:** `#controllers/master_controller.py`, `#nnunet`, `#pyqt6`, `#mvc`, `#ui`, `#branch:annotation`
+
+**Actions effectuées:**
+- Ajout de l’import QTimer, MASK_COLORS_BGRA et du service `NnUnetService`/`NnUnetResult`, avec instanciation `self.nnunet_service` dans `MasterController`.
+- Raccordement des actions Qt `actionnnunet` et `actionSauvegarder` au contrôleur; nouvel handler `_on_run_nnunet` lance les boîtes de dialogue (modèle nnUNet + chemin .npz), déclenche `run_inference`, et applique le masque retourné sur `annotation_model` avec palette issue du mapping de labels.
+- Dans `_on_run_nnunet`, callbacks succès/erreur dispatchés via `QTimer.singleShot(0, ...)`, réinitialisent l’overlay, activent la visibilité overlay, synchronisent paramètres/labels (`clear_labels`, `sync_overlay_settings`, `_sync_tools_labels`, `refresh_overlay`), et affichent messages de statut/boîte d’info.
+
+**Contexte:**
+Port du bouton nnUNet présent dans la version "copy" pour permettre le lancement d’une inférence nnUNet depuis le menu Inference tout en conservant la structure MVC existante. Le masque résultant est injecté dans `annotation_model` avec couleurs provenant de `MASK_COLORS_BGRA`, overlay forcé visible, et vue rafraîchie sans toucher au reste des contrôleurs.
+
+**Décisions techniques:**
+1. Utiliser `QTimer.singleShot` pour renvoyer l’application des résultats nnUNet dans le thread UI et éviter tout thread-safety issue lors des callbacks asynchrones.
+2. Conserver `actionExporter_npz` et ajouter `actionSauvegarder` pour compatibilité UI, tout en connectant explicitement `actionnnunet` au nouveau handler afin de limiter l’impact aux changements demandés.
+
+**Implémentation (extrait clé):**
+```python
+self.nnunet_service.run_inference(
+    volume=volume,
+    raw_volume=raw_volume,
+    model_path=model_path,
+    output_path=save_path,
+    dataset_id=str(dataset_id) if dataset_id else "current",
+    on_success=_on_success,
+    on_error=_on_error,
+)
+```
+
+---
+
 ### **2025-12-01** — Nettoyage palette générique et suppression logging_config
 
 **Tags :** `#config/constants.py`, `#config/logging_config.py`, `#palette`, `#overlay`, `#cleanup`, `#branch:annotation`
