@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 
 from config.constants import MASK_COLORS_BGRA
+from models.overlay_data import OverlayData
 
 FallbackColor = (255, 0, 255, 160)  # Magenta semi-transparent
 
@@ -16,6 +17,7 @@ class AnnotationModel:
         self.mask_volume: Optional[np.ndarray] = None
         self.label_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self.label_visibility: Dict[int, bool] = {}
+        self.overlay_cache: Optional[OverlayData] = None
 
     # ------------------------------------------------------------------ #
     # Mask handling
@@ -28,6 +30,7 @@ class AnnotationModel:
             self.mask_volume = None
             return
         self.mask_volume = np.zeros((int(depth), int(height), int(width)), dtype=np.uint8)
+        self.overlay_cache = None
 
     def set_mask_volume(self, mask_volume: Any) -> None:
         """Assign a full mask volume (uint8, shape (Z,H,W))."""
@@ -35,6 +38,7 @@ class AnnotationModel:
         if arr.ndim != 3:
             raise ValueError("Mask volume must be 3D (Z,H,W).")
         self.mask_volume = arr
+        self.overlay_cache = None
         # Reset palette/visibilité et auto-register labels présents
         self.label_palette = {}
         self.label_visibility = {}
@@ -54,12 +58,14 @@ class AnnotationModel:
         if mask_array.shape != self.mask_volume[slice_idx].shape:
             return
         self.mask_volume[slice_idx] = mask_array
+        self.overlay_cache = None
 
     def clear(self) -> None:
         """Reset masks and label state."""
         self.mask_volume = None
         self.label_palette = {}
         self.label_visibility = {}
+        self.overlay_cache = None
 
     # ------------------------------------------------------------------ #
     # Labels (palette + visibility)
@@ -109,3 +115,18 @@ class AnnotationModel:
     def get_label_palette(self) -> Dict[int, Tuple[int, int, int, int]]:
         """Return the current label palette (BGRA)."""
         return dict(self.label_palette)
+
+    # ------------------------------------------------------------------ #
+    # Overlay cache (derived data)
+    # ------------------------------------------------------------------ #
+    def set_overlay_cache(self, overlay_data: Optional[OverlayData]) -> None:
+        """Store cached overlay data (derived from mask volume + palette)."""
+        self.overlay_cache = overlay_data
+
+    def get_overlay_cache(self) -> Optional[OverlayData]:
+        """Return cached overlay data if available."""
+        return self.overlay_cache
+
+    def clear_overlay_cache(self) -> None:
+        """Explicitly clear overlay cache."""
+        self.overlay_cache = None

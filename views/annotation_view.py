@@ -7,7 +7,7 @@ from typing import Any, Optional, Sequence, Tuple
 import numpy as np
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QMouseEvent, QPen, QPixmap
-from PyQt6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem
+from PyQt6.QtWidgets import QFileDialog, QGraphicsPixmapItem, QGraphicsRectItem
 
 from config.constants import MASK_COLORS_BGRA
 from views.endview_view import EndviewView
@@ -39,6 +39,10 @@ class AnnotationView(EndviewView):
         self._roi_box_items: list[QGraphicsRectItem] = []
         self._roi_pen = QPen(Qt.GlobalColor.white)
         self._roi_pen.setWidth(2)
+        self._roi_point_items: list[QGraphicsRectItem] = []
+        self._roi_point_pen = QPen(Qt.GlobalColor.white)
+        self._roi_point_pen.setWidth(2)
+        self._tool_mode: Optional[str] = None
 
     # ------------------------------------------------------------------ #
     # Temporary shapes (stubs)
@@ -79,6 +83,17 @@ class AnnotationView(EndviewView):
         self._roi_overlay = None
         self._roi_item.setPixmap(self._blank_pixmap())
         self.clear_roi_boxes()
+        self.clear_roi_points()
+
+    def select_overlay_save_path(self, parent: Any) -> Optional[str]:
+        """Open a save dialog for overlay export and return the chosen path."""
+        file_path, _ = QFileDialog.getSaveFileName(
+            parent,
+            "Sauvegarder l'overlay (.npz)",
+            "",
+            "Overlay NPZ (*.npz);;All Files (*)",
+        )
+        return file_path or None
 
     def set_roi_box(self, box: Optional[Tuple[int, int, int, int]]) -> None:
         """Backwards compatible single box setter."""
@@ -107,6 +122,34 @@ class AnnotationView(EndviewView):
             self._scene.removeItem(it)
         self._roi_box_items.clear()
 
+    def set_roi_points(self, points: list[Tuple[int, int]]) -> None:
+        """Display ROI grow seeds as small white points."""
+        self.clear_roi_points()
+        for x, y in points:
+            item = QGraphicsRectItem()
+            size = 6
+            half = size // 2
+            item.setRect(x - half, y - half, size, size)
+            item.setPen(self._roi_point_pen)
+            item.setZValue(7)
+            self._scene.addItem(item)
+            self._roi_point_items.append(item)
+
+    def clear_roi_points(self) -> None:
+        """Remove all ROI grow seed points."""
+        for it in self._roi_point_items:
+            self._scene.removeItem(it)
+        self._roi_point_items.clear()
+
+    # ------------------------------------------------------------------ #
+    # Tool mode
+    # ------------------------------------------------------------------ #
+    def set_tool_mode(self, mode: Optional[str]) -> None:
+        """Synchronize active tool to enable/disable box drawing."""
+        self._tool_mode = mode
+        if mode != "box":
+            self.clear_temp_shapes()
+
     # ------------------------------------------------------------------ #
     # Events
     # ------------------------------------------------------------------ #
@@ -114,11 +157,13 @@ class AnnotationView(EndviewView):
         if obj is self._view.viewport():
             if isinstance(event, QMouseEvent):
                 if event.type() == QMouseEvent.Type.MouseButtonPress:
-                    handled = self._handle_box_press(event)
-                    if handled:
-                        return True
+                    if self._tool_mode == "box":
+                        handled = self._handle_box_press(event)
+                        if handled:
+                            return True
                 if event.type() == QMouseEvent.Type.MouseMove:
-                    self._handle_box_move(event)
+                    if self._tool_mode == "box":
+                        self._handle_box_move(event)
         return super().eventFilter(obj, event)
 
     def _roi_to_pixmap(self, mask: Any, palette: Optional[dict[int, tuple[int, int, int, int]]] = None):

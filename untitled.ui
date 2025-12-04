@@ -112,7 +112,7 @@
    <property name="minimumSize">
     <size>
      <width>300</width>
-     <height>617</height>
+     <height>633</height>
     </size>
    </property>
    <property name="features">
@@ -228,6 +228,13 @@
          </widget>
         </item>
         <item>
+         <widget class="QRadioButton" name="radioButton_4">
+          <property name="text">
+           <string>Erase</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QCheckBox" name="checkBox">
           <property name="text">
            <string>Appliquer au volume</string>
@@ -332,7 +339,7 @@
              <x>0</x>
              <y>0</y>
              <width>260</width>
-             <height>152</height>
+             <height>126</height>
             </rect>
            </property>
            <property name="minimumSize">

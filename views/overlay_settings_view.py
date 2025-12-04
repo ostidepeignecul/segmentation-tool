@@ -77,6 +77,19 @@ class OverlaySettingsView(QDialog):
             seen.add(int(label_id))
 
     # ------------------------------------------------------------------ #
+    # Color helpers
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def bgra_to_qcolor(color: Tuple[int, int, int, int]) -> QColor:
+        b, g, r, a = color
+        return QColor(r, g, b, a)
+
+    @staticmethod
+    def qcolor_to_bgra(color: QColor) -> Tuple[int, int, int, int]:
+        r, g, b, a = color.getRgb()
+        return (b, g, r, a)
+
+    # ------------------------------------------------------------------ #
     # Slots
     # ------------------------------------------------------------------ #
     def _on_add_label(self) -> None:

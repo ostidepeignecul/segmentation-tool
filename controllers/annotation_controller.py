@@ -8,7 +8,6 @@ from typing import Any, Optional
 import numpy as np
 
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QFileDialog
 
 from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
@@ -54,7 +53,6 @@ class AnnotationController:
         self.volume_view = volume_view
         self.overlay_settings_view = overlay_settings_view
         self.logger = logger
-        self._overlay_cache: OverlayData | None = None
         self._get_volume = get_volume
 
     # ------------------------------------------------------------------ #
@@ -78,7 +76,7 @@ class AnnotationController:
 
     def on_label_color_changed(self, label_id: int, color: QColor) -> None:
         """Gère les changements de couleur des labels overlay."""
-        bgra = self._qcolor_to_bgra(color)
+        bgra = self.overlay_settings_view.qcolor_to_bgra(color)
         self.annotation_model.set_label_color(label_id, bgra)
         self.annotation_model.set_label_visibility(label_id, True)
         self.temp_mask_model.set_label_color(label_id, bgra)
@@ -88,7 +86,7 @@ class AnnotationController:
 
     def on_label_added(self, label_id: int, color: QColor) -> None:
         """Gère l'ajout d'un nouveau label depuis les paramètres overlay."""
-        bgra = self._qcolor_to_bgra(color)
+        bgra = self.overlay_settings_view.qcolor_to_bgra(color)
         self.annotation_model.set_label_color(label_id, bgra)
         self.annotation_model.set_label_visibility(label_id, True)
         self.temp_mask_model.ensure_label(label_id, bgra, visible=True)
@@ -113,14 +111,16 @@ class AnnotationController:
         visible_labels = self.annotation_model.get_visible_labels()
 
         overlay_data = None
-        if not rebuild and self._overlay_cache is not None:
-            overlay_data = OverlayData(
-                label_volumes=self._overlay_cache.label_volumes,
-                palette=palette,
-            )
-        else:
+        if not rebuild:
+            cached = self.annotation_model.get_overlay_cache()
+            if cached is not None:
+                overlay_data = OverlayData(
+                    label_volumes=cached.label_volumes,
+                    palette=palette,
+                )
+        if overlay_data is None:
             overlay_data = self.overlay_service.build_overlay_data(mask_volume, palette)
-            self._overlay_cache = overlay_data
+            self.annotation_model.set_overlay_cache(overlay_data)
 
         if overlay_data is None:
             self.logger.info("No overlay available to push; clearing views.")
@@ -155,7 +155,7 @@ class AnnotationController:
 
     def reset_overlay_state(self) -> None:
         """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""
-        self._overlay_cache = None
+        self.annotation_model.clear_overlay_cache()
         self.annotation_view.set_overlay(None)
         self.annotation_view.clear_roi_overlay()
         self.annotation_view.clear_temp_shapes()
@@ -170,6 +170,7 @@ class AnnotationController:
     def on_tool_mode_changed(self, mode: str) -> None:
         """Handle drawing tool changes (stub)."""
         self.view_state_model.set_tool_mode(mode)
+        self.annotation_view.set_tool_mode(mode)
 
     def on_threshold_changed(self, value: int) -> None:
         """Handle manual threshold change (stub)."""
@@ -193,9 +194,23 @@ class AnnotationController:
 
     def on_roi_recompute_requested(self) -> None:
         """Handle ROI recomputation request (stub)."""
-        slice_idx = self.view_state_model.current_slice
-        self._rebuild_slice_preview(slice_idx)
-        self.refresh_roi_overlay_for_slice(slice_idx)
+        if self.view_state_model.apply_volume:
+            depth, mask_shape = self._resolve_volume_dimensions()
+            if depth is None or mask_shape is None:
+                return
+            self.annotation_service.rebuild_volume_preview_from_rois(
+                depth=depth,
+                mask_shape=mask_shape,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=self.annotation_model.get_label_palette(),
+                slice_data_provider=self._slice_data,
+            )
+            self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
+        else:
+            slice_idx = self.view_state_model.current_slice
+            self._rebuild_slice_preview(slice_idx)
+            self.refresh_roi_overlay_for_slice(slice_idx)
 
     def on_roi_delete_requested(self) -> None:
         """Handle ROI deletion request (stub)."""
@@ -216,8 +231,65 @@ class AnnotationController:
         self.refresh_roi_overlay_for_slice(slice_idx)
 
     def on_annotation_mouse_clicked(self, pos: Any, button: Any) -> None:
-        """Handle mouse click in annotation view (stub)."""
-        pass
+        """Handle mouse click in annotation view (grow tool)."""
+        if self.view_state_model.tool_mode != "grow":
+            return
+        if self.view_state_model.active_label is None:
+            return
+        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
+            return
+        point = (int(pos[0]), int(pos[1]))
+        label = self.view_state_model.active_label
+        threshold = self.view_state_model.threshold if self.view_state_model.threshold is not None else 0
+
+        try:
+            slice_idx = int(self.view_state_model.current_slice)
+        except Exception:
+            return
+
+        shape = (
+            self.annotation_model.mask_shape_hw()
+            or self.temp_mask_model.mask_shape_hw()
+        )
+        slice_data = self._slice_data(slice_idx)
+        if slice_data is not None and shape is None and slice_data.ndim >= 2:
+            shape = (int(slice_data.shape[0]), int(slice_data.shape[1]))
+        if slice_data is None or shape is None:
+            return
+
+        if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
+            depth, _ = self._resolve_volume_dimensions()
+            if depth is None:
+                return
+            self.annotation_service.propagate_grow_volume_from_slice(
+                start_slice=slice_idx,
+                point=point,
+                shape=shape,
+                threshold=threshold,
+                label=label,
+                depth=depth,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=self.annotation_model.get_label_palette(),
+                slice_data_provider=self._slice_data,
+            )
+        else:
+            grow_mask = self.annotation_service.apply_grow_roi(
+                slice_idx=slice_idx,
+                point=point,
+                shape=shape,
+                slice_data=slice_data,
+                label=label,
+                threshold=threshold,
+                persistent=self.view_state_model.roi_persistence,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=self.annotation_model.get_label_palette(),
+            )
+            if grow_mask is None:
+                return
+
+        self.refresh_roi_overlay_for_slice(slice_idx)
 
     def on_annotation_freehand_started(self, pos: Any) -> None:
         """Handle free-hand start (stub)."""
@@ -276,6 +348,11 @@ class AnnotationController:
             self.annotation_view.set_roi_boxes(boxes)
         else:
             self.annotation_view.clear_roi_boxes()
+        seeds = self.roi_model.seeds_for_slice(slice_idx, include_persistent=True)
+        if seeds:
+            self.annotation_view.set_roi_points(seeds)
+        else:
+            self.annotation_view.clear_roi_points()
 
     def on_annotation_point_selected(self, pos: Any) -> None:
         """Handle point selection (stub)."""
@@ -287,35 +364,57 @@ class AnnotationController:
 
     def on_apply_temp_mask_requested(self) -> None:
         """Apply the current temporary mask (free-hand/ROI) into the annotation model."""
-        slice_idx = self.view_state_model.current_slice
-        mask_volume = self.annotation_model.get_mask_volume()
-        temp_slice = self.temp_mask_model.get_slice_mask(slice_idx)
+        if self.view_state_model.apply_volume:
+            depth, mask_shape = self._resolve_volume_dimensions()
+            if depth is None or mask_shape is None:
+                return
+            self.annotation_service.rebuild_volume_preview_from_rois(
+                depth=depth,
+                mask_shape=mask_shape,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=self.annotation_model.get_label_palette(),
+                slice_data_provider=self._slice_data,
+            )
+            self.annotation_service.apply_temp_volume_to_model(
+                temp_mask_model=self.temp_mask_model,
+                annotation_model=self.annotation_model,
+            )
+            target_slice = self.view_state_model.current_slice
+        else:
+            target_slice = self.view_state_model.current_slice
+            mask_volume = self.annotation_model.get_mask_volume()
+            temp_slice = self.temp_mask_model.get_slice_mask(target_slice)
 
-        if mask_volume is None or temp_slice is None:
-            return
-        if not np.any(temp_slice):
-            return
-        try:
-            current_slice = mask_volume[int(slice_idx)]
-        except Exception:
-            return
-        if current_slice.shape != temp_slice.shape:
-            return
+            if mask_volume is None or temp_slice is None:
+                return
+            if not np.any(temp_slice):
+                return
+            try:
+                current_slice = mask_volume[int(target_slice)]
+            except Exception:
+                return
+            if current_slice.shape != temp_slice.shape:
+                return
 
-        updated = np.array(current_slice, copy=True)
-        updated[temp_slice > 0] = temp_slice[temp_slice > 0]
-        self.annotation_model.set_slice_mask(slice_idx, updated)
+            updated = np.array(current_slice, copy=True)
+            updated[temp_slice > 0] = temp_slice[temp_slice > 0]
+            self.annotation_model.set_slice_mask(target_slice, updated)
 
         for label, color in self.temp_mask_model.label_palette.items():
             self.annotation_model.ensure_label(label, color, visible=True)
 
-        self.temp_mask_model.clear_slice(slice_idx)
+        if self.view_state_model.apply_volume:
+            self.temp_mask_model.clear()
+        else:
+            self.temp_mask_model.clear_slice(target_slice)
         self.annotation_view.clear_temp_shapes()
         self.annotation_view.clear_roi_overlay()
         self.annotation_view.clear_roi_boxes()
+        self.annotation_view.clear_roi_points()
 
         self.refresh_overlay(defer_volume=True, rebuild=True)
-        self.refresh_roi_overlay_for_slice(slice_idx)
+        self.refresh_roi_overlay_for_slice(target_slice)
 
     # ------------------------------------------------------------------ #
     # Saving
@@ -341,12 +440,7 @@ class AnnotationController:
                 if mask_volume.shape != tgt_shape:
                     raise ValueError(f"Overlay shape {mask_volume.shape} différent du volume {tgt_shape}.")
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            parent,
-            "Sauvegarder l'overlay (.npz)",
-            "",
-            "Overlay NPZ (*.npz);;All Files (*)",
-        )
+        file_path = self.annotation_view.select_overlay_save_path(parent)
         if not file_path:
             return None
 
@@ -364,22 +458,36 @@ class AnnotationController:
         visibility = self.annotation_model.label_visibility
         for label_id in sorted(palette.keys()):
             color = palette[label_id]
-            qcolor = self._bgra_to_qcolor(color)
+            qcolor = self.overlay_settings_view.bgra_to_qcolor(color)
             visible = visibility.get(label_id, True)
             entries.append((label_id, qcolor, visible))
         self.overlay_settings_view.set_labels(entries)
 
-    @staticmethod
-    def _bgra_to_qcolor(color: tuple[int, int, int, int]) -> QColor:
-        """Convert BGRA tuple to QColor."""
-        b, g, r, a = color
-        return QColor(r, g, b, a)
+    def _resolve_volume_dimensions(self) -> tuple[Optional[int], Optional[tuple[int, int]]]:
+        """Return (depth, (H, W)) from annotation/temp models or underlying volume."""
+        mask_shape = self.annotation_model.mask_shape_hw() or self.temp_mask_model.mask_shape_hw()
+        depth = None
 
-    @staticmethod
-    def _qcolor_to_bgra(color: QColor) -> tuple[int, int, int, int]:
-        """Convert QColor to BGRA tuple."""
-        r, g, b, a = color.getRgb()
-        return (b, g, r, a)
+        mask_volume = self.annotation_model.get_mask_volume()
+        if mask_volume is not None:
+            depth = mask_volume.shape[0]
+            if mask_shape is None:
+                mask_shape = (mask_volume.shape[1], mask_volume.shape[2])
+
+        temp_volume = self.temp_mask_model.get_mask_volume()
+        if depth is None and temp_volume is not None:
+            depth = temp_volume.shape[0]
+            if mask_shape is None:
+                mask_shape = (temp_volume.shape[1], temp_volume.shape[2])
+
+        if (depth is None or mask_shape is None) and self._get_volume is not None:
+            volume = self._get_volume()
+            if volume is not None:
+                depth = volume.shape[0]
+                if mask_shape is None:
+                    mask_shape = (volume.shape[1], volume.shape[2])
+
+        return depth, mask_shape
 
     def _slice_data(self, slice_idx: int):
         """Return raw slice data (H, W) from the current volume if available."""
@@ -399,7 +507,12 @@ class AnnotationController:
         if mask_shape is None:
             return
 
-        rois = self.roi_model.list_on_slice(slice_idx) or self.roi_model.list_persistent()
+        rois = list(self.roi_model.list_on_slice(slice_idx))
+        persistent_rois = self.roi_model.list_persistent()
+        if persistent_rois:
+            seen_ids = {roi.id for roi in rois}
+            rois.extend([roi for roi in persistent_rois if roi.id not in seen_ids])
+
         boxes = self.annotation_service.rebuild_temp_masks_for_slice(
             rois=rois,
             shape=mask_shape,
@@ -420,3 +533,9 @@ class AnnotationController:
             self.annotation_view.set_roi_boxes(boxes)
         else:
             self.annotation_view.clear_roi_boxes()
+
+        seeds = self.roi_model.seeds_for_slice(slice_idx, include_persistent=True)
+        if seeds:
+            self.annotation_view.set_roi_points(seeds)
+        else:
+            self.annotation_view.clear_roi_points()

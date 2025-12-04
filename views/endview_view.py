@@ -174,16 +174,18 @@ class EndviewView(QFrame):
     def _handle_mouse_press(self, event: QMouseEvent) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
-        if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-            return False
         coords = self._scene_coords_from_event(event)
         if coords is None:
             return False
         self._view.setFocus(Qt.FocusReason.MouseFocusReason)
         x, y = coords
-        self._update_crosshair(x, y)
-        self.point_selected.emit(coords)
-        self.mouse_clicked.emit(coords, event.button())
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Shift+clic = crosshair uniquement
+            self._update_crosshair(x, y)
+            self.point_selected.emit(coords)
+        else:
+            # Clic gauche normal = interaction annotation (grow, etc.)
+            self.mouse_clicked.emit(coords, event.button())
         return True
 
     def _handle_mouse_move(self, event: QMouseEvent) -> bool:

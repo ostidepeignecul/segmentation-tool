@@ -1776,3 +1776,82 @@ Poursuite du remplacement complet du terme "rectangle" pour les ROI afin d’év
 2. Conserver les primitives géométriques (QGraphicsRectItem, tuples x1,y1,x2,y2) mais masquer la terminologie rectangle dans les interfaces publiques.
 
 ---
+
+### **2025-12-04** — Fusion slice + ROI persistantes pour boxes
+
+**Tags :** `#models/roi_model.py`, `#controllers/annotation_controller.py`, `#roi`, `#box`, `#persistence`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- RoiModel.boxes_for_slice merge les ROI de la slice courante avec les ROI marquées `persistent` (sans doublon via l’`id`) au lieu d’un simple fallback, et renvoie toutes les boxes agrégées.
+- AnnotationController._rebuild_slice_preview reconstruit les masques temporaires avec les ROI de la slice plus les ROI persistantes fusionnées, garantissant que les boxes persistantes restent visibles lors du dessin d’une nouvelle box sur cette slice.
+- Maintien du flux de preview (set_roi_boxes / set_roi_overlay) inchangé mais alimenté avec la liste fusionnée, supprimant la disparition des copies persistantes.
+
+**Contexte :**
+Avec la persistance activée, créer une nouvelle box sur une endview peuplée par des ROI persistantes faisait disparaître la copie persistante car le rebuild utilisait un fallback exclusif. La fusion slice + persistent préserve l’affichage et le masque temporaire.
+
+**Décisions techniques :**
+1. Utiliser une fusion (slice + persistantes) plutôt qu’un fallback pour éviter d’écraser les boxes héritées de la persistance.
+2. Dédupliquer par `roi.id` pour ne pas dupliquer l’affichage lorsqu’une ROI est déjà présente sur la slice courante.
+
+---
+
+### **2025-12-04** — Implémentation ROI grow (click gauche) et clic sans Shift pour annotation
+
+**Tags :** `#views/endview_view.py`, `#views/annotation_view.py`, `#controllers/annotation_controller.py`, `#services/annotation_service.py`, `#models/roi_model.py`, `#roi`, `#grow`, `#threshold`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- EndviewView : clic gauche sans Shift émet les interactions d’annotation (grow, etc.), Shift+clic reste dédié à la crosshair.
+- AnnotationView : suit le tool_mode pour n’autoriser le tracé de box que quand l’outil box est actif et vide les formes temporaires lors d’un changement d’outil.
+- RoiModel : ajout `add_grow` pour stocker les ROI de type grow (seed, label, threshold, persistence).
+- AnnotationService : normalise la slice en uint8, region growing 4-connexe à partir du seed avec seuil (threshold None → 0), expose `apply_grow_roi` et reconstruit les masques grow lors du rebuild.
+- AnnotationController : handle grow sur clic (sans Shift) avec fallback de shape depuis mask/temp/slice_data, seuil par défaut 0 si absent, applique le grow et rafraîchit la preview ROI.
+
+**Contexte :**
+Le mode grow ne réagissait pas au clic car seul Shift+clic déclenchait l’annotation. Le growing devait aussi fonctionner même si le seuil n’était pas encore fixé explicitement. La reconstruction devait rejouer les ROI grow persistantes.
+
+**Décisions techniques :**
+1. Découpler crosshair (Shift+clic) et actions d’annotation (clic gauche) pour permettre grow et futurs outils sans combinaison de touches.
+2. Autoriser threshold par défaut (0) et clamping des shapes/seeds pour éviter les early returns et garantir un masque grow même sur valeur minimale.
+3. Inclure les ROI grow dans le rebuild temp mask pour que la persistance/navigation réaffiche les prévisualisations grow.
+
+---
+
+### **2025-12-04** — Apply-volume ROI rebuild/apply + points visibles pour grow
+
+**Tags :** `#controllers/annotation_controller.py`, `#models/roi_model.py`, `#views/annotation_view.py`, `#roi`, `#grow`, `#apply_volume`, `#persistence`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- AnnotationController : si "Appliquer au volume" est coché, `recompute` reconstruit toutes les previews ROI sur toutes les slices (ROIs slice + persistantes) via `_rebuild_volume_preview`, et `Appliquer ROI` applique le masque temporaire sur tout le volume (`_apply_temp_volume`), palette synchronisée.
+- Temp previews : `_rebuild_volume_preview` initialise/clear le temp mask, itère les slices, fusionne ROIs persistantes, reconstruit box/grow via AnnotationService et relance l’overlay sur la slice courante.
+- Visual : les seeds grow sont affichés en points blancs (AnnotationView `set_roi_points`/`clear_roi_points`, RoiModel `seeds_for_slice`, refresh controller).
+- Apply local (sans volume) inchangé, mais le nettoyage inclut désormais les points grow et le temp mask complet si apply_volume.
+
+**Contexte :**
+Avec l’option "Appliquer au volume", le recalcul et l’application ROI ne traitaient que la slice courante, ignorant les ROIs persistantes/autres slices. Les grow n’étaient pas visibles graphiquement comme les boxes.
+
+**Décisions techniques :**
+1. Introduire des chemins volume-wide pour recompute/apply : rebuild des masques temporaires sur chaque slice avant l’application, puis fusion dans l’annotation model.
+2. Fusionner slice + persistentes lors des rebuilds volume pour garantir que les ROIs persistantes sont incluses partout.
+3. Ajouter un rendu dédié des seeds grow (points blancs) pour une visibilité équivalente aux boxes blanches.
+
+---
+
+### **2025-12-04** — Cache overlay déplacé au modèle + délégation volume
+
+**Tags :** `#models/annotation_model.py`, `#services/annotation_service.py`, `#controllers/annotation_controller.py`, `#views/annotation_view.py`, `#views/overlay_settings_view.py`, `#overlay`, `#cache`, `#roi`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- AnnotationModel : ajout d’un cache OverlayData avec getters/setters/clear, invalidation automatique sur init/reset/set_slice_mask/set_mask_volume.
+- AnnotationService : ajout des helpers métier volume (`rebuild_volume_preview_from_rois`, `apply_temp_volume_to_model`, `propagate_grow_volume_from_slice`) pour reconstruire/appliquer les masques sur tout le volume.
+- AnnotationController : suppression du cache local, lecture/écriture du cache via le modèle ; délégation des boucles volume à AnnotationService ; résolution des dimensions via `_resolve_volume_dimensions`.
+- Vues : AnnotationView ouvre la boîte de dialogue de sauvegarde overlay ; OverlaySettingsView fournit les conversions QColor↔BGRA utilisées par le contrôleur.
+
+**Contexte :**
+Le contrôleur mélangeait cache de données, boucles volume et interactions UI, s’écartant du MVC strict. Le cache overlay devait vivre côté modèle, et les opérations volume/grow devaient être dans le service métier.
+
+**Décisions techniques :**
+1. Centraliser le cache overlay dans le modèle pour coller aux données dérivées et l’invalider dès qu’un masque change.
+2. Déporter les traitements volume (rebuild/apply, grow forward/backward) dans le service pour garder le contrôleur orchestral.
+3. Déléguer les interactions Qt (dialogue de sauvegarde, conversions couleur) aux vues afin de supprimer la logique UI du contrôleur.
+
+---

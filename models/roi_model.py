@@ -52,6 +52,28 @@ class RoiModel:
         self._rois.append(roi)
         return roi
 
+    def add_grow(
+        self,
+        slice_idx: int,
+        seed: Tuple[int, int],
+        *,
+        label: int = 1,
+        threshold: Optional[float] = None,
+        persistent: bool = False,
+    ) -> ROI:
+        roi = ROI(
+            id=self._next_id,
+            roi_type="grow",
+            slice_idx=int(slice_idx),
+            points=[(int(seed[0]), int(seed[1]))],
+            label=int(label),
+            threshold=threshold,
+            persistent=bool(persistent),
+        )
+        self._next_id += 1
+        self._rois.append(roi)
+        return roi
+
     def list(self) -> List[ROI]:
         """Return all ROIs."""
         return list(self._rois)
@@ -73,13 +95,37 @@ class RoiModel:
     def boxes_for_slice(self, slice_idx: int, *, include_persistent: bool = True) -> List[Tuple[int, int, int, int]]:
         """
         Return box coordinates (x1, y1, x2, y2) for a slice.
-        If no ROI on the slice and include_persistent=True, fall back to persistent ROIs.
+        If include_persistent=True, merge slice ROIs with persistent ones (no duplicates).
         """
         rois = self.list_on_slice(slice_idx)
-        if not rois and include_persistent:
-            rois = self.list_persistent()
+        if include_persistent:
+            seen_ids = {roi.id for roi in rois}
+            for roi in self.list_persistent():
+                if roi.id not in seen_ids:
+                    rois.append(roi)
+                    seen_ids.add(roi.id)
+
         rects: List[Tuple[int, int, int, int]] = []
         for roi in rois:
             if roi.roi_type == "box" and len(roi.points) >= 2:
                 rects.append(roi.points[0] + roi.points[1])
         return rects
+
+    def seeds_for_slice(self, slice_idx: int, *, include_persistent: bool = True) -> List[Tuple[int, int]]:
+        """
+        Return seed points (x, y) for grow ROIs on a slice.
+        If include_persistent=True, merge slice ROIs with persistent ones (no duplicates).
+        """
+        rois = self.list_on_slice(slice_idx)
+        if include_persistent:
+            seen_ids = {roi.id for roi in rois}
+            for roi in self.list_persistent():
+                if roi.id not in seen_ids:
+                    rois.append(roi)
+                    seen_ids.add(roi.id)
+
+        seeds: List[Tuple[int, int]] = []
+        for roi in rois:
+            if roi.roi_type == "grow" and len(roi.points) >= 1:
+                seeds.append(roi.points[0])
+        return seeds
