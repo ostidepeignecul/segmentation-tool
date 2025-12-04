@@ -51,9 +51,15 @@ class EndviewView(QFrame):
 
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
-        self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self._view.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self._view.viewport().installEventFilter(self)
+        self._view.installEventFilter(self)
+        self._view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._view.viewport().setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._view.setMouseTracking(True)
+        self._panning: bool = False
+        self._pan_last = QPointF()
 
         self._image_item = QGraphicsPixmapItem()
         self._scene.addItem(self._image_item)
@@ -76,6 +82,8 @@ class EndviewView(QFrame):
         layout.addWidget(self._view)
 
         self.setStyleSheet("background-color: #202020; color: #bbbbbb;")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocusProxy(self._view)
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -143,21 +151,25 @@ class EndviewView(QFrame):
         if obj is self._view.viewport():
             if isinstance(event, QMouseEvent):
                 if event.type() == QMouseEvent.Type.MouseButtonPress:
+                    if self._handle_pan_press(event):
+                        return True
                     return self._handle_mouse_press(event)
                 if event.type() == QMouseEvent.Type.MouseMove:
+                    if self._handle_pan_move(event):
+                        return True
                     return self._handle_mouse_move(event)
+                if event.type() == QMouseEvent.Type.MouseButtonRelease:
+                    if self._handle_pan_release(event):
+                        return True
         return super().eventFilter(obj, event)
 
     def wheelEvent(self, event) -> None:
         if not self._scene.items():
             return
-        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            self._emit_slice_scroll(event.angleDelta().y())
-            event.accept()
-            return
         zoom_in = event.angleDelta().y() > 0
         factor = 1.15 if zoom_in else 1 / 1.15
         self._view.scale(factor, factor)
+        event.accept()
 
     def _handle_mouse_press(self, event: QMouseEvent) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -167,6 +179,7 @@ class EndviewView(QFrame):
         coords = self._scene_coords_from_event(event)
         if coords is None:
             return False
+        self._view.setFocus(Qt.FocusReason.MouseFocusReason)
         x, y = coords
         self._update_crosshair(x, y)
         self.point_selected.emit(coords)
@@ -179,6 +192,43 @@ class EndviewView(QFrame):
             return False
         self.drag_update.emit(coords)
         return False
+
+    # ------------------------------------------------------------------ #
+    # Panning helpers (right-click)
+    # ------------------------------------------------------------------ #
+    def _handle_pan_press(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.RightButton:
+            return False
+        if not self._scene.items():
+            return False
+        self._view.setFocus(Qt.FocusReason.MouseFocusReason)
+        self._panning = True
+        self._pan_last = event.position()
+        self._view.setCursor(Qt.CursorShape.ClosedHandCursor)
+        event.accept()
+        return True
+
+    def _handle_pan_move(self, event: QMouseEvent) -> bool:
+        if not self._panning:
+            return False
+        delta = event.position() - self._pan_last
+        self._pan_last = event.position()
+        hbar = self._view.horizontalScrollBar()
+        vbar = self._view.verticalScrollBar()
+        hbar.setValue(hbar.value() - int(delta.x()))
+        vbar.setValue(vbar.value() - int(delta.y()))
+        event.accept()
+        return True
+
+    def _handle_pan_release(self, event: QMouseEvent) -> bool:
+        if not self._panning:
+            return False
+        if event.button() != Qt.MouseButton.RightButton:
+            return False
+        self._panning = False
+        self._view.setCursor(Qt.CursorShape.ArrowCursor)
+        event.accept()
+        return True
 
     # ------------------------------------------------------------------ #
     # Rendering helpers

@@ -23,6 +23,9 @@ class ToolsPanel(QFrame):
 
     slice_changed = pyqtSignal(int)
     goto_requested = pyqtSignal(int)
+    previous_requested = pyqtSignal()
+    next_requested = pyqtSignal()
+    apply_roi_requested = pyqtSignal()
     tool_mode_changed = pyqtSignal(str)
     threshold_changed = pyqtSignal(int)
     threshold_auto_toggled = pyqtSignal(bool)
@@ -54,6 +57,9 @@ class ToolsPanel(QFrame):
         self._roi_recompute_button: Optional[QPushButton] = None
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
+        self._previous_button: Optional[QPushButton] = None
+        self._next_button: Optional[QPushButton] = None
+        self._apply_roi_button: Optional[QPushButton] = None
         self._label_container: Optional[QWidget] = None
         self._label_layout: Optional[QVBoxLayout] = None
         self._label_group: Optional[QButtonGroup] = None
@@ -82,6 +88,9 @@ class ToolsPanel(QFrame):
         roi_recompute_button: QPushButton,
         roi_delete_button: QPushButton,
         selection_cancel_button: QPushButton,
+        previous_button: QPushButton,
+        next_button: QPushButton,
+        apply_roi_button: QPushButton,
         label_container: QWidget,
     ) -> None:
         """Receive Designer-created widgets and wire them to the exposed signals."""
@@ -104,11 +113,20 @@ class ToolsPanel(QFrame):
         self._roi_recompute_button = roi_recompute_button
         self._roi_delete_button = roi_delete_button
         self._selection_cancel_button = selection_cancel_button
+        self._previous_button = previous_button
+        self._next_button = next_button
+        self._apply_roi_button = apply_roi_button
         self._label_container = label_container
         self._ensure_label_layout()
 
         self._slice_slider.valueChanged.connect(self._on_slider_changed)
         self._goto_button.clicked.connect(self._emit_goto_requested)
+        if self._previous_button is not None:
+            self._previous_button.clicked.connect(self.previous_requested)
+        if self._next_button is not None:
+            self._next_button.clicked.connect(self.next_requested)
+        if self._apply_roi_button is not None:
+            self._apply_roi_button.clicked.connect(self.apply_roi_requested)
         self._threshold_slider.valueChanged.connect(self.threshold_changed.emit)
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)

@@ -285,6 +285,38 @@ class AnnotationController:
         """Handle drag update (stub)."""
         pass
 
+    def on_apply_temp_mask_requested(self) -> None:
+        """Apply the current temporary mask (polygon/ROI) into the annotation model."""
+        slice_idx = self.view_state_model.current_slice
+        mask_volume = self.annotation_model.get_mask_volume()
+        temp_slice = self.temp_mask_model.get_slice_mask(slice_idx)
+
+        if mask_volume is None or temp_slice is None:
+            return
+        if not np.any(temp_slice):
+            return
+        try:
+            current_slice = mask_volume[int(slice_idx)]
+        except Exception:
+            return
+        if current_slice.shape != temp_slice.shape:
+            return
+
+        updated = np.array(current_slice, copy=True)
+        updated[temp_slice > 0] = temp_slice[temp_slice > 0]
+        self.annotation_model.set_slice_mask(slice_idx, updated)
+
+        for label, color in self.temp_mask_model.label_palette.items():
+            self.annotation_model.ensure_label(label, color, visible=True)
+
+        self.temp_mask_model.clear_slice(slice_idx)
+        self.annotation_view.clear_temp_shapes()
+        self.annotation_view.clear_roi_overlay()
+        self.annotation_view.clear_roi_rectangles()
+
+        self.refresh_overlay(defer_volume=True, rebuild=True)
+        self.refresh_roi_overlay_for_slice(slice_idx)
+
     # ------------------------------------------------------------------ #
     # Saving
     # ------------------------------------------------------------------ #

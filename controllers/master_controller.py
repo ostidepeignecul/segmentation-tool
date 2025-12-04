@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Optional
 
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QStackedLayout, QWidget
 
 from controllers.annotation_controller import AnnotationController
@@ -47,6 +49,7 @@ class MasterController:
             cscan_corrosion_service=self.cscan_corrosion_service
         )
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
+        self._shortcuts: list[QShortcut] = []
 
         # References to Designer-created views.
         self.annotation_view: AnnotationView = self.ui.frame_3
@@ -124,6 +127,7 @@ class MasterController:
 
         self._connect_actions()
         self._connect_signals()
+        self._register_shortcuts()
         self._sync_tools_labels()
 
     def _connect_actions(self) -> None:
@@ -155,6 +159,9 @@ class MasterController:
             roi_recompute_button=self.ui.pushButton_2,
             roi_delete_button=self.ui.pushButton_3,
             selection_cancel_button=self.ui.pushButton_4,
+            previous_button=self.ui.pushButton_5,
+            next_button=self.ui.pushButton_6,
+            apply_roi_button=self.ui.pushButton_7,
             label_container=self.ui.scrollAreaWidgetContents,
         )
 
@@ -173,6 +180,9 @@ class MasterController:
         self.tools_panel.roi_recompute_requested.connect(self.annotation_controller.on_roi_recompute_requested)
         self.tools_panel.roi_delete_requested.connect(self.annotation_controller.on_roi_delete_requested)
         self.tools_panel.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
+        self.tools_panel.previous_requested.connect(self._on_previous_slice)
+        self.tools_panel.next_requested.connect(self._on_next_slice)
+        self.tools_panel.apply_roi_requested.connect(self.annotation_controller.on_apply_temp_mask_requested)
         self.tools_panel.label_selected.connect(self.annotation_controller.on_label_selected)
 
         self.annotation_view.slice_changed.connect(self._on_slice_changed)
@@ -184,6 +194,11 @@ class MasterController:
         self.annotation_view.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
         self.annotation_view.point_selected.connect(self._on_endview_point_selected)
         self.annotation_view.drag_update.connect(self._on_endview_drag_update)
+        self.annotation_view.apply_roi_requested.connect(
+            self.annotation_controller.on_apply_temp_mask_requested
+        )
+        self.annotation_view.previous_requested.connect(self._on_previous_slice)
+        self.annotation_view.next_requested.connect(self._on_next_slice)
 
         if self.cscan_view is not None:
             self.cscan_view.crosshair_changed.connect(self._on_cscan_crosshair_changed)
@@ -203,6 +218,21 @@ class MasterController:
             self.annotation_controller.on_label_color_changed
         )
         self.overlay_settings_view.label_added.connect(self._on_label_added)
+
+    def _register_shortcuts(self) -> None:
+        """Global keyboard shortcuts (active anywhere in the window)."""
+        parent = self.main_window
+        mapping = [
+            (QKeySequence(Qt.Key.Key_A), self._on_previous_slice),
+            (QKeySequence(Qt.Key.Key_D), self._on_next_slice),
+            (QKeySequence(Qt.Key.Key_W), self.annotation_controller.on_apply_temp_mask_requested),
+            (QKeySequence(Qt.Key.Key_Escape), self.annotation_controller.on_selection_cancel_requested),
+        ]
+        for seq, handler in mapping:
+            sc = QShortcut(seq, parent)
+            sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            sc.activated.connect(handler)
+            self._shortcuts.append(sc)
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
@@ -338,6 +368,21 @@ class MasterController:
         self.cscan_controller.highlight_slice(clamped)
         self.volume_view.set_slice_index(clamped, update_slider=True)
         self._update_ascan_trace()
+
+    def _on_previous_slice(self) -> None:
+        """Navigate to the previous slice via buttons/shortcuts."""
+        self._navigate_slice_delta(-1)
+
+    def _on_next_slice(self) -> None:
+        """Navigate to the next slice via buttons/shortcuts."""
+        self._navigate_slice_delta(1)
+
+    def _navigate_slice_delta(self, delta: int) -> None:
+        volume = self._current_volume()
+        if volume is None:
+            return
+        current = self.view_state_model.current_slice
+        self._on_slice_changed(current + int(delta))
 
     def _on_goto_requested(self, slice_idx: int) -> None:
         """Handle explicit goto action from tools panel."""

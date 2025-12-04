@@ -17,6 +17,10 @@ class AnnotationView(EndviewView):
     """Extends the base endview renderer with placeholders for ROI rendering."""
 
     selection_cancel_requested = pyqtSignal()
+    apply_temp_mask_requested = pyqtSignal()
+    previous_requested = pyqtSignal()
+    next_requested = pyqtSignal()
+    apply_roi_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -108,10 +112,6 @@ class AnnotationView(EndviewView):
     # ------------------------------------------------------------------ #
     def eventFilter(self, obj: Any, event) -> bool:
         if obj is self._view.viewport():
-            if event.type() == QEvent.Type.KeyPress and getattr(event, "key", lambda: None)() == Qt.Key.Key_Escape:
-                self.clear_temp_shapes()
-                self.selection_cancel_requested.emit()
-                return False
             if isinstance(event, QMouseEvent):
                 if event.type() == QMouseEvent.Type.MouseButtonPress:
                     handled = self._handle_rectangle_press(event)
@@ -149,9 +149,10 @@ class AnnotationView(EndviewView):
         # Ne pas intercepter Shift+clic : réservé au déplacement de la crosshair
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             return False
-        coords = self._scene_coords_from_event(event)
+        coords = self._clamped_scene_coords_from_event(event)
         if coords is None:
             return False
+        self._view.setFocus(Qt.FocusReason.MouseFocusReason)
         if self._rect_start is None:
             self._rect_start = coords
             self.set_temp_rectangle((coords[0], coords[1], coords[0], coords[1]))
@@ -165,8 +166,19 @@ class AnnotationView(EndviewView):
     def _handle_rectangle_move(self, event: QMouseEvent) -> None:
         if self._rect_start is None:
             return
-        coords = self._scene_coords_from_event(event)
+        coords = self._clamped_scene_coords_from_event(event)
         if coords is None:
             return
         rect = (self._rect_start[0], self._rect_start[1], coords[0], coords[1])
         self.set_temp_rectangle(rect)
+
+    def _clamped_scene_coords_from_event(self, event: QMouseEvent) -> Optional[Tuple[int, int]]:
+        if self._volume is None:
+            return None
+        scene_pos = self._view.mapToScene(event.position().toPoint())
+        x = int(scene_pos.x())
+        y = int(scene_pos.y())
+        height, width = self._volume.shape[1:]
+        x = max(0, min(width - 1, x))
+        y = max(0, min(height - 1, y))
+        return (x, y)
