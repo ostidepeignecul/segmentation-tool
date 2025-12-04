@@ -48,7 +48,6 @@ class MasterController:
         self.endview_view = self.ui.frame_3
         self.volume_view = self.ui.frame_5
         self.ascan_view = self.ui.frame_7
-        self.tools_panel = self.ui.dockWidgetContents_2
 
         # C-scan stacked layout (standard + corrosion)
         self.cscan_view = self.ui.frame_4
@@ -121,46 +120,11 @@ class MasterController:
         self.ui.actionSauvegarder.triggered.connect(self._on_save)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionParam_tres_2.triggered.connect(self.annotation_controller.open_overlay_settings)
-        self.ui.actionCorrosion_analyse.triggered.connect(self.cscan_controller.run_corrosion_analysis)
         self.ui.actionnnunet.triggered.connect(self._on_run_nnunet)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
 
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
-        self.tools_panel.attach_designer_widgets(
-            slice_slider=self.ui.horizontalSlider_2,
-            slice_label=self.ui.label_3,
-            position_label=self.ui.label_4,
-            goto_button=self.ui.pushButton,
-            threshold_slider=self.ui.horizontalSlider,
-            polygon_radio=self.ui.radioButton,
-            rectangle_radio=self.ui.radioButton_2,
-            point_radio=self.ui.radioButton_3,
-            overlay_checkbox=self.ui.checkBox_5,
-            cross_checkbox=self.ui.checkBox_4,
-            apply_volume_checkbox=self.ui.checkBox,
-            threshold_auto_checkbox=self.ui.checkBox_2,
-            roi_persistence_checkbox=self.ui.checkBox_3,
-            roi_recompute_button=self.ui.pushButton_2,
-            roi_delete_button=self.ui.pushButton_3,
-            selection_cancel_button=self.ui.pushButton_4,
-        )
-
-        self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
-        self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
-
-        self.tools_panel.slice_changed.connect(self._on_slice_changed)
-        self.tools_panel.goto_requested.connect(self._on_goto_requested)
-        self.tools_panel.tool_mode_changed.connect(self._on_tool_mode_changed)
-        self.tools_panel.threshold_changed.connect(self._on_threshold_changed)
-        self.tools_panel.threshold_auto_toggled.connect(self._on_threshold_auto_toggled)
-        self.tools_panel.apply_volume_toggled.connect(self._on_apply_volume_toggled)
-        self.tools_panel.overlay_toggled.connect(self.annotation_controller.on_overlay_toggled)
-        self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
-        self.tools_panel.roi_persistence_toggled.connect(self._on_roi_persistence_toggled)
-        self.tools_panel.roi_recompute_requested.connect(self._on_roi_recompute_requested)
-        self.tools_panel.roi_delete_requested.connect(self._on_roi_delete_requested)
-        self.tools_panel.selection_cancel_requested.connect(self._on_selection_cancel_requested)
 
         self.endview_view.slice_changed.connect(self._on_slice_changed)
         self.endview_view.mouse_clicked.connect(self._on_endview_mouse_clicked)
@@ -220,8 +184,6 @@ class MasterController:
             self.annotation_controller.clear_labels()
             self.cscan_controller.reset_corrosion()
 
-            self.tools_panel.set_slice_bounds(0, num_slices - 1)
-            self.tools_panel.set_slice_value(0)
 
             axis_order = loaded_model.metadata.get("axis_order", [])
             positions = loaded_model.metadata.get("positions") or {}
@@ -320,7 +282,6 @@ class MasterController:
                         self.annotation_model.ensure_label(int(label_id), color, visible=True)
                     # S'assure que l'overlay est visible
                     self.view_state_model.toggle_overlay(True)
-                    self.tools_panel.set_overlay_checked(True)
                     self.annotation_controller.sync_overlay_settings()
                     self.annotation_controller.refresh_overlay()
                     self.status_message(f"nnUNet terminé, masque sauvegardé : {result.output_path}", timeout_ms=5000)
@@ -373,7 +334,6 @@ class MasterController:
         clamped = max(0, min(volume.shape[0] - 1, int(index)))
         self.view_state_model.set_slice(index)
         clamped = self.view_state_model.current_slice
-        self.tools_panel.set_slice_value(clamped)
         self.endview_view.set_slice(clamped)
         self.cscan_controller.highlight_slice(clamped)
         self.volume_view.set_slice_index(clamped, update_slider=True)
@@ -448,7 +408,6 @@ class MasterController:
             return
         x, y = int(pos[0]), int(pos[1])
         self.view_state_model.update_crosshair(x, y)
-        self.tools_panel.set_position_label(x, y)
         self._update_ascan_trace(point=(x, y))
 
     def _on_endview_drag_update(self, pos: Any) -> None:
@@ -457,7 +416,6 @@ class MasterController:
             return
         x, y = int(pos[0]), int(pos[1])
         self.view_state_model.set_cursor_position(x, y)
-        self.tools_panel.set_position_label(x, y)
 
     def _on_cscan_crosshair_changed(self, slice_idx: int, x: int) -> None:
         """Handle crosshair movement on the C-Scan view."""
@@ -466,7 +424,6 @@ class MasterController:
             return
         self.view_state_model.set_slice(slice_idx)
         clamped_slice = self.view_state_model.current_slice
-        self.tools_panel.set_slice_value(clamped_slice)
         self.endview_view.set_slice(clamped_slice)
         self.cscan_controller.highlight_slice(clamped_slice)
         self.cscan_controller.set_crosshair(clamped_slice, x)
