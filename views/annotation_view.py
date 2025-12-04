@@ -24,46 +24,46 @@ class AnnotationView(EndviewView):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._temp_polygon: list[Tuple[int, int]] = []
-        self._temp_rectangle: Optional[Tuple[int, int, int, int]] = None
+        self._temp_mask_points: list[Tuple[int, int]] = []
+        self._temp_box: Optional[Tuple[int, int, int, int]] = None
         self._roi_overlay: Optional[Any] = None
-        self._rect_start: Optional[Tuple[int, int]] = None
+        self._box_start: Optional[Tuple[int, int]] = None
         self._roi_item = QGraphicsPixmapItem()
         self._roi_item.setOpacity(0.35)
         self._roi_item.setZValue(5)
         self._scene.addItem(self._roi_item)
-        self._temp_rect_item = QGraphicsRectItem()
-        self._temp_rect_item.setPen(QPen(Qt.GlobalColor.yellow))
-        self._temp_rect_item.setZValue(6)
-        self._scene.addItem(self._temp_rect_item)
-        self._roi_rect_items: list[QGraphicsRectItem] = []
+        self._temp_box_item = QGraphicsRectItem()
+        self._temp_box_item.setPen(QPen(Qt.GlobalColor.yellow))
+        self._temp_box_item.setZValue(6)
+        self._scene.addItem(self._temp_box_item)
+        self._roi_box_items: list[QGraphicsRectItem] = []
         self._roi_pen = QPen(Qt.GlobalColor.white)
         self._roi_pen.setWidth(2)
 
     # ------------------------------------------------------------------ #
     # Temporary shapes (stubs)
     # ------------------------------------------------------------------ #
-    def set_temp_polygon(self, points: Sequence[Tuple[int, int]]) -> None:
-        """Placeholder to display a polygon in progress."""
-        self._temp_polygon = [(int(x), int(y)) for x, y in points]
+    def set_temp_mask(self, points: Sequence[Tuple[int, int]]) -> None:
+        """Placeholder to display temp mask outline points in progress."""
+        self._temp_mask_points = [(int(x), int(y)) for x, y in points]
 
-    def set_temp_rectangle(self, rect: Optional[Tuple[int, int, int, int]]) -> None:
-        """Placeholder to display a rectangle in progress."""
-        self._temp_rectangle = rect if rect is None else tuple(int(v) for v in rect)
-        if rect is None:
-            self._temp_rect_item.setRect(0, 0, 0, 0)
+    def set_temp_box(self, box: Optional[Tuple[int, int, int, int]]) -> None:
+        """Placeholder to display a box in progress."""
+        self._temp_box = box if box is None else tuple(int(v) for v in box)
+        if box is None:
+            self._temp_box_item.setRect(0, 0, 0, 0)
             return
-        x1, y1, x2, y2 = self._temp_rectangle
+        x1, y1, x2, y2 = self._temp_box
         xmin, xmax = sorted((x1, x2))
         ymin, ymax = sorted((y1, y2))
-        self._temp_rect_item.setRect(xmin, ymin, xmax - xmin, ymax - ymin)
+        self._temp_box_item.setRect(xmin, ymin, xmax - xmin, ymax - ymin)
 
     def clear_temp_shapes(self) -> None:
-        """Clear any temporary polygon/rectangle."""
-        self._temp_polygon = []
-        self._temp_rectangle = None
-        self._rect_start = None
-        self._temp_rect_item.setRect(0, 0, 0, 0)
+        """Clear any temporary mask/box."""
+        self._temp_mask_points = []
+        self._temp_box = None
+        self._box_start = None
+        self._temp_box_item.setRect(0, 0, 0, 0)
 
     # ------------------------------------------------------------------ #
     # ROI overlay (stub)
@@ -78,20 +78,20 @@ class AnnotationView(EndviewView):
         """Remove any ROI overlay."""
         self._roi_overlay = None
         self._roi_item.setPixmap(self._blank_pixmap())
-        self.clear_roi_rectangles()
+        self.clear_roi_boxes()
 
-    def set_roi_rectangle(self, rect: Optional[Tuple[int, int, int, int]]) -> None:
-        """Backwards compatible single rectangle setter."""
-        if rect is None:
-            self.clear_roi_rectangles()
+    def set_roi_box(self, box: Optional[Tuple[int, int, int, int]]) -> None:
+        """Backwards compatible single box setter."""
+        if box is None:
+            self.clear_roi_boxes()
             return
-        self.set_roi_rectangles([rect])
+        self.set_roi_boxes([box])
 
-    def set_roi_rectangles(self, rects: list[Tuple[int, int, int, int]]) -> None:
-        """Display multiple ROI rectangles outlines."""
-        self.clear_roi_rectangles()
-        for rect in rects:
-            x1, y1, x2, y2 = rect
+    def set_roi_boxes(self, boxes: list[Tuple[int, int, int, int]]) -> None:
+        """Display multiple ROI boxes outlines."""
+        self.clear_roi_boxes()
+        for box in boxes:
+            x1, y1, x2, y2 = box
             xmin, xmax = sorted((x1, x2))
             ymin, ymax = sorted((y1, y2))
             item = QGraphicsRectItem()
@@ -99,13 +99,13 @@ class AnnotationView(EndviewView):
             item.setZValue(7)
             item.setRect(xmin, ymin, xmax - xmin, ymax - ymin)
             self._scene.addItem(item)
-            self._roi_rect_items.append(item)
+            self._roi_box_items.append(item)
 
-    def clear_roi_rectangles(self) -> None:
-        """Remove all ROI rectangle outlines."""
-        for it in self._roi_rect_items:
+    def clear_roi_boxes(self) -> None:
+        """Remove all ROI box outlines."""
+        for it in self._roi_box_items:
             self._scene.removeItem(it)
-        self._roi_rect_items.clear()
+        self._roi_box_items.clear()
 
     # ------------------------------------------------------------------ #
     # Events
@@ -114,11 +114,11 @@ class AnnotationView(EndviewView):
         if obj is self._view.viewport():
             if isinstance(event, QMouseEvent):
                 if event.type() == QMouseEvent.Type.MouseButtonPress:
-                    handled = self._handle_rectangle_press(event)
+                    handled = self._handle_box_press(event)
                     if handled:
                         return True
                 if event.type() == QMouseEvent.Type.MouseMove:
-                    self._handle_rectangle_move(event)
+                    self._handle_box_move(event)
         return super().eventFilter(obj, event)
 
     def _roi_to_pixmap(self, mask: Any, palette: Optional[dict[int, tuple[int, int, int, int]]] = None):
@@ -143,7 +143,7 @@ class AnnotationView(EndviewView):
     def _blank_pixmap():
         return QPixmap()
 
-    def _handle_rectangle_press(self, event: QMouseEvent) -> bool:
+    def _handle_box_press(self, event: QMouseEvent) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         # Ne pas intercepter Shift+clic : réservé au déplacement de la crosshair
@@ -153,24 +153,24 @@ class AnnotationView(EndviewView):
         if coords is None:
             return False
         self._view.setFocus(Qt.FocusReason.MouseFocusReason)
-        if self._rect_start is None:
-            self._rect_start = coords
-            self.set_temp_rectangle((coords[0], coords[1], coords[0], coords[1]))
+        if self._box_start is None:
+            self._box_start = coords
+            self.set_temp_box((coords[0], coords[1], coords[0], coords[1]))
         else:
-            rect = (self._rect_start[0], self._rect_start[1], coords[0], coords[1])
-            self.rectangle_drawn.emit(rect)
+            box = (self._box_start[0], self._box_start[1], coords[0], coords[1])
+            self.box_drawn.emit(box)
             self.clear_temp_shapes()
         # Do not consume to allow base handler to update crosshair/drag if needed
         return False
 
-    def _handle_rectangle_move(self, event: QMouseEvent) -> None:
-        if self._rect_start is None:
+    def _handle_box_move(self, event: QMouseEvent) -> None:
+        if self._box_start is None:
             return
         coords = self._clamped_scene_coords_from_event(event)
         if coords is None:
             return
-        rect = (self._rect_start[0], self._rect_start[1], coords[0], coords[1])
-        self.set_temp_rectangle(rect)
+        box = (self._box_start[0], self._box_start[1], coords[0], coords[1])
+        self.set_temp_box(box)
 
     def _clamped_scene_coords_from_event(self, event: QMouseEvent) -> Optional[Tuple[int, int]]:
         if self._volume is None:

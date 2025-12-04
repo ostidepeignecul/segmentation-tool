@@ -213,7 +213,7 @@ class Ui_MainWindow(object):
         self.label_2.setText(_translate("MainWindow", "Threshold"))
         self.radioButton.setText(_translate("MainWindow", "Free Hand"))
         self.radioButton_2.setText(_translate("MainWindow", "Box"))
-        self.radioButton_3.setText(_translate("MainWindow", "Germ"))
+        self.radioButton_3.setText(_translate("MainWindow", "Grow"))
         self.checkBox.setText(_translate("MainWindow", "Appliquer au volume"))
         self.checkBox_2.setText(_translate("MainWindow", "Threshold automatique"))
         self.checkBox_3.setText(_translate("MainWindow", "Persistance de ROI"))

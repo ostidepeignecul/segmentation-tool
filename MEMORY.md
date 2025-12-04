@@ -1574,3 +1574,205 @@ Refactor ROI/labels pour séparer métier (services/models) du contrôleur, reti
 3. Conserver la palette du TempMaskModel lors des reset pour garder les couleurs cohérentes après suppression/rebuild.
 
 ---
+
+### **2025-12-03** — Injection slice volume pour seuil ROI
+
+**Tags :** `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#services/annotation_service.py`, `#roi`, `#threshold`, `#overlay`, `#branch:annotation`
+
+**Actions effectuées :**
+- AnnotationController accepte un getter de volume (`get_volume`) et utilise `_slice_data` pour passer la slice brute au service lors du rebuild/apply ROI, afin de supporter le seuillage local.
+- AnnotationService reçoit `slice_data` pour `rebuild_temp_masks_for_slice`/`apply_rectangle_roi`, applique un masque seuillé via `build_thresholded_mask` (normalisation locale 0-255 sur la zone rectangulaire) quand un threshold est défini.
+- MasterController injecte `_current_volume` dans AnnotationController pour que les previews ROI utilisent les données NDE existantes.
+- Les masques rectangles appliqués aux temp masks utilisent désormais le masque seuillé quand disponible, sinon restent inchangés.
+
+**Contexte :**
+Le preview ROI devait respecter le threshold saisi : le service normalise les valeurs de la zone rectangle et applique le seuil pour ne pousser que les pixels retenus dans le masque temporaire. Le contrôleur a besoin d’accès au volume pour fournir ces données slice-level.
+
+**Décisions techniques :**
+1. Dériver `slice_data` via un getter optionnel pour ne pas coupler le contrôleur à un volume global (fallback None sans crash).
+2. Normaliser localement (min/max de la zone) avant seuil pour supporter des plages arbitraires et ne pas dépendre de l’échelle globale du volume.
+
+---
+
+### **2025-12-03** — Navigation ROI + appli volume
+
+**Tags :** `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#views/endview_view.py`, `#views/annotation_view.py`, `#views/tools_panel.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#roi`, `#shortcuts`, `#navigation`, `#branch:annotation`
+
+**Actions effectuées :**
+- Ajout boutons previous/next et bouton Appliquer ROI dans l’UI (Designer + ToolsPanel wiring) + labels radio renommés (Free Hand/Box/Germ).
+- MasterController enregistre des raccourcis globaux (A/D navigation slices, W appliquer ROI, Escape annuler ROI) et connecte boutons/signaux de l’annotation_view/tools_panel aux handlers de navigation/apply.
+- AnnotationController ajoute `on_apply_temp_mask_requested` pour fusionner le masque temporaire (ROI/polygone) dans `AnnotationModel`, propager palette/visibilités, clear preview puis rafraîchir overlay/ROI.
+- AnnotationView et EndviewView améliorent l’ergonomie : coords clampées au volume, focus sur interaction, navigation/soumission via signaux, panning au bouton droit, zoom à la molette avec ancre sous la souris (drag désactivé par défaut).
+- `_navigate_slice_delta` centralise la navigation slice et supporte boutons/shortcuts.
+
+**Contexte :**
+Les ROI devaient être validées dans le volume et naviguées rapidement. Les raccourcis/boutons facilitent le flux (A/D/W/Escape), et l’application du masque temporaire construit une slice mise à jour dans le modèle avant refresh overlay. Les vues gagnent pan/zoom cohérents et évitent de sortir du volume.
+
+**Décisions techniques :**
+1. Appliquer le masque temporaire par copie de slice pour éviter les effets de bord et conserver la palette dans le modèle, puis nettoyer la preview pour ne pas laisser d’artefacts.
+2. Centraliser les raccourcis côté master pour qu’ils soient actifs partout dans la fenêtre (ApplicationShortcut) et réutiliser les mêmes handlers que l’UI.
+3. Clamper les coordonnées souris et supporter le panning droit pour éviter les exceptions hors volume et améliorer la navigation dans l’endview.
+
+---
+
+### **2025-12-03** — Renommage temp polygon en temp mask (ROI)
+
+**Tags :** `#views/annotation_view.py`, `#services/annotation_service.py`, `#roi`, `#temp_mask`, `#naming`, `#branch:annotation`
+
+**Actions effectuées :**
+- Renommé le placeholder de polygone temporaire en masque temporaire dans `AnnotationView` (`_temp_mask_points`, `set_temp_mask`, docstrings/clear) pour refléter le mask ROI.
+- Mis à jour la docstring de seuillage dans `AnnotationService` pour parler de "temp mask" au lieu de "temp polygon".
+
+**Contexte :**
+Clarifier la terminologie autour des préviews ROI : on manipule des masques temporaires appliqués depuis les ROI, pas des polygones persistants. L’objectif est d’éviter les confusions avec le modèle de masque temporaire lors du câblage contrôleur/service.
+
+**Décisions techniques :**
+1. Limiter le changement à l’API de vue et aux textes pour aligner le nommage sans modifier la logique existante.
+2. Conserver la structure MVC intacte (vue uniquement pour l’UI, service pour la doc) afin d’éviter tout impact fonctionnel non souhaité.
+
+---
+
+### **2025-12-03** — Renommage ROI polygon → free hand
+
+**Tags :** `#views/tools_panel.py`, `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#models/roi_model.py`, `#roi`, `#tooling`, `#naming`, `#branch:annotation`
+
+**Actions effectuées :**
+- ToolsPanel émet désormais le mode "free_hand" (radio Free Hand), mapping interne renommé et `select_tool_mode` aligne le nouvel identifiant.
+- MasterController attache le radio Designer via l’argument `free_hand_radio` et propage le mode "free_hand" au contrôleur.
+- Documentation/typage alignés : `roi_type` mentionne "free_hand" au lieu de "polygon", docstrings du contrôleur mis à jour pour refléter le free-hand.
+
+**Contexte :**
+Harmoniser la terminologie avec l’UI (bouton "Free Hand") et l’état ViewStateModel, pour éviter de mélanger l’ancien nom "polygon" avec le mode main levée utilisé pour les ROI.
+
+**Décisions techniques :**
+1. Limiter le changement au nommage de mode et au wiring pour ne pas toucher aux signaux bas niveau (polygon_started, etc.) afin d’éviter une refonte plus large.
+2. Conserver la logique existante et uniquement clarifier l’API/état ; aucune modification comportementale ou calculatoire.
+
+---
+
+### **2025-12-03** — Handlers renommés free hand
+
+**Tags :** `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#roi`, `#tooling`, `#naming`, `#free_hand`, `#branch:annotation`
+
+**Actions effectuées :**
+- Renommé les handlers du contrôleur d’annotation pour le dessin free hand (`on_annotation_freehand_started/point_added/completed`) et mis à jour la docstring d’application de masque temporaire.
+- MasterController connecte désormais les signaux `polygon_started/point_added/completed` de la vue vers les handlers `freehand_*` (pas de changement côté signaux de la vue).
+
+**Contexte :**
+Aligner le nommage des handlers avec le mode "free_hand" tout en conservant les signaux existants de la vue pour limiter l’ampleur du refactor.
+
+**Décisions techniques :**
+1. Changer uniquement les noms de handlers et le câblage côté contrôleur pour éviter de renommer les signaux de vue (limite de surface de changement).
+2. Garder le comportement identique ; aucune modification de logique fonctionnelle.
+
+---
+
+### **2025-12-03** — Signaux free hand (remplacement polygon_*)
+
+**Tags :** `#views/endview_view.py`, `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#roi`, `#signals`, `#free_hand`, `#branch:annotation`
+
+**Actions effectuées :**
+- Renommé les signaux de dessin polygon_* en freehand_* dans `EndviewView`.
+- Mis à jour le câblage dans `MasterController` vers les handlers freehand du contrôleur d’annotation.
+- Maintenu les handlers freehand existants (introduits précédemment) pour rester cohérents avec le mode "free_hand".
+
+**Contexte :**
+Finaliser le renommage "polygon" → "free_hand" côté signaux d’interaction, afin que l’UI et les handlers partagent la même terminologie.
+
+**Décisions techniques :**
+1. Changer uniquement les noms de signaux et leur câblage ; pas de modification des signaux émis ailleurs pour éviter des changements plus larges.
+2. Conserver la structure MVC et les stubs en l’état, la logique fonctionnelle reste inchangée.
+
+---
+
+### **2025-12-03** — AnnotationService: paramètres free hand
+
+**Tags :** `#services/annotation_service.py`, `#free_hand`, `#roi`, `#naming`, `#branch:annotation`
+
+**Actions effectuées :**
+- Renommé les paramètres de polygone en `free_hand_points` dans `compute_threshold` et `build_roi_mask` pour aligner la terminologie free hand.
+- Supprimé les dernières occurrences du terme "polygon" dans AnnotationService.
+
+**Contexte :**
+Suite au renommage global polygon → free hand, les stubs du service devaient refléter la même terminologie pour éviter toute confusion lors des futurs appels.
+
+**Décisions techniques :**
+1. Changement limité aux signatures/nommage (stubs) sans modifier le comportement, afin de préserver les contrats existants tout en clarifiant l’API.
+2. Garder les fonctions comme placeholders (return None) en attendant l’implémentation métier.
+
+---
+
+### **2025-12-03** — Mode ROI point renommé grow
+
+**Tags :** `#views/tools_panel.py`, `#controllers/master_controller.py`, `#roi`, `#grow`, `#tooling`, `#naming`, `#branch:annotation`
+
+**Actions effectuées :**
+- ToolsPanel émet désormais le mode "grow" (bouton point renommé en grow côté code), mapping interne et `select_tool_mode` mis à jour.
+- MasterController attache le radio Designer via l’argument `grow_radio` pour propager le mode grow au contrôleur.
+
+**Contexte :**
+Aligner la terminologie ROI de type point vers "grow" pour refléter le comportement attendu (germination) et rester cohérent avec les autres renommages.
+
+**Décisions techniques :**
+1. Changement limité au nommage/mapping des radios et du mode émis, sans toucher aux autres logiques ou signaux.
+2. Conserver la structure MVC et le wiring existant ; aucune modification fonctionnelle au-delà du nommage.
+
+---
+
+### **2025-12-03** — ROI rectangle renommé box
+
+**Tags :** `#views/tools_panel.py`, `#controllers/master_controller.py`, `#models/roi_model.py`, `#services/annotation_service.py`, `#roi`, `#box`, `#tooling`, `#naming`, `#branch:annotation`
+
+**Actions effectuées :**
+- ToolsPanel émet désormais le mode "box" (radio rectangle renommé côté code) et `select_tool_mode` mappe l’identifiant `box`.
+- MasterController passe le radio Designer en paramètre `box_radio` pour propager le mode box au contrôleur.
+- RoiModel stocke le type ROI "box" (au lieu de "rectangle") et `AnnotationService.rebuild_temp_masks_for_slice` filtre désormais sur `roi_type == "box"` pour les ROI rectangulaires.
+
+**Contexte :**
+Aligner la terminologie ROI sur "box" pour remplacer l’ancien nom "rectangle", en cohérence avec les autres renommages (free_hand, grow) sans modifier la logique géométrique.
+
+**Décisions techniques :**
+1. Renommer uniquement le type/identifiant et le mapping d’outil ; les fonctions métiers restent nommées rectangle (mask, apply) pour limiter la surface de changement.
+2. Garantir que la reconstruction des masques temporaires filtre sur le nouveau type "box" afin de ne pas ignorer les ROI rectangulaires existantes dans le nouveau schéma.
+
+---
+
+### **2025-12-03** — ROI rectangle → box (signals, modèles, services)
+
+**Tags :** `#views/annotation_view.py`, `#views/endview_view.py`, `#views/tools_panel.py`, `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#models/roi_model.py`, `#services/annotation_service.py`, `#roi`, `#box`, `#naming`, `#signals`, `#branch:annotation`
+
+**Actions effectuées :**
+- Signaux de dessin rectangle renommés en `box_drawn` (EndviewView) et raccordés côté MasterController aux handlers `on_annotation_box_drawn`.
+- AnnotationView : API box complète (`set_temp_box`, `set_roi_boxes`, `clear_roi_boxes`, handlers `_handle_box_*`, émission `box_drawn`).
+- RoiModel : ROI type `box` et méthodes `add_box` / `boxes_for_slice` (filtre sur `roi_type == "box"`).
+- AnnotationService : API box (`build_box_mask`, `apply_temp_box`, `apply_box_roi`, `_normalize_box_input`), rebuild des masques temporaires filtrant sur `roi_type == "box"` et renvoyant les boxes.
+- ToolsPanel/MasterController : radio Designer passé en `box_radio` et `tool_mode_changed` émet `box`.
+- AnnotationController : handler `on_annotation_box_drawn`, usage de `apply_box_roi`, rafraîchissements via `boxes_for_slice` et `set_roi_boxes`, nettoyage `clear_roi_boxes`.
+
+**Contexte :**
+Uniformiser la terminologie ROI en remplaçant "rectangle" par "box" sur tout le flux (vue, signaux, contrôleur, modèle ROI, service) après le renommage des autres modes (free_hand, grow).
+
+**Décisions techniques :**
+1. Renommer signaux/APIs/méthodes liées aux ROI rectangulaires plutôt que laisser des alias pour éviter la confusion avec les modes UI ; conserver les objets graphiques internes (QGraphicsRectItem) pour le rendu.
+2. Garder les structures métier identiques (masque calculé depuis deux coins) tout en filtrant désormais sur `roi_type == "box"` pour la reconstruction des previews.
+
+---
+
+### **2025-12-03** — ROI box partout (remplacement rectangle/rect)
+
+**Tags :** `#views/annotation_view.py`, `#views/endview_view.py`, `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#models/roi_model.py`, `#services/annotation_service.py`, `#roi`, `#box`, `#signals`, `#naming`, `#branch:annotation`
+
+**Actions effectuées :**
+- Renommé le flux rectangle → box sur l’ensemble des signaux et API : `box_drawn` (Endview/AnnotationView), handlers `on_annotation_box_drawn`, `set_temp_box`/`set_roi_boxes`/`clear_roi_boxes`, gestion du start `_box_start`.
+- RoiModel expose `add_box` et `boxes_for_slice` (ROI type `box`).
+- AnnotationService passe en nomenclature box : `build_box_mask`, `apply_temp_box`, `apply_box_roi(box=...)`, `_normalize_box_input`, rebuild renvoie les boxes et filtre sur `roi_type == "box"`.
+- MasterController raccorde `box_drawn` et ToolsPanel émet déjà `tool_mode=box`.
+
+**Contexte :**
+Poursuite du remplacement complet du terme "rectangle" pour les ROI afin d’éviter toute confusion après les renommages free_hand/grow.
+
+**Décisions techniques :**
+1. Renommer toutes les API ROI rectangulaires (signaux, modèles, services) en “box” pour supprimer les doublons de terminologie.
+2. Conserver les primitives géométriques (QGraphicsRectItem, tuples x1,y1,x2,y2) mais masquer la terminologie rectangle dans les interfaces publiques.
+
+---

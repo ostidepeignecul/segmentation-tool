@@ -203,7 +203,7 @@ class AnnotationController:
         self.roi_model.clear()
         self.temp_mask_model.clear()
         self.annotation_view.clear_roi_overlay()
-        self.annotation_view.clear_roi_rectangles()
+        self.annotation_view.clear_roi_boxes()
         self.annotation_view.clear_temp_shapes()
         self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
 
@@ -219,20 +219,20 @@ class AnnotationController:
         """Handle mouse click in annotation view (stub)."""
         pass
 
-    def on_annotation_polygon_started(self, pos: Any) -> None:
-        """Handle polygon start (stub)."""
+    def on_annotation_freehand_started(self, pos: Any) -> None:
+        """Handle free-hand start (stub)."""
         pass
 
-    def on_annotation_polygon_point_added(self, pos: Any) -> None:
-        """Handle polygon point addition (stub)."""
+    def on_annotation_freehand_point_added(self, pos: Any) -> None:
+        """Handle free-hand point addition (stub)."""
         pass
 
-    def on_annotation_polygon_completed(self, points: Any) -> None:
-        """Handle polygon completion (stub)."""
+    def on_annotation_freehand_completed(self, points: Any) -> None:
+        """Handle free-hand completion (stub)."""
         pass
 
-    def on_annotation_rectangle_drawn(self, rect: Any) -> None:
-        """Handle rectangle draw completion (stub)."""
+    def on_annotation_box_drawn(self, box: Any) -> None:
+        """Handle box draw completion (stub)."""
         mask_volume = self.annotation_model.get_mask_volume()
         if mask_volume is None:
             mask_volume = self.temp_mask_model.get_mask_volume()
@@ -249,9 +249,9 @@ class AnnotationController:
             return
 
         palette = self.annotation_model.get_label_palette()
-        self.annotation_service.apply_rectangle_roi(
+        self.annotation_service.apply_box_roi(
             slice_idx=slice_idx,
-            rect=rect,
+            box=box,
             shape=(h, w),
             label=label,
             threshold=self.view_state_model.threshold,
@@ -271,11 +271,11 @@ class AnnotationController:
         else:
             self.annotation_view.set_roi_overlay(slice_mask, palette=self.temp_mask_model.label_palette)
 
-        rects = self.roi_model.rectangles_for_slice(slice_idx, include_persistent=True)
-        if rects:
-            self.annotation_view.set_roi_rectangles(rects)
+        boxes = self.roi_model.boxes_for_slice(slice_idx, include_persistent=True)
+        if boxes:
+            self.annotation_view.set_roi_boxes(boxes)
         else:
-            self.annotation_view.clear_roi_rectangles()
+            self.annotation_view.clear_roi_boxes()
 
     def on_annotation_point_selected(self, pos: Any) -> None:
         """Handle point selection (stub)."""
@@ -286,7 +286,7 @@ class AnnotationController:
         pass
 
     def on_apply_temp_mask_requested(self) -> None:
-        """Apply the current temporary mask (polygon/ROI) into the annotation model."""
+        """Apply the current temporary mask (free-hand/ROI) into the annotation model."""
         slice_idx = self.view_state_model.current_slice
         mask_volume = self.annotation_model.get_mask_volume()
         temp_slice = self.temp_mask_model.get_slice_mask(slice_idx)
@@ -312,7 +312,7 @@ class AnnotationController:
         self.temp_mask_model.clear_slice(slice_idx)
         self.annotation_view.clear_temp_shapes()
         self.annotation_view.clear_roi_overlay()
-        self.annotation_view.clear_roi_rectangles()
+        self.annotation_view.clear_roi_boxes()
 
         self.refresh_overlay(defer_volume=True, rebuild=True)
         self.refresh_roi_overlay_for_slice(slice_idx)
@@ -394,13 +394,13 @@ class AnnotationController:
             return None
 
     def _rebuild_slice_preview(self, slice_idx: int) -> None:
-        """Rebuild temporary mask and rectangle for a given slice from stored ROIs."""
+        """Rebuild temporary mask and box for a given slice from stored ROIs."""
         mask_shape = self.annotation_model.mask_shape_hw() or self.temp_mask_model.mask_shape_hw()
         if mask_shape is None:
             return
 
         rois = self.roi_model.list_on_slice(slice_idx) or self.roi_model.list_persistent()
-        rects = self.annotation_service.rebuild_temp_masks_for_slice(
+        boxes = self.annotation_service.rebuild_temp_masks_for_slice(
             rois=rois,
             shape=mask_shape,
             slice_idx=slice_idx,
@@ -416,7 +416,7 @@ class AnnotationController:
         else:
             self.annotation_view.clear_roi_overlay()
 
-        if rects:
-            self.annotation_view.set_roi_rectangles(rects)
+        if boxes:
+            self.annotation_view.set_roi_boxes(boxes)
         else:
-            self.annotation_view.clear_roi_rectangles()
+            self.annotation_view.clear_roi_boxes()

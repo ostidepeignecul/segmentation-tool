@@ -223,7 +223,7 @@
         <item>
          <widget class="QRadioButton" name="radioButton_3">
           <property name="text">
-           <string>Germ</string>
+           <string>Grow</string>
           </property>
          </widget>
         </item>

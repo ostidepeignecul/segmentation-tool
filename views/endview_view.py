@@ -33,10 +33,10 @@ class EndviewView(QFrame):
 
     slice_changed = pyqtSignal(int)
     mouse_clicked = pyqtSignal(object, object)
-    polygon_started = pyqtSignal(object)
-    polygon_point_added = pyqtSignal(object)
-    polygon_completed = pyqtSignal(object)
-    rectangle_drawn = pyqtSignal(object)
+    freehand_started = pyqtSignal(object)
+    freehand_point_added = pyqtSignal(object)
+    freehand_completed = pyqtSignal(object)
+    box_drawn = pyqtSignal(object)
     point_selected = pyqtSignal(object)
     drag_update = pyqtSignal(object)
 

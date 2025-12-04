@@ -17,7 +17,7 @@ class AnnotationService:
     def compute_threshold(
         self,
         gray_slice: Any,
-        polygon: Sequence[Tuple[int, int]] | None,
+        free_hand_points: Sequence[Tuple[int, int]] | None,
         *,
         auto: bool,
     ) -> Optional[float]:
@@ -27,8 +27,8 @@ class AnnotationService:
     def build_roi_mask(
         self,
         shape: Tuple[int, int],
-        polygon: Sequence[Tuple[int, int]] | None = None,
-        rectangle: Tuple[int, int, int, int] | None = None,
+        free_hand_points: Sequence[Tuple[int, int]] | None = None,
+        box: Tuple[int, int, int, int] | None = None,
         point: Tuple[int, int] | None = None,
     ) -> Optional[Any]:
         """Construit un masque binaire pour la ROI courante (stub)."""
@@ -57,15 +57,15 @@ class AnnotationService:
     # ------------------------------------------------------------------ #
     # Rectangle helpers
     # ------------------------------------------------------------------ #
-    def build_rectangle_mask(self, shape: Tuple[int, int], rect: Tuple[int, int, int, int]) -> Optional[np.ndarray]:
-        """Build a binary mask for a rectangle defined by two opposite corners."""
+    def build_box_mask(self, shape: Tuple[int, int], box: Tuple[int, int, int, int]) -> Optional[np.ndarray]:
+        """Build a binary mask for a box defined by two opposite corners."""
         try:
             h, w = int(shape[0]), int(shape[1])
         except Exception:
             return None
         if h <= 0 or w <= 0:
             return None
-        x1, y1, x2, y2 = [int(v) for v in rect]
+        x1, y1, x2, y2 = [int(v) for v in box]
         xmin, xmax = sorted((x1, x2))
         ymin, ymax = sorted((y1, y2))
         xmin = max(0, min(w - 1, xmin))
@@ -78,17 +78,17 @@ class AnnotationService:
         mask[ymin : ymax + 1, xmin : xmax + 1] = 1
         return mask
 
-    def apply_temp_rectangle(
+    def apply_temp_box(
         self,
         temp_model: TempMaskModel,
         slice_idx: int,
-        rect_mask: np.ndarray,
+        box_mask: np.ndarray,
         label: int,
         *,
         persistent: bool,
     ) -> None:
-        """Apply a rectangle mask into the temporary mask model."""
-        temp_model.set_slice_mask(slice_idx, rect_mask, label=label, persistent=persistent)
+        """Apply a box mask into the temporary mask model."""
+        temp_model.set_slice_mask(slice_idx, box_mask, label=label, persistent=persistent)
 
     def rebuild_temp_masks_for_slice(
         self,
@@ -104,55 +104,55 @@ class AnnotationService:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
 
-        Returns the list of rectangle tuples (x1, y1, x2, y2) for display.
+        Returns the list of box tuples (x1, y1, x2, y2) for display.
         """
-        rects: list[Tuple[int, int, int, int]] = []
+        boxes: list[Tuple[int, int, int, int]] = []
         if clear_slice:
             temp_mask_model.clear_slice(slice_idx)
 
         for roi in rois:
-            if getattr(roi, "roi_type", None) != "rectangle" or len(getattr(roi, "points", [])) < 2:
+            if getattr(roi, "roi_type", None) != "box" or len(getattr(roi, "points", [])) < 2:
                 continue
-            rect_tuple = roi.points[0] + roi.points[1]
-            rect_mask = self.build_rectangle_mask(shape, rect_tuple)
-            if rect_mask is None:
+            box_tuple = roi.points[0] + roi.points[1]
+            box_mask = self.build_box_mask(shape, box_tuple)
+            if box_mask is None:
                 continue
             label = getattr(roi, "label", 1)
             color = (palette or {}).get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
             temp_mask_model.ensure_label(label, color, visible=True)
-            mask_to_apply = rect_mask
+            mask_to_apply = box_mask
             roi_threshold = getattr(roi, "threshold", None)
             if slice_data is not None and roi_threshold is not None:
-                mask_to_apply = self.build_thresholded_mask(rect_mask, slice_data, roi_threshold)
-            self.apply_temp_rectangle(
+                mask_to_apply = self.build_thresholded_mask(box_mask, slice_data, roi_threshold)
+            self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
                 mask_to_apply,
                 label,
                 persistent=getattr(roi, "persistent", False),
             )
-            rects.append(rect_tuple)
-        return rects
+            boxes.append(box_tuple)
+        return boxes
 
     def build_thresholded_mask(
         self,
-        rect_mask: np.ndarray,
+        box_mask: np.ndarray,
         slice_data: np.ndarray,
         threshold: Optional[float],
     ) -> np.ndarray:
         """
-        Apply a threshold inside the rectangle mask to select pixels for the temp polygon.
+        Apply a threshold inside the box mask to select pixels for the temp mask.
         """
         if threshold is None:
-            return rect_mask
+            return box_mask
         try:
             data = np.asarray(slice_data, dtype=np.float32)
         except Exception:
-            return rect_mask
+            return box_mask
         if data.ndim == 3 and data.shape[2] in (3, 4):
             data = data[..., 0]
-        mask = np.zeros_like(rect_mask, dtype=np.uint8)
-        inside = rect_mask > 0
+        mask = np.zeros_like(box_mask, dtype=np.uint8)
+        inside = box_mask > 0
         if not np.any(inside):
             return mask
         data_inside = data[inside]
@@ -170,11 +170,11 @@ class AnnotationService:
     # ------------------------------------------------------------------ #
     # Rectangle end-to-end
     # ------------------------------------------------------------------ #
-    def apply_rectangle_roi(
+    def apply_box_roi(
         self,
         *,
         slice_idx: int,
-        rect: Any,
+        box: Any,
         shape: Tuple[int, int],
         label: int,
         threshold: Optional[float],
@@ -185,15 +185,15 @@ class AnnotationService:
         slice_data: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """
-        Normalize a rectangle, build its mask, store ROI metadata and apply mask to temp model.
+        Normalize a box, build its mask, store ROI metadata and apply mask to temp model.
         Returns the mask for preview.
         """
-        rect_tuple = self._normalize_rect_input(rect)
-        if rect_tuple is None:
+        box_tuple = self._normalize_box_input(box)
+        if box_tuple is None:
             return None
 
-        rect_mask = self.build_rectangle_mask(shape, rect_tuple)
-        if rect_mask is None:
+        box_mask = self.build_box_mask(shape, box_tuple)
+        if box_mask is None:
             return None
 
         color = None
@@ -202,34 +202,34 @@ class AnnotationService:
         if color is None:
             color = MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
 
-        roi_model.add_rectangle(
+        roi_model.add_box(
             slice_idx,
-            (rect_tuple[0], rect_tuple[1]),
-            (rect_tuple[2], rect_tuple[3]),
+            (box_tuple[0], box_tuple[1]),
+            (box_tuple[2], box_tuple[3]),
             label=label,
             threshold=threshold,
             persistent=persistent,
         )
         temp_mask_model.ensure_label(label, color, visible=True)
-        mask_to_apply = rect_mask
+        mask_to_apply = box_mask
         if slice_data is not None and threshold is not None:
-            mask_to_apply = self.build_thresholded_mask(rect_mask, slice_data, threshold)
+            mask_to_apply = self.build_thresholded_mask(box_mask, slice_data, threshold)
 
-        self.apply_temp_rectangle(
+        self.apply_temp_box(
             temp_mask_model, slice_idx, mask_to_apply, label, persistent=persistent
         )
         return mask_to_apply
 
     @staticmethod
-    def _normalize_rect_input(rect: Any) -> Optional[Tuple[int, int, int, int]]:
-        """Convert various rectangle formats to (x1, y1, x2, y2)."""
-        if rect is None:
+    def _normalize_box_input(box: Any) -> Optional[Tuple[int, int, int, int]]:
+        """Convert various box formats to (x1, y1, x2, y2)."""
+        if box is None:
             return None
-        if isinstance(rect, (list, tuple)):
-            if len(rect) == 4 and all(isinstance(v, (int, float)) for v in rect):
-                x1, y1, x2, y2 = rect
+        if isinstance(box, (list, tuple)):
+            if len(box) == 4 and all(isinstance(v, (int, float)) for v in box):
+                x1, y1, x2, y2 = box
                 return (int(x1), int(y1), int(x2), int(y2))
-            if len(rect) == 2 and all(isinstance(pt, (list, tuple)) and len(pt) == 2 for pt in rect):
-                (x1, y1), (x2, y2) = rect
+            if len(box) == 2 and all(isinstance(pt, (list, tuple)) and len(pt) == 2 for pt in box):
+                (x1, y1), (x2, y2) = box
                 return (int(x1), int(y1), int(x2), int(y2))
         return None

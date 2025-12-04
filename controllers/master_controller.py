@@ -148,9 +148,9 @@ class MasterController:
             position_label=self.ui.label_4,
             goto_button=self.ui.pushButton,
             threshold_slider=self.ui.horizontalSlider,
-            polygon_radio=self.ui.radioButton,
-            rectangle_radio=self.ui.radioButton_2,
-            point_radio=self.ui.radioButton_3,
+            free_hand_radio=self.ui.radioButton,
+            box_radio=self.ui.radioButton_2,
+            grow_radio=self.ui.radioButton_3,
             overlay_checkbox=self.ui.checkBox_5,
             cross_checkbox=self.ui.checkBox_4,
             apply_volume_checkbox=self.ui.checkBox,
@@ -187,10 +187,10 @@ class MasterController:
 
         self.annotation_view.slice_changed.connect(self._on_slice_changed)
         self.annotation_view.mouse_clicked.connect(self.annotation_controller.on_annotation_mouse_clicked)
-        self.annotation_view.polygon_started.connect(self.annotation_controller.on_annotation_polygon_started)
-        self.annotation_view.polygon_point_added.connect(self.annotation_controller.on_annotation_polygon_point_added)
-        self.annotation_view.polygon_completed.connect(self.annotation_controller.on_annotation_polygon_completed)
-        self.annotation_view.rectangle_drawn.connect(self.annotation_controller.on_annotation_rectangle_drawn)
+        self.annotation_view.freehand_started.connect(self.annotation_controller.on_annotation_freehand_started)
+        self.annotation_view.freehand_point_added.connect(self.annotation_controller.on_annotation_freehand_point_added)
+        self.annotation_view.freehand_completed.connect(self.annotation_controller.on_annotation_freehand_completed)
+        self.annotation_view.box_drawn.connect(self.annotation_controller.on_annotation_box_drawn)
         self.annotation_view.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
         self.annotation_view.point_selected.connect(self._on_endview_point_selected)
         self.annotation_view.drag_update.connect(self._on_endview_drag_update)

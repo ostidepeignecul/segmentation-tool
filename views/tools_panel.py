@@ -46,9 +46,9 @@ class ToolsPanel(QFrame):
         self._position_label: Optional[QLabel] = None
         self._goto_button: Optional[QPushButton] = None
         self._threshold_slider: Optional[QSlider] = None
-        self._polygon_radio: Optional[QRadioButton] = None
-        self._rectangle_radio: Optional[QRadioButton] = None
-        self._point_radio: Optional[QRadioButton] = None
+        self._free_hand_radio: Optional[QRadioButton] = None
+        self._box_radio: Optional[QRadioButton] = None
+        self._grow_radio: Optional[QRadioButton] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
         self._overlay_checkbox: Optional[QCheckBox] = None
@@ -76,9 +76,9 @@ class ToolsPanel(QFrame):
         slice_label: QLabel,
         goto_button: QPushButton,
         threshold_slider: QSlider,
-        polygon_radio: QRadioButton,
-        rectangle_radio: QRadioButton,
-        point_radio: QRadioButton,
+        free_hand_radio: QRadioButton,
+        box_radio: QRadioButton,
+        grow_radio: QRadioButton,
         position_label: QLabel,
         overlay_checkbox: QCheckBox,
         cross_checkbox: QCheckBox,
@@ -102,9 +102,9 @@ class ToolsPanel(QFrame):
         self._position_label = position_label
         self._goto_button = goto_button
         self._threshold_slider = threshold_slider
-        self._polygon_radio = polygon_radio
-        self._rectangle_radio = rectangle_radio
-        self._point_radio = point_radio
+        self._free_hand_radio = free_hand_radio
+        self._box_radio = box_radio
+        self._grow_radio = grow_radio
         self._overlay_checkbox = overlay_checkbox
         self._cross_checkbox = cross_checkbox
         self._apply_volume_checkbox = apply_volume_checkbox
@@ -137,14 +137,14 @@ class ToolsPanel(QFrame):
         self._roi_delete_button.clicked.connect(self.roi_delete_requested)
         self._selection_cancel_button.clicked.connect(self.selection_cancel_requested)
 
-        self._polygon_radio.toggled.connect(
-            lambda checked: checked and self.tool_mode_changed.emit("polygon")
+        self._free_hand_radio.toggled.connect(
+            lambda checked: checked and self.tool_mode_changed.emit("free_hand")
         )
-        self._rectangle_radio.toggled.connect(
-            lambda checked: checked and self.tool_mode_changed.emit("rectangle")
+        self._box_radio.toggled.connect(
+            lambda checked: checked and self.tool_mode_changed.emit("box")
         )
-        self._point_radio.toggled.connect(
-            lambda checked: checked and self.tool_mode_changed.emit("point")
+        self._grow_radio.toggled.connect(
+            lambda checked: checked and self.tool_mode_changed.emit("grow")
         )
 
         self._wired = True
@@ -238,9 +238,9 @@ class ToolsPanel(QFrame):
     def select_tool_mode(self, mode: str) -> None:
         """Select a tool radio button without emitting tool_mode_changed."""
         mapping = {
-            "polygon": self._polygon_radio,
-            "rectangle": self._rectangle_radio,
-            "point": self._point_radio,
+            "free_hand": self._free_hand_radio,
+            "box": self._box_radio,
+            "grow": self._grow_radio,
         }
         target = mapping.get(mode)
         if not target:
