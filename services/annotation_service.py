@@ -92,6 +92,40 @@ class AnnotationService:
         """Apply a box mask into the temporary mask model."""
         temp_model.set_slice_mask(slice_idx, box_mask, label=label, persistent=persistent)
 
+    def build_disk_mask(
+        self,
+        shape: Tuple[int, int],
+        center: Tuple[int, int],
+        radius: int,
+    ) -> Optional[np.ndarray]:
+        """Build a binary disk mask inside given (H, W)."""
+        try:
+            h, w = int(shape[0]), int(shape[1])
+            cx = int(center[0])
+            cy = int(center[1])
+            r = max(1, int(radius))
+        except Exception:
+            return None
+        if h <= 0 or w <= 0 or r <= 0:
+            return None
+
+        cx = max(0, min(w - 1, cx))
+        cy = max(0, min(h - 1, cy))
+        xmin = max(0, cx - r)
+        xmax = min(w - 1, cx + r)
+        ymin = max(0, cy - r)
+        ymax = min(h - 1, cy + r)
+        if xmin > xmax or ymin > ymax:
+            return None
+
+        mask = np.zeros((h, w), dtype=np.uint8)
+        yy, xx = np.ogrid[ymin : ymax + 1, xmin : xmax + 1]
+        disk = (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r
+        mask[ymin : ymax + 1, xmin : xmax + 1][disk] = 1
+        if not np.any(mask):
+            return None
+        return mask
+
     # ------------------------------------------------------------------ #
     # Grow helpers
     # ------------------------------------------------------------------ #
@@ -260,6 +294,64 @@ class AnnotationService:
             )
         return boxes
 
+    # ------------------------------------------------------------------ #
+    # Paint helpers (brush)
+    # ------------------------------------------------------------------ #
+    def paint_disk_on_slice(
+        self,
+        annotation_model: AnnotationModel,
+        slice_idx: int,
+        center: Tuple[int, int],
+        *,
+        label: int,
+        radius: int,
+    ) -> bool:
+        """
+        Paint a disk with the given label on a slice of the mask volume.
+        Supports label=0 to erase.
+        Returns True if the slice was modified.
+        """
+        mask_volume = annotation_model.get_mask_volume()
+        if mask_volume is None:
+            return False
+        try:
+            z = max(0, min(mask_volume.shape[0] - 1, int(slice_idx)))
+            cx = int(center[0])
+            cy = int(center[1])
+            r = max(1, int(radius))
+            lbl = int(label)
+        except Exception:
+            return False
+
+        if r <= 0:
+            return False
+        h, w = mask_volume.shape[1], mask_volume.shape[2]
+        if h <= 0 or w <= 0:
+            return False
+
+        cx = max(0, min(w - 1, cx))
+        cy = max(0, min(h - 1, cy))
+        xmin = max(0, cx - r)
+        xmax = min(w - 1, cx + r)
+        ymin = max(0, cy - r)
+        ymax = min(h - 1, cy + r)
+        if xmin > xmax or ymin > ymax:
+            return False
+
+        current_slice = mask_volume[z]
+        yy, xx = np.ogrid[ymin : ymax + 1, xmin : xmax + 1]
+        disk = (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r
+        if not np.any(disk):
+            return False
+
+        updated = current_slice.copy()
+        updated[ymin : ymax + 1, xmin : xmax + 1][disk] = lbl
+        if np.array_equal(updated, current_slice):
+            return False
+
+        annotation_model.set_slice_mask(z, updated)
+        return True
+
     def rebuild_volume_preview_from_rois(
         self,
         *,
@@ -419,16 +511,26 @@ class AnnotationService:
             return
 
         depth = min(temp_volume.shape[0], mask_volume.shape[0])
+        coverage_volume = temp_mask_model.get_coverage_volume()
         for idx in range(depth):
             temp_slice = temp_volume[idx]
-            if temp_slice is None or not np.any(temp_slice):
-                continue
             current_slice = mask_volume[idx]
             if current_slice.shape != temp_slice.shape:
                 continue
-            updated = np.array(current_slice, copy=True)
-            updated[temp_slice > 0] = temp_slice[temp_slice > 0]
-            annotation_model.set_slice_mask(idx, updated)
+
+            if coverage_volume is not None:
+                coverage_slice = coverage_volume[idx]
+                if coverage_slice is None or not np.any(coverage_slice):
+                    continue
+                updated = np.array(current_slice, copy=True)
+                updated[coverage_slice] = temp_slice[coverage_slice]
+                annotation_model.set_slice_mask(idx, updated)
+            else:
+                if temp_slice is None or not np.any(temp_slice):
+                    continue
+                updated = np.array(current_slice, copy=True)
+                updated[temp_slice > 0] = temp_slice[temp_slice > 0]
+                annotation_model.set_slice_mask(idx, updated)
 
     def propagate_grow_volume_from_slice(
         self,

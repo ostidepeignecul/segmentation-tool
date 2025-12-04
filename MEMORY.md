@@ -1855,3 +1855,82 @@ Le contrôleur mélangeait cache de données, boucles volume et interactions UI,
 3. Déléguer les interactions Qt (dialogue de sauvegarde, conversions couleur) aux vues afin de supprimer la logique UI du contrôleur.
 
 ---
+
+### **2025-12-04** — Ajout outil erase (gomme) ROI
+
+**Tags:** `#controllers/annotation_controller.py`, `#services/annotation_service.py`, `#views/annotation_view.py`, `#views/tools_panel.py`, `#controllers/master_controller.py`, `#roi`, `#erase`, `#cursor`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées:**
+- ToolsPanel/MasterController : radio Designer `radioButton_4` branché comme outil `erase`, mapping `select_tool_mode` mis à jour pour émettre `tool_mode_changed("erase")`.
+- AnnotationView : curseur cercle creux (rayon 8 px) appliqué quand l’outil erase est actif, retour au curseur flèche sinon.
+- AnnotationController/AnnotationService : clic en mode erase appelle `erase_disk_on_slice` (disque rayon 8 px) qui remet à 0 les pixels du masque de la slice courante, invalide le cache via `set_slice_mask` et rafraîchit l’overlay.
+
+**Contexte:**
+Besoin d’un outil gomme dédié branché sur un nouveau radio bouton « Erase » pour effacer localement des pixels du masque existant sans passer par les ROIs box/grow.
+
+**Décisions techniques:**
+1. Rayon fixe 8 px pour aligner visuellement le curseur cercle et limiter le coût de recalcul sur clic.
+2. Effacement limité à la slice courante (pas de propagation volume) pour éviter les suppressions accidentelles ; invalidation overlay gérée par `set_slice_mask` puis `refresh_overlay`.
+
+---
+
+### **2025-12-04** — Support label 0 + outil paint (roi/brush)
+
+**Tags:** `#controllers/annotation_controller.py`, `#services/annotation_service.py`, `#views/annotation_view.py`, `#views/tools_panel.py`, `#views/overlay_settings_view.py`, `#models/temp_mask_model.py`, `#roi`, `#paint`, `#label0`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées:**
+- OverlaySettingsView : ajout d’un bouton « Ajouter label 0 » qui crée/émet le label id=0 (gris) s’il n’existe pas.
+- ToolsPanel/Master : l’outil « erase » est renommé en « paint » (`tool_mode=paint`), mapping select_tool_mode mis à jour.
+- AnnotationView : curseur cercle creux pour le mode paint.
+- AnnotationController : clic paint applique un disque avec le label actif (y compris 0) via `paint_disk_on_slice`; preview ROI affiche aussi les zones label 0 via un masque sentinelle 255.
+- TempMaskModel : ajout d’un `coverage_volume` booléen pour mémoriser les zones à appliquer, même pour label=0; clear/init/clear_slice mis à jour; getter coverage.
+- AnnotationService : nouvelle `paint_disk_on_slice`; `apply_temp_volume_to_model` applique via coverage (permet label=0) ; apply-temp local dans le contrôleur utilise coverage.
+
+**Contexte:**
+Le flux doit permettre d’effacer en utilisant un label spécial 0 comme n’importe quel ROI/outil (paint/box/grow) plutôt qu’un effacement forcé. On doit voir le label 0 en preview ROI et l’appliquer réellement au volume.
+
+**Décisions techniques:**
+1. Couverture dédiée dans TempMaskModel pour savoir où appliquer même si la valeur cible est 0 (sinon l’information serait perdue).
+2. Sentinel 255 pour afficher en preview les zones label 0 (palette 255 héritant de la couleur du label 0) sans coloriser l’arrière-plan.
+3. Paint brush (disque rayon 8 px) applique le label actif ; l’effacement se fait donc en sélectionnant le label 0.
+
+---
+
+### **2025-12-04** — Paint en temp mask + bouton label 0
+
+**Tags:** `#controllers/annotation_controller.py`, `#services/annotation_service.py`, `#views/annotation_view.py`, `#views/tools_panel.py`, `#views/overlay_settings_view.py`, `#models/temp_mask_model.py`, `#roi`, `#paint`, `#label0`, `#apply`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées:**
+- OverlaySettingsView : bouton « Ajouter label 0 » ajoute/émet le label id=0 (gris) s’il est absent.
+- Paint : le radio émet `tool_mode=paint`, curseur cercle creux conservé.
+- Controller : clic paint écrit un disque (rayon 8 px) dans `TempMaskModel` (avec palette/coverage), pas directement dans AnnotationModel ; preview ROI affichée via overlay temp.
+- Apply : chemin `apply_temp_mask_requested` préserve les strokes paint (mask+coverage) lors du rebuild volume ROI, puis applique via coverage pour supporter le label 0 ; apply slice idem via coverage.
+- TempMaskModel : coverage_volume conservé, clear/init/clear_slice mis à jour ; apply_temp_volume applique via coverage (permet label 0).
+- AnnotationService : helper `build_disk_mask(shape, center, radius)` pour générer un disque binaire.
+
+**Contexte:**
+Exiger que l’outil paint fonctionne comme les autres ROI : écriture dans un masque temporaire, prévisualisation, puis application explicite. Le label 0 doit être utilisable comme n’importe quel label pour effacer.
+
+**Décisions techniques:**
+1. Coverage booléen dédié pour ne pas perdre les zones à appliquer lorsque la valeur cible est 0.
+2. Merge paint + rebuild ROI en apply_volume : on sauvegarde/restaure (mask, coverage) avant/après `rebuild_volume_preview_from_rois` pour ne pas effacer les strokes paint.
+3. Disque construit via `build_disk_mask` pour réutilisation et robustesse aux shapes/clamp.
+
+---
+
+### **2025-12-04** — Affichage dynamique du threshold
+
+**Tags:** `#views/tools_panel.py`, `#controllers/master_controller.py`, `#ui_mainwindow.py`, `#threshold`, `#ui`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées:**
+- ToolsPanel : le label threshold est injecté et stocké ; le slider met à jour le texte `Threshold : <val>` via `_on_threshold_changed`, et `set_threshold_value` met aussi à jour le label.
+- MasterController : passe `label_2` (Designer) au ToolsPanel pour activer l’affichage dynamique.
+
+**Contexte:**
+L’étiquette “Threshold :” devait afficher en direct la valeur du slider pour refléter le seuil courant.
+
+**Décisions techniques:**
+1. Gérer l’UI côté ToolsPanel (pas dans le contrôleur) pour rester MVC et limiter les dépendances au Designer.
+2. Bloquer les signaux lors des mises à jour programmatiques du slider et rafraîchir le label ensuite pour éviter les boucles de signaux.
+
+---

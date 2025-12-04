@@ -42,9 +42,16 @@ class OverlaySettingsView(QDialog):
         self._scroll.setWidget(self._container)
         layout.addWidget(self._scroll, 1)
 
+        buttons_layout = QHBoxLayout()
+        self._add_zero_button = QPushButton("Ajouter label 0", self)
+        self._add_zero_button.clicked.connect(self._on_add_zero_label)
+        buttons_layout.addWidget(self._add_zero_button, 1)
+
         self._add_button = QPushButton("Ajouter un label", self)
         self._add_button.clicked.connect(self._on_add_label)
-        layout.addWidget(self._add_button, alignment=Qt.AlignmentFlag.AlignRight)
+        buttons_layout.addWidget(self._add_button, 1)
+
+        layout.addLayout(buttons_layout)
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -97,6 +104,13 @@ class OverlaySettingsView(QDialog):
         color = self._generate_color(len(self._labels))
         self.ensure_label(new_id, color, visible=True)
         self.label_added.emit(new_id, color)
+
+    def _on_add_zero_label(self) -> None:
+        if 0 in self._labels:
+            return
+        color = QColor(180, 180, 180, 200)
+        self.ensure_label(0, color, visible=True)
+        self.label_added.emit(0, color)
 
     # ------------------------------------------------------------------ #
     # Helpers

@@ -186,16 +186,9 @@
          </widget>
         </item>
         <item>
-         <widget class="QLabel" name="label">
-          <property name="text">
-           <string>Label choisi :</string>
-          </property>
-         </widget>
-        </item>
-        <item>
          <widget class="QLabel" name="label_2">
           <property name="text">
-           <string>Threshold</string>
+           <string>Threshold :</string>
           </property>
          </widget>
         </item>
@@ -230,7 +223,7 @@
         <item>
          <widget class="QRadioButton" name="radioButton_4">
           <property name="text">
-           <string>Erase</string>
+           <string>Paint</string>
           </property>
          </widget>
         </item>
@@ -339,7 +332,7 @@
              <x>0</x>
              <y>0</y>
              <width>260</width>
-             <height>126</height>
+             <height>148</height>
             </rect>
            </property>
            <property name="minimumSize">

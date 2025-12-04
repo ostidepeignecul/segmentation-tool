@@ -26,6 +26,8 @@ from views.volume_view import VolumeView
 class AnnotationController:
     """Gère les annotations, labels et overlays (visibilité, couleurs, synchronisation)."""
 
+    PAINT_RADIUS_PX = 8
+
     def __init__(
         self,
         *,
@@ -231,12 +233,17 @@ class AnnotationController:
         self.refresh_roi_overlay_for_slice(slice_idx)
 
     def on_annotation_mouse_clicked(self, pos: Any, button: Any) -> None:
-        """Handle mouse click in annotation view (grow tool)."""
+        """Handle mouse click in annotation view (grow tool or paint brush)."""
+        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
+            return
+
+        if self.view_state_model.tool_mode == "paint":
+            self._handle_paint_click(pos)
+            return
+
         if self.view_state_model.tool_mode != "grow":
             return
         if self.view_state_model.active_label is None:
-            return
-        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
             return
         point = (int(pos[0]), int(pos[1]))
         label = self.view_state_model.active_label
@@ -335,13 +342,67 @@ class AnnotationController:
         )
         self.refresh_roi_overlay_for_slice(slice_idx)
 
+    def _handle_paint_click(self, pos: tuple[Any, Any]) -> None:
+        """Paint the active label (including 0) into the temp mask (requires Apply)."""
+        if self.view_state_model.active_label is None:
+            return
+        label = int(self.view_state_model.active_label)
+        try:
+            slice_idx = int(self.view_state_model.current_slice)
+        except Exception:
+            return
+
+        # Determine shape/depth
+        mask_shape = self.annotation_model.mask_shape_hw() or self.temp_mask_model.mask_shape_hw()
+        if mask_shape is None:
+            slice_data = self._slice_data(slice_idx)
+            if slice_data is not None and slice_data.ndim >= 2:
+                mask_shape = (int(slice_data.shape[0]), int(slice_data.shape[1]))
+        depth, _ = self._resolve_volume_dimensions()
+        if depth is None or mask_shape is None:
+            return
+
+        # Ensure temp volume exists and matches shape
+        temp_vol = self.temp_mask_model.get_mask_volume()
+        need_init = False
+        if temp_vol is None:
+            need_init = True
+        else:
+            th, tw = temp_vol.shape[1], temp_vol.shape[2]
+            if (th, tw) != (mask_shape[0], mask_shape[1]) or temp_vol.shape[0] != depth:
+                need_init = True
+        if need_init:
+            self.temp_mask_model.initialize((depth, mask_shape[0], mask_shape[1]))
+
+        disk = self.annotation_service.build_disk_mask(mask_shape, (int(pos[0]), int(pos[1])), self.PAINT_RADIUS_PX)
+        if disk is None:
+            return
+
+        color = self.annotation_model.get_label_palette().get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
+        self.temp_mask_model.ensure_label(label, color, visible=True)
+        self.temp_mask_model.set_slice_mask(slice_idx, disk, label=label, persistent=False)
+        self.refresh_roi_overlay_for_slice(slice_idx)
+
     def refresh_roi_overlay_for_slice(self, slice_idx: int) -> None:
         """Refresh ROI preview overlay for the given slice."""
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)
-        if slice_mask is None or not np.any(slice_mask):
+        coverage = self.temp_mask_model.get_slice_coverage(slice_idx)
+        palette = dict(self.temp_mask_model.label_palette)
+        overlay_mask = None
+        if slice_mask is not None and coverage is not None and np.any(coverage):
+            overlay_mask = np.array(slice_mask, copy=True)
+            zero_area = coverage & (overlay_mask == 0)
+            if np.any(zero_area):
+                overlay_mask[zero_area] = 255
+                if 0 in palette:
+                    palette[255] = palette[0]
+                else:
+                    palette[255] = MASK_COLORS_BGRA.get(0, (180, 180, 180, 160))
+
+        if overlay_mask is None:
             self.annotation_view.clear_roi_overlay()
         else:
-            self.annotation_view.set_roi_overlay(slice_mask, palette=self.temp_mask_model.label_palette)
+            self.annotation_view.set_roi_overlay(overlay_mask, palette=palette)
 
         boxes = self.roi_model.boxes_for_slice(slice_idx, include_persistent=True)
         if boxes:
@@ -368,6 +429,9 @@ class AnnotationController:
             depth, mask_shape = self._resolve_volume_dimensions()
             if depth is None or mask_shape is None:
                 return
+            # Preserve existing temp (e.g., paint) before rebuild from ROIs
+            prev_temp = self.temp_mask_model.get_mask_volume()
+            prev_cov = self.temp_mask_model.get_coverage_volume()
             self.annotation_service.rebuild_volume_preview_from_rois(
                 depth=depth,
                 mask_shape=mask_shape,
@@ -376,6 +440,21 @@ class AnnotationController:
                 palette=self.annotation_model.get_label_palette(),
                 slice_data_provider=self._slice_data,
             )
+            if prev_temp is not None and prev_cov is not None:
+                new_temp = self.temp_mask_model.get_mask_volume()
+                new_cov = self.temp_mask_model.get_coverage_volume()
+                if (
+                    new_temp is not None
+                    and new_cov is not None
+                    and new_temp.shape == prev_temp.shape
+                    and new_cov.shape == prev_cov.shape
+                ):
+                    merged = np.array(new_temp, copy=True)
+                    merged_cov = np.array(new_cov, copy=True)
+                    merged[prev_cov] = prev_temp[prev_cov]
+                    merged_cov = np.logical_or(merged_cov, prev_cov)
+                    self.temp_mask_model.mask_volume = merged  # type: ignore[attr-defined]
+                    self.temp_mask_model.coverage_volume = merged_cov  # type: ignore[attr-defined]
             self.annotation_service.apply_temp_volume_to_model(
                 temp_mask_model=self.temp_mask_model,
                 annotation_model=self.annotation_model,
@@ -385,10 +464,11 @@ class AnnotationController:
             target_slice = self.view_state_model.current_slice
             mask_volume = self.annotation_model.get_mask_volume()
             temp_slice = self.temp_mask_model.get_slice_mask(target_slice)
+            coverage = self.temp_mask_model.get_slice_coverage(target_slice)
 
-            if mask_volume is None or temp_slice is None:
+            if mask_volume is None or temp_slice is None or coverage is None:
                 return
-            if not np.any(temp_slice):
+            if not np.any(coverage):
                 return
             try:
                 current_slice = mask_volume[int(target_slice)]
@@ -398,7 +478,7 @@ class AnnotationController:
                 return
 
             updated = np.array(current_slice, copy=True)
-            updated[temp_slice > 0] = temp_slice[temp_slice > 0]
+            updated[coverage] = temp_slice[coverage]
             self.annotation_model.set_slice_mask(target_slice, updated)
 
         for label, color in self.temp_mask_model.label_palette.items():
@@ -524,8 +604,21 @@ class AnnotationController:
         )
 
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)
-        if slice_mask is not None and np.any(slice_mask):
-            self.annotation_view.set_roi_overlay(slice_mask, palette=self.temp_mask_model.label_palette)
+        coverage = self.temp_mask_model.get_slice_coverage(slice_idx)
+        palette = dict(self.temp_mask_model.label_palette)
+        overlay_mask = None
+        if slice_mask is not None and coverage is not None and np.any(coverage):
+            overlay_mask = np.array(slice_mask, copy=True)
+            zero_area = coverage & (overlay_mask == 0)
+            if np.any(zero_area):
+                overlay_mask[zero_area] = 255
+                if 0 in palette:
+                    palette[255] = palette[0]
+                else:
+                    palette[255] = MASK_COLORS_BGRA.get(0, (180, 180, 180, 160))
+
+        if overlay_mask is not None:
+            self.annotation_view.set_roi_overlay(overlay_mask, palette=palette)
         else:
             self.annotation_view.clear_roi_overlay()
 

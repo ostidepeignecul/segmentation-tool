@@ -6,7 +6,7 @@ from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
-from PyQt6.QtGui import QMouseEvent, QPen, QPixmap
+from PyQt6.QtGui import QCursor, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QFileDialog, QGraphicsPixmapItem, QGraphicsRectItem
 
 from config.constants import MASK_COLORS_BGRA
@@ -43,6 +43,8 @@ class AnnotationView(EndviewView):
         self._roi_point_pen = QPen(Qt.GlobalColor.white)
         self._roi_point_pen.setWidth(2)
         self._tool_mode: Optional[str] = None
+        self._paint_cursor: Optional[QCursor] = None
+        self._paint_cursor_radius: int = 8
 
     # ------------------------------------------------------------------ #
     # Temporary shapes (stubs)
@@ -147,8 +149,40 @@ class AnnotationView(EndviewView):
     def set_tool_mode(self, mode: Optional[str]) -> None:
         """Synchronize active tool to enable/disable box drawing."""
         self._tool_mode = mode
+        self._apply_tool_cursor()
         if mode != "box":
             self.clear_temp_shapes()
+
+    def _apply_tool_cursor(self) -> None:
+        """Set a cursor matching the active tool (paint shows a hollow circle)."""
+        if self._tool_mode == "paint":
+            cursor = self._ensure_paint_cursor()
+            self._view.setCursor(cursor)
+            self._view.viewport().setCursor(cursor)
+        else:
+            self._view.setCursor(Qt.CursorShape.ArrowCursor)
+            self._view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+
+    def _ensure_paint_cursor(self) -> QCursor:
+        """Build (or reuse) a hollow-circle cursor for the paint tool."""
+        if self._paint_cursor is not None:
+            return self._paint_cursor
+        diameter = self._paint_cursor_radius * 2
+        size = diameter + 4
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pen = QPen(Qt.GlobalColor.white)
+        pen.setWidth(2)
+        painter.setPen(pen)
+        offset = (size - diameter) // 2
+        painter.drawEllipse(offset, offset, diameter, diameter)
+        painter.end()
+
+        self._paint_cursor = QCursor(pixmap)
+        return self._paint_cursor
 
     # ------------------------------------------------------------------ #
     # Events

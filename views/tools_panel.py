@@ -46,9 +46,11 @@ class ToolsPanel(QFrame):
         self._position_label: Optional[QLabel] = None
         self._goto_button: Optional[QPushButton] = None
         self._threshold_slider: Optional[QSlider] = None
+        self._threshold_label: Optional[QLabel] = None
         self._free_hand_radio: Optional[QRadioButton] = None
         self._box_radio: Optional[QRadioButton] = None
         self._grow_radio: Optional[QRadioButton] = None
+        self._paint_radio: Optional[QRadioButton] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
         self._overlay_checkbox: Optional[QCheckBox] = None
@@ -76,9 +78,11 @@ class ToolsPanel(QFrame):
         slice_label: QLabel,
         goto_button: QPushButton,
         threshold_slider: QSlider,
+        threshold_label: QLabel,
         free_hand_radio: QRadioButton,
         box_radio: QRadioButton,
         grow_radio: QRadioButton,
+        paint_radio: QRadioButton,
         position_label: QLabel,
         overlay_checkbox: QCheckBox,
         cross_checkbox: QCheckBox,
@@ -102,9 +106,11 @@ class ToolsPanel(QFrame):
         self._position_label = position_label
         self._goto_button = goto_button
         self._threshold_slider = threshold_slider
+        self._threshold_label = threshold_label
         self._free_hand_radio = free_hand_radio
         self._box_radio = box_radio
         self._grow_radio = grow_radio
+        self._paint_radio = paint_radio
         self._overlay_checkbox = overlay_checkbox
         self._cross_checkbox = cross_checkbox
         self._apply_volume_checkbox = apply_volume_checkbox
@@ -127,7 +133,7 @@ class ToolsPanel(QFrame):
             self._next_button.clicked.connect(self.next_requested)
         if self._apply_roi_button is not None:
             self._apply_roi_button.clicked.connect(self.apply_roi_requested)
-        self._threshold_slider.valueChanged.connect(self.threshold_changed.emit)
+        self._threshold_slider.valueChanged.connect(self._on_threshold_changed)
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)
         self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
@@ -145,6 +151,9 @@ class ToolsPanel(QFrame):
         )
         self._grow_radio.toggled.connect(
             lambda checked: checked and self.tool_mode_changed.emit("grow")
+        )
+        self._paint_radio.toggled.connect(
+            lambda checked: checked and self.tool_mode_changed.emit("paint")
         )
 
         self._wired = True
@@ -218,6 +227,7 @@ class ToolsPanel(QFrame):
         self._threshold_slider.blockSignals(True)
         self._threshold_slider.setValue(threshold)
         self._threshold_slider.blockSignals(False)
+        self._update_threshold_label(threshold)
 
     def set_overlay_checked(self, enabled: bool) -> None:
         """Set overlay checkbox state without emitting signals."""
@@ -241,6 +251,7 @@ class ToolsPanel(QFrame):
             "free_hand": self._free_hand_radio,
             "box": self._box_radio,
             "grow": self._grow_radio,
+            "paint": self._paint_radio,
         }
         target = mapping.get(mode)
         if not target:
@@ -248,6 +259,16 @@ class ToolsPanel(QFrame):
         target.blockSignals(True)
         target.setChecked(True)
         target.blockSignals(False)
+
+    def _on_threshold_changed(self, value: int) -> None:
+        """Update threshold label and emit value."""
+        self._update_threshold_label(value)
+        self.threshold_changed.emit(value)
+
+    def _update_threshold_label(self, value: int) -> None:
+        if not self._threshold_label:
+            return
+        self._threshold_label.setText(f"Threshold : {int(value)}")
 
     def _emit_goto_requested(self) -> None:
         """Emit goto with the current spinbox value."""
