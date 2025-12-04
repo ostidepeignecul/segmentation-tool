@@ -97,6 +97,7 @@ class MasterController:
             volume_view=self.volume_view,
             overlay_settings_view=self.overlay_settings_view,
             logger=self.logger,
+            get_volume=self._current_volume,
         )
 
         self.cscan_controller = CScanController(

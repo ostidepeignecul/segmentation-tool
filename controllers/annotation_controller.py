@@ -41,6 +41,7 @@ class AnnotationController:
         volume_view: VolumeView,
         overlay_settings_view: OverlaySettingsView,
         logger: logging.Logger,
+        get_volume: Optional[callable] = None,
     ) -> None:
         self.annotation_model = annotation_model
         self.view_state_model = view_state_model
@@ -54,6 +55,7 @@ class AnnotationController:
         self.overlay_settings_view = overlay_settings_view
         self.logger = logger
         self._overlay_cache: OverlayData | None = None
+        self._get_volume = get_volume
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -257,6 +259,7 @@ class AnnotationController:
             roi_model=self.roi_model,
             temp_mask_model=self.temp_mask_model,
             palette=palette,
+            slice_data=self._slice_data(slice_idx),
         )
         self.refresh_roi_overlay_for_slice(slice_idx)
 
@@ -346,6 +349,18 @@ class AnnotationController:
         r, g, b, a = color.getRgb()
         return (b, g, r, a)
 
+    def _slice_data(self, slice_idx: int):
+        """Return raw slice data (H, W) from the current volume if available."""
+        if self._get_volume is None:
+            return None
+        volume = self._get_volume()
+        if volume is None:
+            return None
+        try:
+            return volume[int(slice_idx)]
+        except Exception:
+            return None
+
     def _rebuild_slice_preview(self, slice_idx: int) -> None:
         """Rebuild temporary mask and rectangle for a given slice from stored ROIs."""
         mask_shape = self.annotation_model.mask_shape_hw() or self.temp_mask_model.mask_shape_hw()
@@ -360,6 +375,7 @@ class AnnotationController:
             temp_mask_model=self.temp_mask_model,
             palette=self.annotation_model.get_label_palette(),
             clear_slice=True,
+            slice_data=self._slice_data(slice_idx),
         )
 
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)
