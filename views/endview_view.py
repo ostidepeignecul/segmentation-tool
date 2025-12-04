@@ -47,6 +47,8 @@ class EndviewView(QFrame):
         self._label_volumes: Dict[int, np.ndarray] = {}
         self._overlay_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self._visible_labels: Optional[set[int]] = None
+        self._colormap_name: str = "Gris"
+        self._colormap_lut: Optional[np.ndarray] = None
         self._pixmaps = _PixmapBundle()
 
         self._scene = QGraphicsScene(self)
@@ -88,6 +90,14 @@ class EndviewView(QFrame):
     # ------------------------------------------------------------------ #
     # Public API
     # ------------------------------------------------------------------ #
+    def set_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
+        """Set the base image colormap (expects lut shape (256,3) floats 0-1)."""
+        self._colormap_name = str(name)
+        if lut is not None and lut.shape == (256, 3):
+            self._colormap_lut = np.asarray(lut, dtype=np.float32)
+        else:
+            self._colormap_lut = None
+        self._refresh_pixmaps()
 
     def set_volume(self, volume: np.ndarray) -> None:
         """Assign the oriented/normalized volume (shape: num_slices, H, W)."""
@@ -256,7 +266,7 @@ class EndviewView(QFrame):
         self._overlay_item.setPixmap(overlay_pixmap)
 
     @staticmethod
-    def _array_to_pixmap(array: np.ndarray) -> QPixmap:
+    def _array_to_pixmap_gray(array: np.ndarray) -> QPixmap:
         data = np.asarray(array, dtype=np.float32)
         if data.size == 0:
             return QPixmap()
@@ -275,6 +285,31 @@ class EndviewView(QFrame):
             h,
             w,
             QImage.Format.Format_Grayscale8,
+        )
+        return QPixmap.fromImage(qimage.copy())
+
+    def _array_to_pixmap(self, array: np.ndarray) -> QPixmap:
+        data = np.asarray(array, dtype=np.float32)
+        if self._colormap_lut is None:
+            return self._array_to_pixmap_gray(data)
+        if data.size == 0:
+            return QPixmap()
+        min_val = float(data.min())
+        max_val = float(data.max())
+        if max_val <= min_val:
+            idx = np.zeros_like(data, dtype=np.uint8)
+        else:
+            normalized = (data - min_val) / (max_val - min_val)
+            idx = np.clip(normalized * 255.0, 0, 255).astype(np.uint8)
+        rgb = (self._colormap_lut[idx] * 255.0).astype(np.uint8)
+        rgb = np.ascontiguousarray(rgb, dtype=np.uint8)
+        h, w, _ = rgb.shape
+        qimage = QImage(
+            rgb.data,
+            w,
+            h,
+            w * 3,
+            QImage.Format.Format_RGB888,
         )
         return QPixmap.fromImage(qimage.copy())
 

@@ -13,6 +13,8 @@ class ViewStateModel:
         # --- Overlay & Display ---
         self.overlay_alpha: float = 1.0
         self.colormap: Optional[str] = None
+        self.endview_colormap: str = "Gris"
+        self.cscan_colormap: str = "Gris"
         self.show_overlay: bool = True
         self.show_volume: bool = True
         self.show_cross: bool = True
@@ -112,6 +114,12 @@ class ViewStateModel:
 
     def set_show_cross(self, visible: bool) -> None:
         self.show_cross = bool(visible)
+
+    def set_endview_colormap(self, name: str) -> None:
+        self.endview_colormap = str(name)
+
+    def set_cscan_colormap(self, name: str) -> None:
+        self.cscan_colormap = str(name)
 
     # ------------------------------------------------------------------ #
     # Metadata

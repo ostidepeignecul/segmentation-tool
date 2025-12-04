@@ -1,5 +1,8 @@
 import logging
+from pathlib import Path
 from typing import Any, Optional
+
+import numpy as np
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
@@ -25,6 +28,7 @@ from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWor
 from ui_mainwindow import Ui_MainWindow
 from views.annotation_view import AnnotationView
 from views.cscan_view_corrosion import CscanViewCorrosion
+from views.nde_settings_view import NdeSettingsView
 from views.overlay_settings_view import OverlaySettingsView
 
 
@@ -52,7 +56,9 @@ class MasterController:
             cscan_corrosion_service=self.cscan_corrosion_service
         )
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
+        self.nde_settings_view = NdeSettingsView(self.main_window)
         self._shortcuts: list[QShortcut] = []
+        self._omniscan_lut: Optional[np.ndarray] = None
 
         # References to Designer-created views.
         self.annotation_view: AnnotationView = self.ui.frame_3
@@ -89,6 +95,12 @@ class MasterController:
             self.cscan_stack = stack
 
         self.annotation_service = AnnotationService()
+
+        # Apply default colormaps
+        self.annotation_view.set_colormap(self.view_state_model.endview_colormap, None)
+        self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
+        if self.cscan_view is not None:
+            self.cscan_view.set_colormap(self.view_state_model.cscan_colormap, None)
 
         # Annotation controller (overlays)
         self.annotation_controller = AnnotationController(
@@ -227,6 +239,8 @@ class MasterController:
             self.annotation_controller.on_label_color_changed
         )
         self.overlay_settings_view.label_added.connect(self._on_label_added)
+        self.nde_settings_view.endview_colormap_changed.connect(self._on_endview_colormap_changed)
+        self.nde_settings_view.cscan_colormap_changed.connect(self._on_cscan_colormap_changed)
 
     def _register_shortcuts(self) -> None:
         """Global keyboard shortcuts (active anywhere in the window)."""
@@ -442,11 +456,54 @@ class MasterController:
 
     def _on_open_settings(self) -> None:
         """Open the settings dialog."""
-        pass
+        self.nde_settings_view.set_colormaps(
+            endview=self.view_state_model.endview_colormap,
+            cscan=self.view_state_model.cscan_colormap,
+        )
+        self.nde_settings_view.show()
+        self.nde_settings_view.raise_()
+        self.nde_settings_view.activateWindow()
 
     def _on_quit(self) -> None:
         """Quit the application."""
         self.main_window.close()
+
+    def _on_endview_colormap_changed(self, name: str) -> None:
+        lut = self._get_colormap_lut(name)
+        self.view_state_model.set_endview_colormap(name)
+        self.annotation_view.set_colormap(name, lut)
+        self.volume_view.set_base_colormap(name, lut)
+
+    def _on_cscan_colormap_changed(self, name: str) -> None:
+        lut = self._get_colormap_lut(name)
+        self.view_state_model.set_cscan_colormap(name)
+        if self.cscan_view is not None:
+            self.cscan_view.set_colormap(name, lut)
+
+    def _get_colormap_lut(self, name: str) -> Optional[np.ndarray]:
+        """Return LUT (256x3 float) for known colormap names."""
+        if str(name).lower() != "omniscan":
+            return None
+        if self._omniscan_lut is not None:
+            return self._omniscan_lut
+        self._omniscan_lut = self._load_omniscan_colormap()
+        return self._omniscan_lut
+
+    def _load_omniscan_colormap(self) -> Optional[np.ndarray]:
+        lut_path = Path(__file__).resolve().parent.parent / "OmniScanColorMap.npy"
+        try:
+            if not lut_path.exists():
+                self.logger.warning("Colormap file not found: %s", lut_path)
+                return None
+            arr = np.load(lut_path)
+            if arr.shape != (256, 3):
+                self.logger.warning("Unexpected colormap shape %s at %s", arr.shape, lut_path)
+                return None
+            arr = np.clip(arr.astype(np.float32), 0.0, 1.0)
+            return arr
+        except Exception as exc:
+            self.logger.error("Failed to load OmniScan colormap: %s", exc)
+            return None
 
     def _on_slice_changed(self, index: int) -> None:
         """Handle slice change events."""

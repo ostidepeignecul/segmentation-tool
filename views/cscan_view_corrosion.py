@@ -46,7 +46,7 @@ class CscanViewCorrosion(CScanView):
         return lut
 
     @staticmethod
-    def _to_rgb(data: np.ndarray, value_range: Tuple[float, float]) -> np.ndarray:
+    def _to_rgb(data: np.ndarray, value_range: Tuple[float, float], _unused_lut=None) -> np.ndarray:
         vmin, vmax = value_range
         if vmax <= vmin:
             return np.zeros((*data.shape, 3), dtype=np.uint8)

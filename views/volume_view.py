@@ -93,6 +93,8 @@ class VolumeView(QFrame):
         self._slice_image: Optional[scene.visuals.Image] = None
         self._slice_overlay: Optional[scene.visuals.Image] = None
         self._overlay_volume_visual: Optional[scene.visuals.Volume] = None
+        self._base_colormap_name: str = "Gris"
+        self._base_colormap: Optional[BaseColormap | str] = "gray"
         # Store the axis order used to orient the current volume
         self._axis_order: Optional[Sequence[str]] = None
         self._overlay_mask: Optional[np.ndarray] = None
@@ -160,6 +162,19 @@ class VolumeView(QFrame):
         # Set initial slice
         target_slice = slice_idx if slice_idx is not None else self._current_slice
         self.set_slice_index(target_slice, update_slider=True, emit=False)
+
+    def set_base_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
+        """Set the base volume colormap (lut expected shape (256,3) floats 0-1)."""
+        self._base_colormap_name = str(name)
+        if lut is not None and lut.shape == (256, 3):
+            self._base_colormap = Colormap(np.asarray(lut, dtype=np.float32))
+        else:
+            self._base_colormap = "gray"
+            self._base_colormap_name = "Gris"
+        if self._volume_visual is not None:
+            self._volume_visual.cmap = self._base_colormap
+        if self._slice_image is not None:
+            self._slice_image.cmap = self._base_colormap
 
     def set_overlay(
         self,
@@ -333,7 +348,7 @@ class VolumeView(QFrame):
             self._norm_volume,
             parent=self._view.scene,
             method="mip",
-            cmap="gray",
+            cmap=self._base_colormap,
         )
 
         # Configure camera ranges and centre
@@ -364,7 +379,7 @@ class VolumeView(QFrame):
         self._slice_image = scene.visuals.Image(
             data,
             parent=self._view.scene,
-            cmap="gray",
+            cmap=self._base_colormap,
             method="auto",
         )
         self._slice_image.order = 9

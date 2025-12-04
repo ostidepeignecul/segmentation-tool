@@ -103,7 +103,11 @@ class CScanController:
             self.view_state_model.deactivate_corrosion()
             self.show_standard()
             if self.standard_view is not None:
-                self.standard_view.set_projection(standard_projection, standard_range)
+                self.standard_view.set_projection(
+                    standard_projection,
+                    standard_range,
+                    colormaps=("Gris", "OmniScan"),
+                )
 
     # --- Corrosion workflow --------------------------------------------------------
     def reset_corrosion(self) -> None:

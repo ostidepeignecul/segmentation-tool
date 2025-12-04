@@ -1965,3 +1965,20 @@ L’étiquette “Threshold :” devait afficher en direct la valeur du slider p
 2. Bloquer les signaux lors des mises à jour programmatiques du slider et rafraîchir le label ensuite pour éviter les boucles de signaux.
 
 ---
+
+### **2025-12-04** — Correctif colormap corrosion (_to_rgb signature)
+
+**Tags:** `#views/cscan_view_corrosion.py`, `#views/cscan_view.py`, `#cscan`, `#colormap`, `#bugfix`, `#branch:annotation`
+
+**Actions effectuées:**
+- Ajusté `_to_rgb` dans `CscanViewCorrosion` pour accepter un argument LUT optionnel (aligné sur la signature de `CScanView`), en ignorant ce paramètre et en continuant d’utiliser le LUT corrosion interne.
+- La génération d’image corrosion redevient compatible avec `_render_pixmap` qui passe désormais la LUT en paramètre.
+
+**Contexte:**
+Après l’ajout de colormaps configurables, `CScanView._render_pixmap` appelle `_to_rgb(data, value_range, lut)`. La surcharge dans `CscanViewCorrosion` ne prenait que deux arguments, provoquant un `TypeError` lors de l’analyse corrosion. La mise à jour aligne la signature pour empêcher l’erreur tout en conservant le LUT dédié corrosion.
+
+**Décisions techniques:**
+1. Ne pas utiliser le LUT passé en argument pour la corrosion : la palette reste figée via le LUT interne afin d’assurer un rendu cohérent de la distance corrosion.
+2. Signature alignée (ajout d’un paramètre optionnel) pour éviter toute régression future si `_render_pixmap` évolue encore sur la base CScanView.
+
+---

@@ -34,6 +34,8 @@ class CScanView(QFrame):
         self._projection: Optional[np.ndarray] = None
         self._value_range: Tuple[float, float] = (0.0, 1.0)
         self._current_crosshair: Optional[Tuple[int, int]] = None
+        self._colormap_name: str = "Gris"
+        self._colormap_lut: Optional[np.ndarray] = None
 
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
@@ -73,6 +75,17 @@ class CScanView(QFrame):
 
         self.setStyleSheet("background-color: #181818; color: #cccccc;")
 
+    def set_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
+        """Set colormap to apply to the projection (lut shape (256,3) floats 0-1)."""
+        self._colormap_name = str(name)
+        if lut is not None and lut.shape == (256, 3):
+            self._colormap_lut = np.asarray(lut, dtype=np.float32)
+        else:
+            self._colormap_lut = None
+            self._colormap_name = "Gris"
+        self._set_combo_current(self._colormap_name)
+        self._render_pixmap()
+
     def set_projection(
         self,
         projection: np.ndarray,
@@ -104,6 +117,7 @@ class CScanView(QFrame):
             self._lut_combo.clear()
             self._lut_combo.addItems(colormaps)
             self._lut_combo.blockSignals(False)
+            self._set_combo_current(self._colormap_name)
 
     def highlight_slice(self, slice_idx: int) -> None:
         if self._projection is None:
@@ -146,7 +160,9 @@ class CScanView(QFrame):
         return super().eventFilter(obj, event)
 
     def _render_pixmap(self) -> None:
-        heatmap = self._to_rgb(self._projection, self._value_range)
+        if self._projection is None:
+            return
+        heatmap = self._to_rgb(self._projection, self._value_range, self._colormap_lut)
         heatmap = np.ascontiguousarray(heatmap, dtype=np.uint8)
         h, w, _ = heatmap.shape
         bytes_per_line = heatmap.strides[0]
@@ -160,18 +176,27 @@ class CScanView(QFrame):
         self._pixmap_item.setPixmap(QPixmap.fromImage(image.copy()))
         self._scene.setSceneRect(0, 0, w, h)
 
+    def _set_combo_current(self, name: str) -> None:
+        idx = self._lut_combo.findText(name)
+        if idx >= 0:
+            self._lut_combo.blockSignals(True)
+            self._lut_combo.setCurrentIndex(idx)
+            self._lut_combo.blockSignals(False)
+
     @staticmethod
-    def _to_rgb(data: np.ndarray, value_range: Tuple[float, float]) -> np.ndarray:
+    def _to_rgb(data: np.ndarray, value_range: Tuple[float, float], lut: Optional[np.ndarray]) -> np.ndarray:
         vmin, vmax = value_range
         if vmax <= vmin:
-            normalized = np.zeros_like(data, dtype=np.uint8)
+            normalized = np.zeros_like(data, dtype=np.float32)
         else:
             normalized = (data - vmin) / (vmax - vmin)
-            normalized = np.clip(normalized * 255.0, 0, 255).astype(np.uint8)
-        red = normalized
-        blue = 255 - normalized
-        green = (normalized // 2 + 64).clip(0, 255)
-        return np.stack([red, green, blue], axis=-1)
+        normalized = np.clip(normalized, 0.0, 1.0)
+        idx = (normalized * 255.0).astype(np.uint8)
+        if lut is None:
+            gray = (normalized * 255.0).astype(np.uint8)
+            return np.stack([gray, gray, gray], axis=-1)
+        rgb = (lut[idx] * 255.0).astype(np.uint8)
+        return rgb
 
     def _coords_from_event(self, pos) -> Optional[Tuple[int, int]]:
         if self._projection is None:
