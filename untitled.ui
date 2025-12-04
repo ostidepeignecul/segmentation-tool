@@ -100,9 +100,16 @@
     </property>
     <addaction name="actionCorrosion_analyse"/>
    </widget>
+   <widget class="QMenu" name="menuInference">
+    <property name="title">
+     <string>Inference</string>
+    </property>
+    <addaction name="actionnnunet"/>
+   </widget>
    <addaction name="menuFichier"/>
    <addaction name="menuOverlay"/>
    <addaction name="menuAnalyse"/>
+   <addaction name="menuInference"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <widget class="QDockWidget" name="dockWidget_2">
@@ -388,6 +395,11 @@
   <action name="actionExporter_npz">
    <property name="text">
     <string>Exporter .npz</string>
+   </property>
+  </action>
+  <action name="actionnnunet">
+   <property name="text">
+    <string>nnunet</string>
    </property>
   </action>
  </widget>

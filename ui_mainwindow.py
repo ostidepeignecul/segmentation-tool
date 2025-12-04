@@ -53,6 +53,8 @@ class Ui_MainWindow(object):
         self.menuOverlay.setObjectName("menuOverlay")
         self.menuAnalyse = QtWidgets.QMenu(parent=self.menubar)
         self.menuAnalyse.setObjectName("menuAnalyse")
+        self.menuInference = QtWidgets.QMenu(parent=self.menubar)
+        self.menuInference.setObjectName("menuInference")
         MainWindow.setMenuBar(self.menubar)
         self.statusbar = QtWidgets.QStatusBar(parent=MainWindow)
         self.statusbar.setObjectName("statusbar")
@@ -182,6 +184,8 @@ class Ui_MainWindow(object):
         self.actionParam_tres_2.setObjectName("actionParam_tres_2")
         self.actionExporter_npz = QtGui.QAction(parent=MainWindow)
         self.actionExporter_npz.setObjectName("actionExporter_npz")
+        self.actionnnunet = QtGui.QAction(parent=MainWindow)
+        self.actionnnunet.setObjectName("actionnnunet")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addAction(self.actionSauvegarder)
         self.menuFichier.addSeparator()
@@ -192,9 +196,11 @@ class Ui_MainWindow(object):
         self.menuOverlay.addAction(self.actionParam_tres_2)
         self.menuOverlay.addAction(self.actionExporter_npz)
         self.menuAnalyse.addAction(self.actionCorrosion_analyse)
+        self.menuInference.addAction(self.actionnnunet)
         self.menubar.addAction(self.menuFichier.menuAction())
         self.menubar.addAction(self.menuOverlay.menuAction())
         self.menubar.addAction(self.menuAnalyse.menuAction())
+        self.menubar.addAction(self.menuInference.menuAction())
 
         self.retranslateUi(MainWindow)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
@@ -205,6 +211,7 @@ class Ui_MainWindow(object):
         self.menuFichier.setTitle(_translate("MainWindow", "Fichier"))
         self.menuOverlay.setTitle(_translate("MainWindow", "Overlay"))
         self.menuAnalyse.setTitle(_translate("MainWindow", "Analyse"))
+        self.menuInference.setTitle(_translate("MainWindow", "Inference"))
         self.label_3.setText(_translate("MainWindow", "current_slice"))
         self.pushButton_5.setText(_translate("MainWindow", "previous"))
         self.pushButton_6.setText(_translate("MainWindow", "next"))
@@ -232,6 +239,7 @@ class Ui_MainWindow(object):
         self.actionCorrosion_analyse.setText(_translate("MainWindow", "Corrosion analyse"))
         self.actionParam_tres_2.setText(_translate("MainWindow", "Paramètres overlay"))
         self.actionExporter_npz.setText(_translate("MainWindow", "Exporter .npz"))
+        self.actionnnunet.setText(_translate("MainWindow", "nnunet"))
 from views.annotation_view import AnnotationView
 from views.ascan_view import AScanView
 from views.cscan_view import CScanView
