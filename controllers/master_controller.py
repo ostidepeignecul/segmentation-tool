@@ -49,6 +49,7 @@ class MasterController:
         self.roi_model = RoiModel()
         self.temp_mask_model = TempMaskModel()
         self.nde_loader = NdeLoader()
+        self._nde_path: Optional[str] = None
         self.overlay_loader = OverlayLoader()
         self.overlay_service = OverlayService()
         self.overlay_export = OverlayExport()
@@ -150,6 +151,8 @@ class MasterController:
         self._connect_signals()
         self._register_shortcuts()
         self._sync_tools_labels()
+        self._update_nde_label()
+        self._update_endview_label()
 
     def _connect_actions(self) -> None:
         """Wire menu actions to controller handlers."""
@@ -174,7 +177,6 @@ class MasterController:
         self.tools_panel.attach_designer_widgets(
             slice_slider=self.ui.horizontalSlider_2,
             slice_label=self.ui.label_3,
-            position_label=self.ui.label_4,
             goto_button=self.ui.pushButton,
             threshold_slider=self.ui.horizontalSlider,
             threshold_label=self.ui.label_2,
@@ -182,6 +184,9 @@ class MasterController:
             box_radio=self.ui.radioButton_2,
             grow_radio=self.ui.radioButton_3,
             paint_radio=self.ui.radioButton_4,
+            nde_label=self.ui.label,
+            endview_label=self.ui.label_5,
+            position_label=self.ui.label_4,
             overlay_checkbox=self.ui.checkBox_5,
             cross_checkbox=self.ui.checkBox_4,
             apply_volume_checkbox=self.ui.checkBox,
@@ -322,6 +327,9 @@ class MasterController:
             self.ascan_service.log_preview(self.logger, self.nde_model, volume)
 
             self._refresh_views()
+            self._nde_path = file_path
+            self._update_nde_label()
+            self._update_endview_label()
 
             self.status_message(f"NDE chargé: {file_path}")
 
@@ -606,6 +614,7 @@ class MasterController:
         self.cscan_controller.highlight_slice(clamped)
         self.volume_view.set_slice_index(clamped, update_slider=True)
         self._update_ascan_trace()
+        self._update_endview_label()
 
     def _on_previous_slice(self) -> None:
         """Navigate to the previous slice via buttons/shortcuts."""
@@ -765,6 +774,21 @@ class MasterController:
         if self.nde_model is None:
             return None
         return self.nde_model.get_active_volume()
+
+    def _update_nde_label(self) -> None:
+        """Reflect the opened NDE file into the tools panel label."""
+        name = Path(self._nde_path).name if self._nde_path else "-"
+        self.tools_panel.set_nde_name(name)
+
+    def _update_endview_label(self) -> None:
+        """Reflect the current slice as an endview identifier."""
+        volume = self._current_volume()
+        if volume is None:
+            self.tools_panel.set_endview_name("-")
+            return
+        slice_idx = int(self.view_state_model.current_slice)
+        name = f"endview_{slice_idx * 1500:012d}.png"
+        self.tools_panel.set_endview_name(name)
 
     def _initialize_ascan_logger(self, source: str) -> None:
         """Initialize the A-Scan debug logging session."""

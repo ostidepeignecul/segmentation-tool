@@ -2037,3 +2037,21 @@ On supprime toute logique métier hors services : export et split sont encapsul�
 3. Les handlers UI créent/réutilisent les dossiers `endviews_rgb24/complete` et `endviews_uint8/complete`, puis affichent les messages de statut via QMessageBox/statusbar.
 
 ---
+
+### **2025-12-05** — Affichage du nom NDE et de l’endview dans le ToolsPanel
+
+**Tags:** `#controllers/master_controller.py`, `#views/tools_panel.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#ui`, `#mvc`, `#endview`, `#nde`, `#branch:annotation`
+
+**Actions effectuées:**
+- ToolsPanel accepte désormais les labels NDE/endview du Designer et expose `set_nde_name` / `set_endview_name` avec placeholders "-" .
+- MasterController passe les deux labels au ToolsPanel, stocke `_nde_path`, met à jour le nom du fichier NDE après chargement et rafraîchit le nom d’endview à chaque changement de slice (`endview_{slice_idx*1500:012d}.png`).
+- ui_mainwindow.py/untitled.ui initialisent les libellés à "NDE: -" et "Endview: -" pour l’état vide.
+
+**Contexte:**
+Afficher dans le panneau d’outils quel fichier NDE est ouvert et quelle endview (slice) est affichée, en respectant le naming utilisé pour les exports endview.
+
+**Décisions techniques:**
+1. Mettre la logique d’affichage dans la vue (ToolsPanel) pour rester MVC : le contrôleur ne fait que pousser les valeurs.
+2. Recalcul de l’identifiant endview sur `_on_slice_changed` via la formule d’export (slice_idx*1500) afin de rester cohérent avec les noms de fichiers générés par les services d’export/split.
+
+---

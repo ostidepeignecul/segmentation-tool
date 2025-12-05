@@ -43,6 +43,8 @@ class ToolsPanel(QFrame):
 
         self._slice_slider: Optional[QSlider] = None
         self._slice_label: Optional[QLabel] = None
+        self._nde_label: Optional[QLabel] = None
+        self._endview_label: Optional[QLabel] = None
         self._position_label: Optional[QLabel] = None
         self._goto_button: Optional[QPushButton] = None
         self._threshold_slider: Optional[QSlider] = None
@@ -83,6 +85,8 @@ class ToolsPanel(QFrame):
         box_radio: QRadioButton,
         grow_radio: QRadioButton,
         paint_radio: QRadioButton,
+        nde_label: QLabel,
+        endview_label: QLabel,
         position_label: QLabel,
         overlay_checkbox: QCheckBox,
         cross_checkbox: QCheckBox,
@@ -103,6 +107,8 @@ class ToolsPanel(QFrame):
 
         self._slice_slider = slice_slider
         self._slice_label = slice_label
+        self._nde_label = nde_label
+        self._endview_label = endview_label
         self._position_label = position_label
         self._goto_button = goto_button
         self._threshold_slider = threshold_slider
@@ -157,6 +163,8 @@ class ToolsPanel(QFrame):
         )
 
         self._wired = True
+        self.set_nde_name("")
+        self.set_endview_name("")
 
     def _ensure_label_layout(self) -> None:
         if self._label_container is None:
@@ -306,3 +314,17 @@ class ToolsPanel(QFrame):
         if not self._position_label:
             return
         self._position_label.setText(f"position x = {x} ; y = {y}")
+
+    def set_nde_name(self, name: str) -> None:
+        """Display the opened NDE file name."""
+        if not self._nde_label:
+            return
+        suffix = name if name else "-"
+        self._nde_label.setText(f"NDE: {suffix}")
+
+    def set_endview_name(self, name: str) -> None:
+        """Display the current endview identifier."""
+        if not self._endview_label:
+            return
+        suffix = name if name else "-"
+        self._endview_label.setText(f"Endview: {suffix}")
