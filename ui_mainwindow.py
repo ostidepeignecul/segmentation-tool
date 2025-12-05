@@ -186,8 +186,15 @@ class Ui_MainWindow(object):
         self.actionExporter_npz.setObjectName("actionExporter_npz")
         self.actionnnunet = QtGui.QAction(parent=MainWindow)
         self.actionnnunet.setObjectName("actionnnunet")
+        self.actionExporter_endviews = QtGui.QAction(parent=MainWindow)
+        self.actionExporter_endviews.setObjectName("actionExporter_endviews")
+        self.actionSplit_flaw_noflaw = QtGui.QAction(parent=MainWindow)
+        self.actionSplit_flaw_noflaw.setObjectName("actionSplit_flaw_noflaw")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addAction(self.actionSauvegarder)
+        self.menuFichier.addSeparator()
+        self.menuFichier.addAction(self.actionExporter_endviews)
+        self.menuFichier.addAction(self.actionSplit_flaw_noflaw)
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionParam_tres)
         self.menuFichier.addSeparator()
@@ -240,6 +247,8 @@ class Ui_MainWindow(object):
         self.actionParam_tres_2.setText(_translate("MainWindow", "Paramètres overlay"))
         self.actionExporter_npz.setText(_translate("MainWindow", "Exporter .npz"))
         self.actionnnunet.setText(_translate("MainWindow", "nnunet"))
+        self.actionExporter_endviews.setText(_translate("MainWindow", "Exporter endviews"))
+        self.actionSplit_flaw_noflaw.setText(_translate("MainWindow", "Split flaw-noflaw"))
 from views.annotation_view import AnnotationView
 from views.ascan_view import AScanView
 from views.cscan_view import CScanView

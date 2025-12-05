@@ -115,13 +115,26 @@ class NdeLoader:
         dimensions: List[Dict[str, Any]] = dataset_entry.get("dimensions") or []
         axis_order, positions = self._compute_axes(dimensions, data.shape)
         self._log_dimensions("public", dimensions, data.shape)
+        data, axis_order, positions = self._reorder_axes_by_metadata(
+            data,
+            axis_order,
+            positions,
+            dimensions=dimensions,
+            setup_json=json_decoded,
+        )
         data, axis_order, positions = self._orient_if_missing_metadata(
             data,
             axis_order,
             positions,
             structure="public",
         )
-        data, axis_order, positions = self._rotate_clockwise(data, axis_order, positions)
+        data, axis_order, positions = self._maybe_rotate(
+            data,
+            axis_order,
+            positions,
+            structure="public",
+            setup_json=json_decoded,
+        )
 
         # Retrieve min/max values from dataValue if present
         data_value: Dict[str, Any] = dataset_entry.get("dataValue") or {}
@@ -186,13 +199,26 @@ class NdeLoader:
             dimensions = dataset_entry.get("dimensions") or []
         axis_order, positions = self._compute_axes(dimensions, data.shape)
         self._log_dimensions("domain", dimensions, data.shape)
+        data, axis_order, positions = self._reorder_axes_by_metadata(
+            data,
+            axis_order,
+            positions,
+            dimensions=dimensions,
+            setup_json=json_decoded,
+        )
         data, axis_order, positions = self._orient_if_missing_metadata(
             data,
             axis_order,
             positions,
             structure="domain",
         )
-        data, axis_order, positions = self._rotate_clockwise(data, axis_order, positions)
+        data, axis_order, positions = self._maybe_rotate(
+            data,
+            axis_order,
+            positions,
+            structure="domain",
+            setup_json=json_decoded,
+        )
 
         # Determine min/max values
         data_value: Dict[str, Any] = dataset_entry.get("dataValue") if dataset_entry else {}
@@ -337,6 +363,97 @@ class NdeLoader:
             parts.append(f"{name}={qty} (shape[{idx}]={shape[idx] if idx < len(shape) else '?'})")
         logger.info("[%s] dimensions: %s", source, "; ".join(parts))
 
+    def _reorder_axes_by_metadata(
+        self,
+        data: np.ndarray,
+        axis_order: List[str],
+        positions: Dict[str, np.ndarray],
+        *,
+        dimensions: List[Dict[str, Any]],
+        setup_json: Optional[Dict[str, Any]],
+    ) -> Tuple[np.ndarray, List[str], Dict[str, np.ndarray]]:
+        """
+        Reorder axes using Setup metadata:
+        - Ultrasound reste l'axe Y (profondeur)
+        - Axe slice choisi via discreteGrid.uCoordinateOrientation ou nom "Index", sinon plus grand entre U/V
+        - L'autre axe spatial devient X
+        """
+        if data.ndim < 3 or not axis_order or len(axis_order) != data.ndim:
+            return data, axis_order, positions
+
+        orientation = None
+        grid_dims: List[Dict[str, Any]] = []
+        try:
+            mappings = (setup_json or {}).get("dataMappings") or []
+            if mappings:
+                mapping = mappings[0]
+                grid = mapping.get("discreteGrid") or {}
+                orientation = grid.get("uCoordinateOrientation")
+                grid_dims = grid.get("dimensions") or []
+        except Exception:
+            orientation = None
+            grid_dims = []
+
+        orientation_l = str(orientation).lower() if orientation is not None else None
+        slice_axis_name: Optional[str] = None
+        if orientation_l == "around":
+            slice_axis_name = "UCoordinate"
+        elif orientation_l == "length":
+            slice_axis_name = "VCoordinate"
+
+        if slice_axis_name is None:
+            for dim in grid_dims:
+                if str(dim.get("name", "")).lower() == "index" and dim.get("axis"):
+                    slice_axis_name = dim.get("axis")
+                    break
+
+        if slice_axis_name is None:
+            quantities = {}
+            for dim in dimensions:
+                axis_name = dim.get("axis")
+                qty = dim.get("quantity")
+                if axis_name is not None and qty is not None:
+                    quantities[str(axis_name)] = qty
+            candidates = {k: v for k, v in quantities.items() if str(k).lower() in {"ucoordinate", "vcoordinate"}}
+            if candidates:
+                slice_axis_name = max(candidates.items(), key=lambda item: item[1])[0]
+
+        normalized = [str(name).lower() for name in axis_order]
+        ultrasound_idx = normalized.index("ultrasound") if "ultrasound" in normalized else None
+        slice_idx = None
+        if slice_axis_name is not None and slice_axis_name.lower() in normalized:
+            slice_idx = normalized.index(slice_axis_name.lower())
+
+        desired_indices: List[int] = []
+        if slice_idx is not None:
+            desired_indices.append(slice_idx)
+        if ultrasound_idx is not None and ultrasound_idx not in desired_indices:
+            desired_indices.append(ultrasound_idx)
+        for idx in range(len(axis_order)):
+            if idx not in desired_indices:
+                desired_indices.append(idx)
+
+        if desired_indices == list(range(len(axis_order))):
+            return data, axis_order, positions
+
+        reordered = np.transpose(data, axes=desired_indices)
+        new_axis_order = [axis_order[i] for i in desired_indices]
+
+        new_positions: Dict[str, np.ndarray] = {}
+        for name in new_axis_order:
+            new_positions[name] = positions.get(name)
+
+        logger.info(
+            "Reordered axes from metadata | orientation=%s | slice_axis=%s | old_order=%s | new_order=%s | old_shape=%s | new_shape=%s",
+            orientation,
+            slice_axis_name,
+            axis_order,
+            new_axis_order,
+            data.shape,
+            reordered.shape,
+        )
+        return reordered, new_axis_order, new_positions
+
     def _rotate_clockwise(
         self,
         data: np.ndarray,
@@ -375,3 +492,45 @@ class NdeLoader:
                 new_positions[a1] = positions[a1]
 
         return rotated, new_axis_order, new_positions
+
+    def _maybe_rotate(
+        self,
+        data: np.ndarray,
+        axis_order: List[str],
+        positions: Dict[str, np.ndarray],
+        *,
+        structure: str,
+        setup_json: Optional[Dict[str, Any]],
+    ) -> Tuple[np.ndarray, List[str], Dict[str, np.ndarray]]:
+        """Apply rot90 only for fallback or legacy Domain encodings without dataMappings."""
+        if not self._should_apply_rotation(axis_order, setup_json, structure):
+            return data, axis_order, positions
+        rotated, new_order, new_positions = self._rotate_clockwise(data, axis_order, positions)
+        logger.info(
+            "[%s] applied fallback rotation 90° CW | old_shape=%s | new_shape=%s | old_order=%s | new_order=%s",
+            structure,
+            data.shape,
+            rotated.shape,
+            axis_order,
+            new_order,
+        )
+        return rotated, new_order, new_positions
+
+    def _should_apply_rotation(
+        self,
+        axis_order: List[str],
+        setup_json: Optional[Dict[str, Any]],
+        structure: str,
+    ) -> bool:
+        """Detect cases where we lacked explicit orientation and need the legacy rot90."""
+        if axis_order and all(name.startswith("axis_") for name in axis_order):
+            return True
+
+        mappings = (setup_json or {}).get("dataMappings") or []
+        encodings = (setup_json or {}).get("dataEncodings") or []
+
+        if structure == "domain" and not mappings and encodings:
+            # Legacy Domain files (3.x) expose discreteGrid via dataEncodings only.
+            return True
+
+        return False

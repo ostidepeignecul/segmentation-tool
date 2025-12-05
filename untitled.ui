@@ -82,6 +82,9 @@
     <addaction name="actionopen_nde"/>
     <addaction name="actionSauvegarder"/>
     <addaction name="separator"/>
+    <addaction name="actionExporter_endviews"/>
+    <addaction name="actionSplit_flaw_noflaw"/>
+    <addaction name="separator"/>
     <addaction name="actionParam_tres"/>
     <addaction name="separator"/>
     <addaction name="actionQuitter"/>
@@ -400,6 +403,16 @@
   <action name="actionnnunet">
    <property name="text">
     <string>nnunet</string>
+   </property>
+  </action>
+  <action name="actionExporter_endviews">
+   <property name="text">
+    <string>Exporter endviews</string>
+   </property>
+  </action>
+  <action name="actionSplit_flaw_noflaw">
+   <property name="text">
+    <string>Split flaw-noflaw</string>
    </property>
   </action>
  </widget>

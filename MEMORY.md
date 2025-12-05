@@ -16,6 +16,23 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-12-05** — Rotation fallback auto pour NDE sans orientation explicite
+
+**Tags :** `#services/nde_loader.py`, `#rotation`, `#orientation`, `#fallback`, `#domain-structure`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Ajout de `_maybe_rotate`/`_should_apply_rotation` : la rot90 horaire n’est plus systématique, elle ne s’applique que si l’`axis_order` est auto-généré (`axis_*`) ou si le fichier Domain ne fournit pas `dataMappings` mais uniquement des `dataEncodings` (schéma 3.x legacy).
+- Les chemins Public/Domain appellent `_maybe_rotate` après l’orientation par métadonnées/fallback ; log INFO détaillé quand la rotation est appliquée (shape/axis_order avant-après).
+
+**Contexte :**
+Certains NDE Public 4.0 étaient déjà correctement orientés et subissaient une rotation en trop. Les Domain 3.x (grille exposée via `dataEncodings` seulement) ou les cas sans métadonnées requièrent encore la rot90 héritée pour l’affichage.
+
+**Décisions techniques :**
+1. Ne pas appliquer de rotation si des métadonnées explicites existent (`dataMappings` Public/Domain) et un `axis_order` non `axis_*` est fourni.
+2. Appliquer la rotation uniquement en fallback (axis_* généré) ou sur Domain legacy (pas de `dataMappings` mais présence de `dataEncodings`), conservant le swap/inversion des positions aligné sur la rot90 horaire existante.
+
+---
+
 ### **2025-12-04** — Bouton nnUNet branché dans MasterController
 
 **Tags:** `#controllers/master_controller.py`, `#nnunet`, `#pyqt6`, `#mvc`, `#ui`, `#branch:annotation`
@@ -1980,5 +1997,43 @@ Après l’ajout de colormaps configurables, `CScanView._render_pixmap` appelle 
 **Décisions techniques:**
 1. Ne pas utiliser le LUT passé en argument pour la corrosion : la palette reste figée via le LUT interne afin d’assurer un rendu cohérent de la distance corrosion.
 2. Signature alignée (ajout d’un paramètre optionnel) pour éviter toute régression future si `_render_pixmap` évolue encore sur la base CScanView.
+
+---
+
+### **2025-12-05** — Nouveau split flaw/noflaw basé sur masque courant
+
+**Tags :** `#services/split_service.py`, `#controllers/master_controller.py`, `#services/endview_export.py`, `#mvc`, `#ui`, `#branch:annotation`
+
+**Actions effectuées :**
+- Créé `services/split_service.py` (classe `SplitFlawNoflawService`) qui exporte systématiquement les endviews RGB/uint8 via `EndviewExportService` puis trie chaque slice en flaw/noflaw selon le mask_volume courant, en copiant les endviews vers flaw/noflaw et en écrivant les masques dans gtmask/flaw ou gtmask/noflaw.
+- Remplacé l’ancien `services/split_flaw_noflaw.py` par ce nouveau service et supprimé le fichier legacy.
+- Rebranché `actionSplit_flaw_noflaw` dans `MasterController` pour appeler `split_flaw_noflaw_service.split_endviews`, en construisant le dossier racine `[nom_du_nde]` sous le répertoire choisi par l’utilisateur.
+
+**Contexte :**
+Le split doit désormais s’appuyer sur le modèle NDE déjà chargé et le masque d’annotation courant, sans script externe ni analyse de fichiers masks_binary. La structure de sortie est toujours `endviews_rgb24/complete|flaw|noflaw|gtmask/...` et `endviews_uint8/...` sous un dossier nommé d’après le fichier .nde.
+
+**Décisions techniques :**
+1. Exporter systématiquement les endviews pour garantir cohérence avant le split (pas de skip conditionnel).
+2. Bucket flaw dès qu’un pixel de masque est non nul ; sauve le masque slice dans gtmask et copie l’endview correspondante depuis `complete`.
+3. Le nom du dossier racine est dérivé du chemin .nde (metadata path ou paramètre) afin d’obtenir `[nom du nde]/endviews_*`.
+
+---
+
+### **2025-12-05** — Menu actions endviews + split flaw-noflaw reliés aux services
+
+**Tags :** `#services/endview_export.py`, `#services/split_flaw_noflaw.py`, `#controllers/master_controller.py`, `#mvc`, `#ui`, `#branch:annotation`
+
+**Actions effectuées :**
+- Simplifié `EndviewExportService` pour charger via `NdeLoader` ou un `NdeModel` existant, normaliser localement et exporter endviews RGB/uint8 avec transformations optionnelles sans dépendances externes.
+- Ajusté `split_flaw_noflaw_gui`/`split_from_npz_file` pour accepter `nde_loader`/`nde_model` et utiliser `export_endviews_gui` avec ces dépendances, couvrant l’export automatique avant le split.
+- Relié `actionExporter_endviews` et `actionSplit_flaw_noflaw` dans `MasterController` avec handlers UI (QFileDialog) appelant les services, exportant sous `endviews_rgb24/complete` et `endviews_uint8/complete` puis lançant le split.
+
+**Contexte :**
+On supprime toute logique métier hors services : export et split sont encapsulés dans leurs scripts, le contrôleur ne fait que collecter les chemins et déclencher les services. L’export réutilise le volume déjà chargé si fourni, sinon charge via `NdeLoader`.
+
+**Décisions techniques :**
+1. Préférer `nde_model` existant pour éviter de recharger le .nde ; fallback `NdeLoader` si chemin fourni.
+2. Normalisation par min/max du volume dans `EndviewExportService` pour produire des PNG cohérents même sans métadonnées.
+3. Les handlers UI créent/réutilisent les dossiers `endviews_rgb24/complete` et `endviews_uint8/complete`, puis affichent les messages de statut via QMessageBox/statusbar.
 
 ---

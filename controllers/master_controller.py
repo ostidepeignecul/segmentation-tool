@@ -23,6 +23,8 @@ from services.nnunet_service import NnUnetResult, NnUnetService
 from services.overlay_loader import OverlayLoader
 from services.overlay_service import OverlayService
 from services.overlay_export import OverlayExport
+from services.endview_export import EndviewExportService
+from services.split_service import SplitFlawNoflawService
 from services.nde_loader import NdeLoader
 from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
 from ui_mainwindow import Ui_MainWindow
@@ -50,6 +52,10 @@ class MasterController:
         self.overlay_loader = OverlayLoader()
         self.overlay_service = OverlayService()
         self.overlay_export = OverlayExport()
+        self.endview_export_service = EndviewExportService(nde_loader=self.nde_loader)
+        self.split_flaw_noflaw_service = SplitFlawNoflawService(
+            endview_export_service=self.endview_export_service
+        )
         self.nnunet_service = NnUnetService(logger=self.logger)
         self.cscan_corrosion_service = CScanCorrosionService()
         self.corrosion_workflow_service = CorrosionWorkflowService(
@@ -152,6 +158,10 @@ class MasterController:
         if hasattr(self.ui, "actionSauvegarder"):
             self.ui.actionSauvegarder.triggered.connect(self._on_save)
         self.ui.actionExporter_npz.triggered.connect(self._on_save)
+        if hasattr(self.ui, "actionExporter_endviews"):
+            self.ui.actionExporter_endviews.triggered.connect(self._on_export_endviews)
+        if hasattr(self.ui, "actionSplit_flaw_noflaw"):
+            self.ui.actionSplit_flaw_noflaw.triggered.connect(self._on_split_flaw_noflaw)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionParam_tres_2.triggered.connect(self.annotation_controller.open_overlay_settings)
         self.ui.actionCorrosion_analyse.triggered.connect(self.cscan_controller.run_corrosion_analysis)
@@ -453,6 +463,83 @@ class MasterController:
             self.status_message(f"Overlay sauvegardé: {saved_path}")
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur sauvegarde overlay", str(exc))
+
+    def _on_export_endviews(self) -> None:
+        """Export endviews (RGB + UINT8) via le service dédié."""
+        if self.nde_model is None:
+            QMessageBox.warning(self.main_window, "Export endviews", "Chargez un NDE avant d'exporter les endviews.")
+            return
+
+        base_dir = QFileDialog.getExistingDirectory(
+            self.main_window,
+            "Choisir le dossier de sortie (sera utilisé comme racine endviews)",
+            "",
+        )
+        if not base_dir:
+            return
+
+        base_path = Path(base_dir)
+        rgb_dir = base_path / "endviews_rgb24" / "complete"
+        uint8_dir = base_path / "endviews_uint8" / "complete"
+
+        success_rgb, message_rgb = self.endview_export_service.export_endviews(
+            nde_file=None,
+            nde_model=self.nde_model,
+            output_folder=str(rgb_dir),
+            export_format="rgb",
+        )
+        if not success_rgb:
+            QMessageBox.critical(self.main_window, "Export endviews", message_rgb)
+            return
+
+        success_uint8, message_uint8 = self.endview_export_service.export_endviews(
+            nde_file=None,
+            nde_model=self.nde_model,
+            output_folder=str(uint8_dir),
+            export_format="uint8",
+        )
+        if not success_uint8:
+            QMessageBox.critical(self.main_window, "Export endviews", message_uint8)
+            return
+
+        final_message = f"{message_rgb}\n\n{message_uint8}"
+        self.status_message("Export endviews terminé", timeout_ms=4000)
+        QMessageBox.information(self.main_window, "Export endviews", final_message)
+
+    def _on_split_flaw_noflaw(self) -> None:
+        """Lance le split flaw/noflaw (export + tri) via le service dédié."""
+        if self.nde_model is None:
+            QMessageBox.warning(self.main_window, "Split flaw/noflaw", "Chargez un NDE avant de lancer le split.")
+            return
+
+        nde_path = None
+        try:
+            nde_path = (self.nde_model.metadata or {}).get("path")
+        except Exception:
+            nde_path = None
+
+        initial_dir = str(Path(nde_path).parent) if nde_path else ""
+        output_root = QFileDialog.getExistingDirectory(
+            self.main_window,
+            "Choisir le dossier parent pour l'export endviews split",
+            initial_dir,
+        )
+        if not output_root:
+            return
+
+        self.status_message("Split flaw/noflaw en cours...", timeout_ms=2000)
+        success, message = self.split_flaw_noflaw_service.split_endviews(
+            nde_model=self.nde_model,
+            annotation_model=self.annotation_model,
+            nde_file=nde_path,
+            output_root=output_root,
+        )
+
+        if success:
+            self.status_message("Split flaw/noflaw terminé", timeout_ms=5000)
+            QMessageBox.information(self.main_window, "Split flaw/noflaw", message)
+        else:
+            QMessageBox.critical(self.main_window, "Split flaw/noflaw", message)
 
     def _on_open_settings(self) -> None:
         """Open the settings dialog."""
