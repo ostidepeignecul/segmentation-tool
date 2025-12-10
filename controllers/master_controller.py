@@ -17,6 +17,7 @@ from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from models.roi_model import RoiModel
 from models.temp_mask_model import TempMaskModel
+from services.annotation_session_manager import AnnotationSessionManager
 from services.annotation_service import AnnotationService
 from services.ascan_service import AScanService
 from services.nnunet_service import NnUnetResult, NnUnetService
@@ -32,6 +33,7 @@ from views.annotation_view import AnnotationView
 from views.cscan_view_corrosion import CscanViewCorrosion
 from views.nde_settings_view import NdeSettingsView
 from views.overlay_settings_view import OverlaySettingsView
+from views.session_manager_dialog import SessionManagerDialog
 
 
 class MasterController:
@@ -49,6 +51,7 @@ class MasterController:
         self.roi_model = RoiModel()
         self.temp_mask_model = TempMaskModel()
         self.nde_loader = NdeLoader()
+        self.session_manager = AnnotationSessionManager()
         self._nde_path: Optional[str] = None
         self.overlay_loader = OverlayLoader()
         self.overlay_service = OverlayService()
@@ -66,6 +69,7 @@ class MasterController:
         self.nde_settings_view = NdeSettingsView(self.main_window)
         self._shortcuts: list[QShortcut] = []
         self._omniscan_lut: Optional[np.ndarray] = None
+        self._session_dialog: Optional[SessionManagerDialog] = None
 
         # References to Designer-created views.
         self.annotation_view: AnnotationView = self.ui.frame_3
@@ -153,6 +157,12 @@ class MasterController:
         self._sync_tools_labels()
         self._update_nde_label()
         self._update_endview_label()
+        self.session_manager.ensure_default(
+            annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
+            roi_model=self.roi_model,
+            view_state_model=self.view_state_model,
+        )
 
     def _connect_actions(self) -> None:
         """Wire menu actions to controller handlers."""
@@ -171,6 +181,8 @@ class MasterController:
         if hasattr(self.ui, "actionnnunet"):
             self.ui.actionnnunet.triggered.connect(self._on_run_nnunet)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
+        if hasattr(self.ui, "actionSession_selector"):
+            self.ui.actionSession_selector.triggered.connect(self._open_session_dialog)
 
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
@@ -752,7 +764,6 @@ class MasterController:
         # Met à jour l’Endview (pas de changement ici)
         self.annotation_view.set_volume(volume)
         self.annotation_view.set_slice(slice_idx)
-        self.annotation_controller.refresh_overlay()
 
         # Met à jour la C‑scan (standard ou corrosion)
         self.cscan_controller.update_views(volume)
@@ -763,12 +774,91 @@ class MasterController:
         # Envoie le volume à la vue 3D en précisant l’ordre des axes
         self.volume_view.set_volume(volume, slice_idx=slice_idx, axis_order=axis_order)
 
+        # Applique l’overlay après la (re)construction de la scène 3D
+        self.annotation_controller.refresh_overlay()
+
         # Reste des mises à jour
         self._update_ascan_trace()
         self.annotation_view.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_view.set_marker_visible(self.view_state_model.show_cross)
 
+
+    # ------------------------------------------------------------------ #
+    # Session handling
+    # ------------------------------------------------------------------ #
+    def _open_session_dialog(self) -> None:
+        """Affiche le gestionnaire de sessions et connecte les signaux."""
+        if self._session_dialog is None:
+            self._session_dialog = SessionManagerDialog(parent=self.main_window)
+            self._session_dialog.session_selected.connect(self._on_session_selected)
+            self._session_dialog.session_created.connect(self._on_session_created)
+            self._session_dialog.session_deleted.connect(self._on_session_deleted)
+        self._refresh_session_dialog()
+        self._session_dialog.show()
+        self._session_dialog.raise_()
+        self._session_dialog.activateWindow()
+
+    def _refresh_session_dialog(self) -> None:
+        if self._session_dialog is None:
+            return
+        sessions = self.session_manager.list_sessions()
+        self._session_dialog.set_sessions(sessions)
+
+    def _on_session_created(self, name: str) -> None:
+        self.session_manager.create_from_models(
+            name=name,
+            annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
+            roi_model=self.roi_model,
+            view_state_model=self.view_state_model,
+            set_active=True,
+            save_active=True,
+        )
+        self._refresh_session_dialog()
+        self._after_session_switch()
+
+    def _on_session_selected(self, session_id: str) -> None:
+        self.session_manager.switch_session(
+            session_id,
+            annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
+            roi_model=self.roi_model,
+            view_state_model=self.view_state_model,
+            save_current=True,
+        )
+        self._after_session_switch()
+
+    def _on_session_deleted(self, session_id: str) -> None:
+        self.session_manager.delete_session(
+            session_id,
+            annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
+            roi_model=self.roi_model,
+            view_state_model=self.view_state_model,
+        )
+        self._refresh_session_dialog()
+        self._after_session_switch()
+
+    def _after_session_switch(self) -> None:
+        """Synchronise l'état du modèle actif vers les vues."""
+        self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
+        self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
+        self.annotation_view.set_cross_visible(self.view_state_model.show_cross)
+        self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
+        self.ascan_view.set_marker_visible(self.view_state_model.show_cross)
+
+        # Colormaps
+        self.annotation_view.set_colormap(self.view_state_model.endview_colormap, None)
+        self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
+        if self.cscan_view is not None:
+            self.cscan_view.set_colormap(self.view_state_model.cscan_colormap, None)
+
+        self._sync_tools_labels()
+        self.annotation_controller.sync_overlay_settings()
+        # Rafraîchir le volume puis réappliquer l'overlay pour forcer le push 3D
+        self._refresh_views()
+        self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
 
     def _current_volume(self) -> Optional[Any]:
         if self.nde_model is None:

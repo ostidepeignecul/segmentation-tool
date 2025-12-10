@@ -139,6 +139,7 @@ class VolumeView(QFrame):
             self._norm_volume = None
             self._status.setText("Volume vide")
             self._slider.setMaximum(0)
+            self._clear_overlay_visuals()
             return
         # Make a copy to avoid side effects and ensure float32 for VisPy
         vol = np.asarray(volume)
@@ -157,6 +158,8 @@ class VolumeView(QFrame):
         # Update status and slider range
         self._status.setText(f"Volume chargé: {self._volume.shape}")
         self._slider.setMaximum(self._volume.shape[0] - 1)
+        # Clear any existing overlay visuals before rebuilding the scene
+        self._clear_overlay_visuals()
         # Build scene with new data
         self._build_scene()
         # Set initial slice

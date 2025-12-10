@@ -109,10 +109,24 @@
     </property>
     <addaction name="actionnnunet"/>
    </widget>
+   <widget class="QMenu" name="menuAffichage">
+    <property name="title">
+     <string>Affichage</string>
+    </property>
+    <addaction name="actionToggle_tools_panel"/>
+   </widget>
+   <widget class="QMenu" name="menuSession">
+    <property name="title">
+     <string>Session</string>
+    </property>
+    <addaction name="actionSession_selector"/>
+   </widget>
    <addaction name="menuFichier"/>
+   <addaction name="menuAffichage"/>
    <addaction name="menuOverlay"/>
    <addaction name="menuAnalyse"/>
    <addaction name="menuInference"/>
+   <addaction name="menuSession"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <widget class="QDockWidget" name="dockWidget_2">
@@ -150,7 +164,7 @@
        <layout class="QVBoxLayout" name="verticalLayout_5">
         <item>
          <widget class="QLabel" name="label">
-         <property name="text">
+          <property name="text">
            <string>NDE: -</string>
           </property>
          </widget>
@@ -427,6 +441,21 @@
   <action name="actionSplit_flaw_noflaw">
    <property name="text">
     <string>Split flaw-noflaw</string>
+   </property>
+  </action>
+  <action name="actionToggle_tools_panel">
+   <property name="text">
+    <string>Toggle tools panel</string>
+   </property>
+  </action>
+  <action name="actionSession">
+   <property name="text">
+    <string>Session</string>
+   </property>
+  </action>
+  <action name="actionSession_selector">
+   <property name="text">
+    <string>Session selector</string>
    </property>
   </action>
  </widget>

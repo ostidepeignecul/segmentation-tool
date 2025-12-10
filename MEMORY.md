@@ -16,6 +16,40 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-12-10** — Correctifs multi-sessions (overlay 3D et duplication)
+
+**Tags:** `#controllers/master_controller.py`, `#views/volume_view.py`, `#session`, `#overlay`, `#3d`, `#state-management`, `#branch:interpolation`
+
+**Actions effectuées:**
+- `volume_view.set_volume` nettoie désormais systématiquement les visuels d’overlay (`_clear_overlay_visuals`) avant de reconstruire la scène VisPy et lorsqu’un volume vide est défini, évitant la disparition de l’overlay 3D lors d’un switch de session avec labels communs.
+- `MasterController` déclenche `_after_session_switch()` juste après la création d’une session (et `save_active=True` pour snapshot de la session courante), garantissant la resynchronisation immédiate des vues/overlays après duplication.
+
+**Contexte:**
+En multi-sessions, basculer entre des sessions partageant les mêmes labels faisait disparaître l’overlay 3D jusqu’à ce que l’utilisateur toggle l’overlay. De plus, la création d’une 2e session pouvait remplacer l’état de la première faute de snapshot avant duplication.
+
+**Décisions techniques:**
+1. Nettoyer les visuels overlay avant chaque rebuild de volume pour forcer une ré-application propre de l’overlay 3D sur la scène reconstruite.
+2. Sauvegarder l’état actif avant création et relancer une resynchro complète après création afin de préserver la session source et afficher immédiatement l’overlay dans la nouvelle session.
+
+---
+### **2025-12-10** — Gestion multi-sessions d’annotation (sélecteur Session)
+
+**Tags:** `#services/annotation_session_manager.py`, `#views/session_manager_dialog.py`, `#controllers/master_controller.py`, `#ui`, `#session`, `#state-management`, `#branch:interpolation`
+
+**Actions effectuées:**
+- Créé `AnnotationSessionManager` pour snapshot/restore des modèles (`AnnotationModel`, `TempMaskModel`, `RoiModel`, `ViewStateModel`), avec stockage en mémoire, create/delete/list/switch et session par défaut.
+- Ajouté `SessionManagerDialog` (QDialog) listant les sessions, création (duplique l’état courant), suppression et sélection, déclenché par l’action Qt `actionSession_selector` du menu Session.
+- `MasterController` instancie le manager, connecte `actionSession_selector`, gère les callbacks de création/sélection/suppression et resynchronise les vues (overlay/cross toggles, colormaps, labels, overlay settings, refresh overlays + vues) après un switch de session.
+
+**Contexte:**
+Besoin de conserver plusieurs états d’annotation en mémoire et de basculer rapidement via le menu Session, sans recharger un NPZ. Le flux MVC reste inchangé pour une session ; on réutilise les modèles existants en les rechargeant depuis un snapshot à chaque switch.
+
+**Décisions techniques:**
+1. Snapshots profonds (np.copy/deepcopy) des volumes masques, palette/visibilité, temp mask + coverage, ROIs et view state ; le cache overlay est invalidé lors de l’application d’une session.
+2. Pas de duplicata de contrôleurs/vues : on recharge simplement l’état dans les modèles existants puis on pousse vers les vues via une routine `_after_session_switch`.
+3. Dialogue léger en liste + boutons (créer/supprimer/fermer) ; l’action menu Session `actionSession_selector` ouvre le dialog.
+
+---
 ### **2025-12-10** — Palette défaut appliquée + contrôles C-scan/endview corrigés
 
 **Tags:** `#models/annotation_model.py`, `#views/overlay_settings_view.py`, `#services/cscan_corrosion_service.py`, `#views/cscan_view.py`, `#views/endview_view.py`, `#ui`, `#overlay`, `#colors`, `#zoom`, `#panning`, `#branch:interpolation`
