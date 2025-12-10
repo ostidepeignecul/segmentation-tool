@@ -46,7 +46,8 @@ class AnnotationModel:
             cls_int = int(cls_value)
             if cls_int == 0:
                 continue
-            self.label_palette.setdefault(cls_int, FallbackColor)
+            color = MASK_COLORS_BGRA.get(cls_int, FallbackColor)
+            self.label_palette.setdefault(cls_int, tuple(int(c) for c in color))
             self.label_visibility.setdefault(cls_int, True)
 
     def set_slice_mask(self, slice_idx: int, mask: Any) -> None:

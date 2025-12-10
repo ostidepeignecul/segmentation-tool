@@ -210,9 +210,7 @@ class CScanCorrosionService(CScanService):
         if lines_volume.size == 0:
             return lines_volume
 
-        volume_flipped = np.array([np.fliplr(slice_img) for slice_img in lines_volume])
-        volume_transposed = volume_flipped.transpose((0, 2, 1))
-        return volume_transposed
+        return lines_volume
 
     def _save_overlay(self, output_directory: str, nde_filename: str, overlay: np.ndarray) -> Optional[str]:
         if overlay.size == 0:

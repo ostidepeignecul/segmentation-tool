@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from config.constants import MASK_COLORS_BGRA
+
 
 class OverlaySettingsView(QDialog):
     """Floating window to manage overlay label visibility and colors."""
@@ -101,7 +103,8 @@ class OverlaySettingsView(QDialog):
     # ------------------------------------------------------------------ #
     def _on_add_label(self) -> None:
         new_id = self._next_free_label_id()
-        color = self._generate_color(len(self._labels))
+        palette_color = self._palette_color_for_label(new_id)
+        color = palette_color or self._generate_color(len(self._labels))
         self.ensure_label(new_id, color, visible=True)
         self.label_added.emit(new_id, color)
 
@@ -117,6 +120,15 @@ class OverlaySettingsView(QDialog):
     # ------------------------------------------------------------------ #
     def _next_free_label_id(self) -> int:
         return max(self._labels.keys(), default=0) + 1
+
+    @staticmethod
+    def _palette_color_for_label(label_id: int) -> Optional[QColor]:
+        """Return palette color for a label if defined in MASK_COLORS_BGRA."""
+        color = MASK_COLORS_BGRA.get(int(label_id))
+        if color is None:
+            return None
+        b, g, r, a = color
+        return QColor(r, g, b, a)
 
     @staticmethod
     def _generate_color(index: int) -> QColor:
