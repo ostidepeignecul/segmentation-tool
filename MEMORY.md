@@ -16,6 +16,27 @@ ImportError occurred because `models/__init__.py` expected `NDEModel` and other 
 
 ---
 
+### **2025-12-10** — Palette défaut appliquée + contrôles C-scan/endview corrigés
+
+**Tags:** `#models/annotation_model.py`, `#views/overlay_settings_view.py`, `#services/cscan_corrosion_service.py`, `#views/cscan_view.py`, `#views/endview_view.py`, `#ui`, `#overlay`, `#colors`, `#zoom`, `#panning`, `#branch:interpolation`
+
+**Actions effectuées:**
+- `AnnotationModel.set_mask_volume` applique désormais la palette `MASK_COLORS_BGRA` pour chaque label détecté (fallback magenta seulement si non défini) afin de conserver les couleurs par défaut lors du chargement NPZ.
+- `OverlaySettingsView` associe l’ajout de label à la palette par défaut (fallback roue HSV au-delà de la palette, label 0 reste gris), alignant les couleurs créées manuellement sur les valeurs configurées.
+- `CScanCorrosionService` enlève le flip + transpose de l’overlay corrosion, sauvant le NPZ directement en (Z,H,W) sans miroir Y.
+- `CScanView` ajoute le pan au bouton droit (scrollbars) et garde la molette pour le zoom uniquement (consommation de l’événement).
+- `EndviewView` désactive les scrollbars, intercepte la molette pour zoom-only et importe `QEvent` pour éviter le crash `NameError` ; pan existant conservé.
+
+**Contexte:**
+Les overlays NPZ et l’ajout de labels ignoraient la palette par défaut, produisant des couleurs magenta/aléatoires. Le NPZ corrosion était miroité sur Y à cause d’un flip/transpose. Les vues C-scan/endview mélangeaient molette/scroll et C-scan manquait du pan au bouton droit ; l’interception de la molette provoquait un crash faute d’import `QEvent`.
+
+**Décisions techniques:**
+1. Utiliser `MASK_COLORS_BGRA` comme palette source unique pour la découverte de labels (NPZ) et l’ajout manuel, avec magenta uniquement en secours.
+2. Supprimer les opérations de flip/transpose sur l’overlay corrosion pour aligner (Z,H,W) sur le volume sans correction côté loader.
+3. Harmoniser l’interaction : pan au bouton droit, molette strictement zoom sur C-scan et endview, en consommant l’événement pour éviter tout scroll ou changement de slice ; ajouter `QEvent` pour sécuriser l’eventFilter.
+
+---
+
 ### **2025-12-05** — Rotation fallback auto pour NDE sans orientation explicite
 
 **Tags :** `#services/nde_loader.py`, `#rotation`, `#orientation`, `#fallback`, `#domain-structure`, `#mvc`, `#branch:annotation`

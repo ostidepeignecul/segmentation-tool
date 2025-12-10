@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, Mapping
 
 import numpy as np
-from PyQt6.QtCore import QPointF, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPointF, Qt, pyqtSignal
 from PyQt6.QtGui import QImage, QMouseEvent, QPixmap, QPen
 from PyQt6.QtWidgets import (
     QFrame,
@@ -55,6 +55,8 @@ class EndviewView(QFrame):
         self._view = QGraphicsView(self._scene)
         self._view.setDragMode(QGraphicsView.DragMode.NoDrag)
         self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.viewport().installEventFilter(self)
         self._view.installEventFilter(self)
         self._view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -171,6 +173,14 @@ class EndviewView(QFrame):
                 if event.type() == QMouseEvent.Type.MouseButtonRelease:
                     if self._handle_pan_release(event):
                         return True
+            if event.type() == QEvent.Type.Wheel:
+                if not self._scene.items():
+                    return False
+                zoom_in = event.angleDelta().y() > 0
+                factor = 1.15 if zoom_in else 1 / 1.15
+                self._view.scale(factor, factor)
+                event.accept()
+                return True
         return super().eventFilter(obj, event)
 
     def wheelEvent(self, event) -> None:

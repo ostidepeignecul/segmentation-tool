@@ -36,6 +36,8 @@ class CScanView(QFrame):
         self._current_crosshair: Optional[Tuple[int, int]] = None
         self._colormap_name: str = "Gris"
         self._colormap_lut: Optional[np.ndarray] = None
+        self._panning: bool = False
+        self._pan_last = QPointF()
 
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
@@ -147,6 +149,30 @@ class CScanView(QFrame):
                         self._update_cursor(z, x)
                         self.crosshair_changed.emit(z, x)
                         self.slice_requested.emit(z)
+                    return True
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.RightButton:
+                if not self._scene.items():
+                    return False
+                self._view.setFocus(Qt.FocusReason.MouseFocusReason)
+                self._panning = True
+                self._pan_last = event.position()
+                self._view.setCursor(Qt.CursorShape.ClosedHandCursor)
+                event.accept()
+                return True
+            if event.type() == QEvent.Type.MouseMove and self._panning:
+                delta = event.position() - self._pan_last
+                self._pan_last = event.position()
+                hbar = self._view.horizontalScrollBar()
+                vbar = self._view.verticalScrollBar()
+                hbar.setValue(hbar.value() - int(delta.x()))
+                vbar.setValue(vbar.value() - int(delta.y()))
+                event.accept()
+                return True
+            if event.type() == QEvent.Type.MouseButtonRelease and self._panning:
+                if event.button() == Qt.MouseButton.RightButton:
+                    self._panning = False
+                    self._view.setCursor(Qt.CursorShape.ArrowCursor)
+                    event.accept()
                     return True
             if event.type() == QEvent.Type.Wheel:
                 delta = event.angleDelta().y()
