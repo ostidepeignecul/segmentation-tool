@@ -191,6 +191,14 @@ class MasterController:
         self.ui.actionQuitter.triggered.connect(self._on_quit)
         if hasattr(self.ui, "actionSession_selector"):
             self.ui.actionSession_selector.triggered.connect(self._open_session_dialog)
+        if hasattr(self.ui, "actionToggle_tools_panel"):
+            action = self.ui.actionToggle_tools_panel
+            action.setCheckable(True)
+            action.triggered.connect(self._on_toggle_tools_panel)
+            dock = getattr(self.ui, "dockWidget_2", None)
+            if dock is not None:
+                action.setChecked(dock.isVisible())
+                dock.visibilityChanged.connect(self._on_tools_panel_visibility_changed)
 
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
@@ -291,6 +299,22 @@ class MasterController:
             sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
             sc.activated.connect(handler)
             self._shortcuts.append(sc)
+
+    def _on_toggle_tools_panel(self, checked: bool) -> None:
+        """Show/hide the tools dock when the menu action is toggled."""
+        dock = getattr(self.ui, "dockWidget_2", None)
+        if dock is None:
+            return
+        dock.setVisible(bool(checked))
+
+    def _on_tools_panel_visibility_changed(self, visible: bool) -> None:
+        """Keep the toggle action state in sync with the dock visibility."""
+        action = getattr(self.ui, "actionToggle_tools_panel", None)
+        if action is None:
+            return
+        action.blockSignals(True)
+        action.setChecked(bool(visible))
+        action.blockSignals(False)
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
