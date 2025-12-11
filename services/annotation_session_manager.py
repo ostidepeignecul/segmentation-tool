@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from models.annotation_model import AnnotationModel
+from models.overlay_data import OverlayData
 from models.roi_model import ROI, RoiModel
 from models.temp_mask_model import TempMaskModel
 from models.view_state_model import ViewStateModel
@@ -28,6 +29,7 @@ class AnnotationSessionState:
     rois: List[ROI]
     next_roi_id: int
     view_state: dict
+    overlay_cache: Optional[OverlayData]
 
 
 class AnnotationSessionManager:
@@ -58,6 +60,24 @@ class AnnotationSessionManager:
             roi_model=roi_model,
             view_state_model=view_state_model,
             set_active=True,
+        )
+
+    def reset_for_new_dataset(
+        self,
+        *,
+        annotation_model: AnnotationModel,
+        temp_mask_model: TempMaskModel,
+        roi_model: RoiModel,
+        view_state_model: ViewStateModel,
+    ) -> str:
+        """Réinitialise toutes les sessions lors du chargement d'un nouveau NDE."""
+        self._sessions.clear()
+        self._active_id = None
+        return self.ensure_default(
+            annotation_model=annotation_model,
+            temp_mask_model=temp_mask_model,
+            roi_model=roi_model,
+            view_state_model=view_state_model,
         )
 
     def list_sessions(self) -> List[tuple[str, str, bool]]:
@@ -178,6 +198,7 @@ class AnnotationSessionManager:
         )
         label_palette = copy.deepcopy(annotation_model.label_palette)
         label_visibility = copy.deepcopy(annotation_model.label_visibility)
+        overlay_cache = annotation_model.get_overlay_cache()
 
         temp_mask_volume = (
             None if temp_mask_model.mask_volume is None else np.array(temp_mask_model.mask_volume, copy=True)
@@ -205,6 +226,7 @@ class AnnotationSessionManager:
             rois=rois,
             next_roi_id=next_roi_id,
             view_state=view_state,
+            overlay_cache=overlay_cache,
         )
 
     def _apply(
@@ -219,18 +241,18 @@ class AnnotationSessionManager:
         # Annotation model
         annotation_model.clear()
         if state.mask_volume is not None:
-            annotation_model.set_mask_volume(np.array(state.mask_volume, copy=True))
+            annotation_model.mask_volume = state.mask_volume  # type: ignore[assignment]
         annotation_model.label_palette = copy.deepcopy(state.label_palette)
         annotation_model.label_visibility = copy.deepcopy(state.label_visibility)
-        annotation_model.overlay_cache = None
+        annotation_model.overlay_cache = state.overlay_cache
 
         # Temp masks
         temp_mask_model.clear()
         if state.temp_mask_volume is not None:
             temp_mask_model.initialize(state.temp_mask_volume.shape)
-            temp_mask_model.mask_volume = np.array(state.temp_mask_volume, copy=True)
+            temp_mask_model.mask_volume = state.temp_mask_volume  # type: ignore[assignment]
         if state.temp_coverage_volume is not None:
-            temp_mask_model.coverage_volume = np.array(state.temp_coverage_volume, copy=True)
+            temp_mask_model.coverage_volume = state.temp_coverage_volume  # type: ignore[assignment]
         temp_mask_model.label_palette = copy.deepcopy(state.temp_palette)
         temp_mask_model.label_visibility = copy.deepcopy(state.temp_visibility)
 

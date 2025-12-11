@@ -41,6 +41,10 @@ class ViewStateModel:
         # --- Corrosion Mode ---
         self.corrosion_active: bool = False
         self.corrosion_projection: Optional[Tuple[Any, Tuple[float, float]]] = None
+        self.corrosion_interpolated_projection: Optional[Tuple[Any, Tuple[float, float]]] = None
+        self.corrosion_overlay_volume: Optional[Any] = None
+        self.corrosion_overlay_palette: Optional[dict] = None
+        self.corrosion_overlay_label_ids: Optional[tuple[int, int]] = None
 
     # ------------------------------------------------------------------ #
     # Slice control
@@ -141,3 +145,7 @@ class ViewStateModel:
     def deactivate_corrosion(self) -> None:
         self.corrosion_active = False
         self.corrosion_projection = None
+        self.corrosion_interpolated_projection = None
+        self.corrosion_overlay_volume = None
+        self.corrosion_overlay_palette = None
+        self.corrosion_overlay_label_ids = None

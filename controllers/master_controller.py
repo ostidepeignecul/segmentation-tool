@@ -1,4 +1,5 @@
 import logging
+import copy
 from pathlib import Path
 from typing import Any, Optional
 
@@ -140,6 +141,7 @@ class MasterController:
             status_callback=self.status_message,
             logger=self.logger,
             corrosion_workflow_service=self.corrosion_workflow_service,
+            on_corrosion_completed=self._on_corrosion_completed,
         )
 
         self.ascan_service = AScanService()
@@ -316,6 +318,14 @@ class MasterController:
             self.roi_model.clear()
             self.annotation_controller.clear_labels()
             self.cscan_controller.reset_corrosion()
+
+            # Réinitialise les sessions pour éviter les incohérences de shape
+            self.session_manager.reset_for_new_dataset(
+                annotation_model=self.annotation_model,
+                temp_mask_model=self.temp_mask_model,
+                roi_model=self.roi_model,
+                view_state_model=self.view_state_model,
+            )
 
             self.tools_panel.set_slice_bounds(0, num_slices - 1)
             self.tools_panel.set_slice_value(0)
@@ -775,7 +785,7 @@ class MasterController:
         self.volume_view.set_volume(volume, slice_idx=slice_idx, axis_order=axis_order)
 
         # Applique l’overlay après la (re)construction de la scène 3D
-        self.annotation_controller.refresh_overlay()
+        self.annotation_controller.refresh_overlay(rebuild=False)
 
         # Reste des mises à jour
         self._update_ascan_trace()
@@ -858,6 +868,80 @@ class MasterController:
         self.annotation_controller.sync_overlay_settings()
         # Rafraîchir le volume puis réappliquer l'overlay pour forcer le push 3D
         self._refresh_views()
+
+    # ------------------------------------------------------------------ #
+    # Corrosion completion handling
+    # ------------------------------------------------------------------ #
+    def _on_corrosion_completed(self, result) -> None:
+        """Crée une session interpolée sans écraser l'état brut."""
+        # 1) Met à jour la session active avec le résultat brut (projection déjà active)
+        self.view_state_model.corrosion_interpolated_projection = None
+        self.view_state_model.corrosion_overlay_volume = result.overlay_volume
+        self.view_state_model.corrosion_overlay_palette = result.overlay_palette
+        self.view_state_model.corrosion_overlay_label_ids = result.overlay_label_ids
+
+        if self.session_manager._active_id is not None:  # noqa: SLF001
+            raw_state = self.session_manager._snapshot(  # noqa: SLF001
+                name=self.session_manager._sessions[self.session_manager._active_id].name,  # noqa: SLF001
+                annotation_model=self.annotation_model,
+                temp_mask_model=self.temp_mask_model,
+                roi_model=self.roi_model,
+                view_state_model=self.view_state_model,
+            )
+            self.session_manager._sessions[self.session_manager._active_id] = raw_state  # noqa: SLF001
+
+        # 2) Prépare un état interpolé pour la nouvelle session
+        interpolated_view_state = copy.deepcopy(self.view_state_model)
+        if result.interpolated_projection is not None and result.interpolated_value_range is not None:
+            interpolated_view_state.corrosion_projection = (
+                result.interpolated_projection,
+                result.interpolated_value_range,
+            )
+            interpolated_view_state.corrosion_interpolated_projection = (
+                result.interpolated_projection,
+                result.interpolated_value_range,
+            )
+
+        # Remplace les masques de la session active par l'overlay interpolé pour la nouvelle session
+        if result.overlay_volume is not None:
+            self.annotation_model.set_mask_volume(result.overlay_volume)
+            palette = result.overlay_palette or {}
+            self.annotation_model.label_palette = dict(palette)
+            vis = {lbl: True for lbl in palette.keys()}
+            self.annotation_model.label_visibility = vis
+
+        # Nettoie les masques/temp et ROIs pour la session interpolée
+        self.temp_mask_model.clear()
+        if result.overlay_volume is not None:
+            self.temp_mask_model.initialize(result.overlay_volume.shape)
+        self.roi_model.clear()
+
+        # Applique la projection interpolée sur le modèle de vue actif
+        if result.interpolated_projection is not None and result.interpolated_value_range is not None:
+            self.view_state_model.corrosion_projection = (
+                result.interpolated_projection,
+                result.interpolated_value_range,
+            )
+            self.view_state_model.corrosion_interpolated_projection = (
+                result.interpolated_projection,
+                result.interpolated_value_range,
+            )
+            self.view_state_model.corrosion_active = True
+
+        name = "Corrosion (interpolé)" if self.nde_model is None else f"Corrosion (interpolé) - {self.nde_model.metadata.get('path', 'NDE')}"
+
+        # 3) Crée la nouvelle session sans sauvegarder l'active (déjà mise à jour), puis bascule dessus
+        self.session_manager.create_from_models(
+            name=name,
+            annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
+            roi_model=self.roi_model,
+            view_state_model=interpolated_view_state,
+            set_active=True,
+            save_active=False,
+        )
+
+        self._after_session_switch()
         self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
 
     def _current_volume(self) -> Optional[Any]:

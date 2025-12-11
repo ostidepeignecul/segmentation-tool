@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 from PyQt6.QtWidgets import QStackedLayout
@@ -11,7 +11,11 @@ from PyQt6.QtWidgets import QStackedLayout
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
-from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
+from services.cscan_corrosion_service import (
+    CScanCorrosionService,
+    CorrosionWorkflowResult,
+    CorrosionWorkflowService,
+)
 from services.cscan_service import CScanService
 from views.cscan_view import CScanView
 from views.cscan_view_corrosion import CscanViewCorrosion
@@ -33,6 +37,7 @@ class CScanController:
         status_callback: Callable[[str, int], None],
         logger: logging.Logger,
         corrosion_workflow_service: Optional[CorrosionWorkflowService] = None,
+        on_corrosion_completed: Optional[Callable[[CorrosionWorkflowResult], None]] = None,
     ) -> None:
         self.standard_view: Optional[CScanView] = standard_view
         self.corrosion_view: Optional[CscanViewCorrosion] = corrosion_view
@@ -43,6 +48,9 @@ class CScanController:
         self.get_nde_model = get_nde_model
         self.status_callback = status_callback
         self.logger = logger
+
+        self.last_corrosion_result: Optional[CorrosionWorkflowResult] = None
+        self.on_corrosion_completed = on_corrosion_completed
 
         self.cscan_service = CScanService()
         self.corrosion_service = CScanCorrosionService()
@@ -55,6 +63,9 @@ class CScanController:
             self.corrosion_service = corrosion_workflow_service.cscan_corrosion_service
         self.corrosion_workflow = corrosion_workflow_service
 
+        self._cached_standard_projection: Optional[np.ndarray] = None
+        self._cached_standard_range: Optional[Tuple[float, float]] = None
+        self._cached_volume_shape: Optional[Tuple[int, int, int]] = None
     # --- Stack & visibility ---------------------------------------------------------
     def show_standard(self) -> None:
         if self._stack is not None and self.standard_view is not None:
@@ -89,7 +100,21 @@ class CScanController:
         if volume is None:
             return
 
-        standard_projection, standard_range = self.cscan_service.compute_top_projection(volume)
+        use_cache = (
+            self._cached_standard_projection is not None
+            and self._cached_standard_range is not None
+            and self._cached_volume_shape == tuple(volume.shape)
+        )
+        if use_cache:
+            standard_projection, standard_range = (
+                self._cached_standard_projection,
+                self._cached_standard_range,
+            )
+        else:
+            standard_projection, standard_range = self.cscan_service.compute_top_projection(volume)
+            self._cached_standard_projection = standard_projection
+            self._cached_standard_range = standard_range
+            self._cached_volume_shape = tuple(volume.shape)
 
         if (
             self.view_state_model.corrosion_active
@@ -112,6 +137,9 @@ class CScanController:
     # --- Corrosion workflow --------------------------------------------------------
     def reset_corrosion(self) -> None:
         self.view_state_model.deactivate_corrosion()
+        self._cached_standard_projection = None
+        self._cached_standard_range = None
+        self._cached_volume_shape = None
 
     def run_corrosion_analysis(self) -> None:
         """Execute corrosion analysis using exactly two visible labels."""
@@ -127,6 +155,7 @@ class CScanController:
             annotation_model=self.annotation_model,
             volume=volume,
         )
+        self.last_corrosion_result = result
 
         if not result.ok:
             self.logger.error(result.message)
@@ -137,3 +166,9 @@ class CScanController:
         self.view_state_model.activate_corrosion(result.projection, result.value_range)
         self.update_views(volume)
         self.status_callback(result.message, 3000)
+
+        if self.on_corrosion_completed is not None:
+            try:
+                self.on_corrosion_completed(result)
+            except Exception:  # noqa: BLE001
+                self.logger.exception("Corrosion completion callback failed")

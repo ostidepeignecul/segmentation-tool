@@ -2110,3 +2110,22 @@ Afficher dans le panneau d’outils quel fichier NDE est ouvert et quelle endvie
 2. Recalcul de l’identifiant endview sur `_on_slice_changed` via la formule d’export (slice_idx*1500) afin de rester cohérent avec les noms de fichiers générés par les services d’export/split.
 
 ---
+
+### **2025-12-10** — Cache sessions et projections C-scan
+
+**Tags :** `#services/annotation_session_manager.py`, `#controllers/cscan_controller.py`, `#controllers/master_controller.py`, `#overlay`, `#cscan`, `#caching`, `#session`, `#branch:interpolation`
+
+**Actions effectuées :**
+- Stocké `overlay_cache` dans `AnnotationSessionState` et réappliqué lors des switches; `_apply` réassigne `mask_volume`, `temp_mask_volume`, `coverage` par référence (pas de copie) pour accélérer les changements de session.
+- Ajouté `reset_for_new_dataset` pour vider les sessions lors du chargement d’un nouveau NDE.
+- Mis en cache la projection C-scan standard dans `CScanController` (projection + range liés au shape du volume) avec invalidation sur reset corrosion.
+- Dans `_refresh_views`, usage de `refresh_overlay(rebuild=False)` pour réutiliser l’overlay caché plutôt que de le reconstruire.
+
+**Contexte :**
+Les switches de session étaient lents car chaque passage recréait l’overlay et recalculait la projection C-scan. En mémorisant l’`overlay_cache` par session et en réutilisant les projections standard lorsque le shape ne change pas, le switch devient principalement un rerendu des vues. La réinitialisation des sessions sur nouveau NDE évite des incohérences de shapes.
+
+**Décisions techniques :**
+1. Réaffecter directement les volumes lors du switch de session pour éviter les copies coûteuses; conserver néanmoins une copie lors du snapshot pour figer l’état sauvegardé.
+2. Lier le cache C-scan au `volume.shape` et l’invalider lors d’un reset corrosion pour rester cohérent avec les changements de volume.
+
+---

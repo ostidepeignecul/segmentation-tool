@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from services.ascan_service import export_ascan_values_to_json
@@ -24,7 +25,11 @@ class CorrosionAnalysisResult:
     distance_results: Dict
     distance_map: np.ndarray
     distance_value_range: Tuple[float, float]
+    interpolated_distance_map: np.ndarray
+    interpolated_value_range: Tuple[float, float]
     overlay_volume: np.ndarray
+    overlay_label_ids: Tuple[int, int]
+    overlay_palette: Dict[int, Tuple[int, int, int, int]]
     overlay_npz_path: Optional[str]
 
 
@@ -135,7 +140,28 @@ class CScanCorrosionService(CScanService):
             class_B_id=class_B_id,
         )
 
-        overlay_npz_path = self._save_overlay(output_directory, nde_filename, lines_overlay)
+        color_A = self._CLASS_TO_PLOT_VALUE.get(class_A_id, 5)
+        color_B = self._CLASS_TO_PLOT_VALUE.get(class_B_id, 6)
+
+        interpolated_distance_map = self._build_interpolated_distance_map(
+            overlay=lines_overlay,
+            class_A_value=color_A,
+            class_B_value=color_B,
+            use_mm=use_mm,
+            resolution_ultrasound_mm=resolution_ultrasound_mm,
+        )
+
+        interpolated_valid = interpolated_distance_map[np.isfinite(interpolated_distance_map)]
+        interpolated_value_range = (
+            (float(interpolated_valid.min()), float(interpolated_valid.max()))
+            if interpolated_valid.size > 0
+            else (0.0, 0.0)
+        )
+
+        overlay_palette = {
+            color_A: tuple(int(c) for c in MASK_COLORS_BGRA.get(color_A, (255, 0, 255, 160))),
+            color_B: tuple(int(c) for c in MASK_COLORS_BGRA.get(color_B, (255, 0, 255, 160))),
+        }
 
         self._logger.info("=== ANALYSE CORROSION : terminée ===")
 
@@ -143,8 +169,12 @@ class CScanCorrosionService(CScanService):
             distance_results=distance_results,
             distance_map=distance_map,
             distance_value_range=value_range,
+            interpolated_distance_map=interpolated_distance_map,
+            interpolated_value_range=interpolated_value_range,
             overlay_volume=lines_overlay,
-            overlay_npz_path=overlay_npz_path,
+            overlay_label_ids=(color_A, color_B),
+            overlay_palette=overlay_palette,
+            overlay_npz_path=None,
         )
 
     # --- Helpers --------------------------------------------------------------------
@@ -223,6 +253,48 @@ class CScanCorrosionService(CScanService):
         self._logger.info("Overlay corrosion sauvegardé: %s", npz_path)
         return npz_path
 
+    def _build_interpolated_distance_map(
+        self,
+        *,
+        overlay: np.ndarray,
+        class_A_value: int,
+        class_B_value: int,
+        use_mm: bool,
+        resolution_ultrasound_mm: float,
+    ) -> np.ndarray:
+        """
+        Recalcule une carte de distances (Z, X) à partir des lignes interpolées BW/FW.
+
+        Pour chaque slice (Z) et position X, on recherche la moyenne des positions Y
+        pour les valeurs class_A_value et class_B_value dans l'overlay, puis on
+        calcule la distance verticale. Les positions manquantes sont laissées à NaN.
+        """
+        if overlay.size == 0:
+            return np.empty((0, 0), dtype=np.float32)
+
+        volume = np.asarray(overlay)
+        if volume.ndim != 3:
+            raise ValueError(f"Overlay attendu 3D (Z,H,W), reçu shape {volume.shape}")
+
+        num_slices, height, width = volume.shape
+        interpolated = np.full((num_slices, width), np.nan, dtype=np.float32)
+
+        for z in range(num_slices):
+            slice_mask = volume[z]
+            for x in range(width):
+                ys_A = np.where(slice_mask[:, x] == class_A_value)[0]
+                ys_B = np.where(slice_mask[:, x] == class_B_value)[0]
+                if ys_A.size == 0 or ys_B.size == 0:
+                    continue
+                yA = float(ys_A.mean())
+                yB = float(ys_B.mean())
+                dist = abs(yA - yB)
+                if use_mm:
+                    dist *= float(resolution_ultrasound_mm)
+                interpolated[z, x] = float(dist)
+
+        return interpolated
+
 
 @dataclass
 class CorrosionWorkflowResult:
@@ -232,6 +304,13 @@ class CorrosionWorkflowResult:
     message: str = ""
     projection: Optional[np.ndarray] = None
     value_range: Optional[Tuple[float, float]] = None
+    raw_distance_map: Optional[np.ndarray] = None
+    interpolated_distance_map: Optional[np.ndarray] = None
+    interpolated_projection: Optional[np.ndarray] = None
+    interpolated_value_range: Optional[Tuple[float, float]] = None
+    overlay_volume: Optional[np.ndarray] = None
+    overlay_label_ids: Optional[Tuple[int, int]] = None
+    overlay_palette: Optional[Dict[int, Tuple[int, int, int, int]]] = None
 
 
 class CorrosionWorkflowService:
@@ -320,11 +399,27 @@ class CorrosionWorkflowService:
                 value_range=result.distance_value_range,
             )
 
+            interpolated_projection: Optional[np.ndarray] = None
+            interpolated_value_range: Optional[Tuple[float, float]] = None
+
+            if result.interpolated_distance_map.size > 0:
+                interpolated_projection, interpolated_value_range = self.cscan_corrosion_service.compute_corrosion_projection(
+                    result.interpolated_distance_map,
+                    value_range=result.interpolated_value_range,
+                )
+
             return CorrosionWorkflowResult(
                 ok=True,
                 message="Analyse corrosion terminée",
                 projection=projection,
                 value_range=value_range,
+                raw_distance_map=result.distance_map,
+                interpolated_distance_map=result.interpolated_distance_map,
+                interpolated_projection=interpolated_projection,
+                interpolated_value_range=interpolated_value_range,
+                overlay_volume=result.overlay_volume,
+                overlay_label_ids=result.overlay_label_ids,
+                overlay_palette=result.overlay_palette,
             )
 
         except Exception as exc:
