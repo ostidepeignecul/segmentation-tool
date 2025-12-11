@@ -231,6 +231,8 @@ class MasterController:
 
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
+        if self.view_state_model.threshold is not None:
+            self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
 
         self.tools_panel.slice_changed.connect(self._on_slice_changed)
         self.tools_panel.goto_requested.connect(self._on_goto_requested)

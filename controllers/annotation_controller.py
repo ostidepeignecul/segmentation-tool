@@ -511,6 +511,10 @@ class AnnotationController:
             self.temp_mask_model.clear()
         else:
             self.temp_mask_model.clear_slice(target_slice)
+        if not self.view_state_model.roi_persistence:
+            # Clear transient ROIs once applied to the mask
+            self.roi_model.clear_non_persistent()
+
         self.annotation_view.clear_temp_shapes()
         self.annotation_view.clear_roi_overlay()
         self.annotation_view.clear_roi_boxes()

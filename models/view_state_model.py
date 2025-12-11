@@ -21,7 +21,7 @@ class ViewStateModel:
 
         # --- Tools / Interaction ---
         self.tool_mode: Optional[str] = None
-        self.threshold: Optional[int] = None
+        self.threshold: Optional[int] = 50
         self.threshold_auto: bool = False
         self.apply_volume: bool = False
         self.roi_persistence: bool = False

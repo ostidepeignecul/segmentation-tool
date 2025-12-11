@@ -29,6 +29,15 @@ class RoiModel:
         self._rois.clear()
         self._next_id = 1
 
+    def clear_non_persistent(self) -> None:
+        """Remove only ROIs that are not marked persistent."""
+        self._rois = [roi for roi in self._rois if roi.persistent]
+        # Recompute next id to keep it monotonic and avoid collisions
+        if self._rois:
+            self._next_id = max(roi.id for roi in self._rois) + 1
+        else:
+            self._next_id = 1
+
     def add_box(
         self,
         slice_idx: int,

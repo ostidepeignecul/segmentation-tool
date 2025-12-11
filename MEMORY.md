@@ -2197,3 +2197,22 @@ La modification d’une slice endview déclenchait un upload 3D complet de l’o
 3. Utiliser des uploads partiels dans `VolumeView` (gating par `labels_to_push` + timer) pour éviter de réuploader les volumes overlay inchangés tout en gardant un chemin de secours en cas de mismatch de shape.
 
 ---
+
+### **2025-12-11** — Toggle tools panel, purge ROI non persistantes, threshold par défaut 50
+
+**Tags :** `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#models/roi_model.py`, `#models/view_state_model.py`, `#ui`, `#roi`, `#threshold`, `#tools_panel`, `#mvc`, `#branch:interpolation`
+
+**Actions effectuées :**
+- Rendu l’action menu Affichage > Toggle tools panel cochable et reliée à `_on_toggle_tools_panel`, avec synchro de l’état via `dockWidget_2.visibilityChanged` et initialisation du check depuis la visibilité du dock.
+- Ajouté `RoiModel.clear_non_persistent()` et appelé après `on_apply_temp_mask_requested` lorsque la persistance ROI est décochée, pour purger les ROIs non persistantes et nettoyer l’aperçu.
+- Défini le threshold par défaut à 50 dans `ViewStateModel` et poussé cette valeur dans le ToolsPanel lors du wiring via `set_threshold_value` pour afficher 50 dès l’ouverture.
+
+**Contexte :**
+Le menu Affichage devait réellement masquer/afficher le ToolsPanel et refléter l’état du dock. Les ROIs temporaires ne devaient pas rester après application quand la persistance est désactivée. Le workflow ROI/grow manquait d’une valeur initiale cohérente pour le seuil, d’où la valeur par défaut à 50 synchronisée modèle/vue.
+
+**Décisions techniques :**
+1. S’appuyer sur `visibilityChanged` pour maintenir QAction et dock en cohérence afin d’éviter des inversions d’état après toggles multiples.
+2. Considérer les ROIs non persistantes comme purement temporaires et les purger juste après application pour éviter les ré-applications involontaires.
+3. Centraliser la valeur par défaut du threshold dans le modèle et la pousser à l’UI au setup pour conserver la cohérence modèle/vue sans émettre de signaux initiaux.
+
+---
