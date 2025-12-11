@@ -7,7 +7,13 @@ import numpy as np
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
-from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QStackedLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QMainWindow,
+    QMessageBox,
+    QStackedLayout,
+    QWidget,
+)
 
 from config.constants import MASK_COLORS_BGRA
 from controllers.annotation_controller import AnnotationController

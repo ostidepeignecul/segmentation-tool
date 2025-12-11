@@ -110,6 +110,7 @@ class VolumeView(QFrame):
         self._overlay_timer.setSingleShot(True)
         self._overlay_timer.timeout.connect(self._apply_pending_overlay_volume)
         self._pending_overlay_apply = False
+        self._pending_overlay_labels: Optional[set[int]] = None
 
     def set_volume(
         self,
@@ -185,6 +186,8 @@ class VolumeView(QFrame):
         *,
         visible_labels: Optional[set[int]] = None,
         defer_3d: bool = False,
+        changed_slice: Optional[int] = None,
+        changed_labels: Optional[set[int]] = None,
     ) -> None:
         """Assign per-label overlay volumes and update visuals.
 
@@ -196,30 +199,39 @@ class VolumeView(QFrame):
             return
         self._visible_labels = set(visible_labels) if visible_labels is not None else None
         self._overlay_palette = dict(overlay.palette)
-        self._label_volumes = {}
+        new_label_volumes: Dict[int, np.ndarray] = {}
         for label, vol in overlay.label_volumes.items():
             arr = np.asarray(vol, dtype=np.float32)
             if arr.ndim != 3 or arr.shape[0] == 0:
                 continue
-            self._label_volumes[int(label)] = arr
+            new_label_volumes[int(label)] = arr
 
-        if not self._label_volumes:
+        if not new_label_volumes:
             self._clear_overlay_visuals()
             return
         if self._volume is not None:
             depth = self._volume.shape[0]
-            if any(vol.shape[0] != depth for vol in self._label_volumes.values()):
+            if any(vol.shape[0] != depth for vol in new_label_volumes.values()):
                 self._clear_overlay_visuals()
                 return
+
+        removed_labels = set(self._label_visuals.keys()) - set(new_label_volumes.keys())
+        labels_to_push = None
+        if changed_labels is not None:
+            labels_to_push = set(changed_labels) | removed_labels
+        elif changed_slice is not None:
+            labels_to_push = set(new_label_volumes.keys()) | removed_labels
+
+        self._label_volumes = new_label_volumes
 
         if defer_3d:
             if self._slice_overlay is None and self._view.scene is not None:
                 self._add_slice_overlay()
             self._update_overlay_image()
-            self._schedule_overlay_volume_update()
+            self._schedule_overlay_volume_update(labels=labels_to_push)
             return
 
-        self._apply_overlay_volume_now()
+        self._apply_overlay_volume_now(labels_to_push=labels_to_push)
         if self._slice_overlay is None and self._view.scene is not None:
             self._add_slice_overlay()
         self._update_overlay_image()
@@ -239,10 +251,12 @@ class VolumeView(QFrame):
             self._slice_overlay.parent = None
             self._slice_overlay = None
         self._pending_overlay_apply = False
+        self._pending_overlay_labels = None
 
-    def _schedule_overlay_volume_update(self) -> None:
+    def _schedule_overlay_volume_update(self, *, labels: Optional[set[int]] = None) -> None:
         """Coalesce overlay volume uploads to reduce GPU churn."""
         self._pending_overlay_apply = True
+        self._pending_overlay_labels = set(labels) if labels is not None else None
         # Short delay to batch multiple toggles; 120ms keeps UI responsive
         self._overlay_timer.start(120)
 
@@ -250,9 +264,11 @@ class VolumeView(QFrame):
         if not self._pending_overlay_apply:
             return
         self._pending_overlay_apply = False
-        self._apply_overlay_volume_now()
+        pending_labels = self._pending_overlay_labels
+        self._pending_overlay_labels = None
+        self._apply_overlay_volume_now(labels_to_push=pending_labels)
 
-    def _apply_overlay_volume_now(self) -> None:
+    def _apply_overlay_volume_now(self, *, labels_to_push: Optional[set[int]] = None) -> None:
         if self._volume is None and not self._label_volumes:
             return
         if self._view.scene is None:
@@ -266,6 +282,7 @@ class VolumeView(QFrame):
         for label, alpha_vol in self._label_volumes.items():
             visual = self._label_visuals.get(label)
             cmap = self._label_colormap(self._overlay_palette.get(label))
+            needs_upload = labels_to_push is None or (labels_to_push is not None and label in labels_to_push)
             if visual is None:
                 visual = scene.visuals.Volume(
                     alpha_vol,
@@ -279,7 +296,7 @@ class VolumeView(QFrame):
                 self._uploaded_volumes[label] = alpha_vol
             else:
                 prev = self._uploaded_volumes.get(label)
-                if prev is None or not np.shares_memory(alpha_vol, prev):
+                if needs_upload or prev is None or not np.shares_memory(alpha_vol, prev):
                     visual.set_data(alpha_vol)
                     self._uploaded_volumes[label] = alpha_vol
             visual.cmap = cmap

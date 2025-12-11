@@ -20,9 +20,81 @@ class DistanceMeasurementService:
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        
+
         # Flag pour activer/désactiver les logs de performance détaillés
-        self.ENABLE_PERF_LOGS = True  # Mettre à False pour désactiver les logs détaillés
+        self.ENABLE_PERF_LOGS = False  # Mettre à False pour désactiver les logs détaillés
+
+    # ------------------------------------------------------------------ #
+    # Vectorized distance map (masques + volume)
+    # ------------------------------------------------------------------ #
+    def measure_distance_vectorized(
+        self,
+        *,
+        volume: np.ndarray,
+        masks: np.ndarray,
+        class_A: int,
+        class_B: int,
+        use_mm: bool = False,
+        resolution_ultrasound: float = 1.0,
+    ) -> np.ndarray:
+        """
+        Calcule directement la carte de distances (Z,X) entre classes A et B.
+        - volume: 3D (Z,H,W) valeurs ultrasound
+        - masks: 3D (Z,H,W) labels
+        - pour chaque (Z,X), prend le Y max (ultrasound) pour chaque classe et mesure dy.
+        """
+        vol = np.asarray(volume)
+        msk = np.asarray(masks)
+        if vol.shape != msk.shape:
+            raise ValueError(f"Shape volume {vol.shape} différent de masks {msk.shape}")
+
+        if vol.ndim != 3:
+            raise ValueError(f"Volume attendu 3D, reçu {vol.ndim}D")
+
+        z, h, w = vol.shape
+        distance_map = np.full((z, w), np.nan, dtype=np.float32)
+        scale = float(resolution_ultrasound) if use_mm else 1.0
+
+        # Pour chaque slice, calcule les y max de chaque classe par colonne X
+        for zi in range(z):
+            slice_vol = vol[zi]
+            slice_mask = msk[zi]
+
+            yA, xA = np.nonzero(slice_mask == class_A)
+            yB, xB = np.nonzero(slice_mask == class_B)
+            if yA.size == 0 or yB.size == 0:
+                continue
+
+            # Max ultrasound (argmax) restreint aux positions de la classe
+            # On calcule les ascan max pour chaque colonne via bincount des valeurs ultrasound
+            # On prend l'index du maximum par x.
+            # Approche : pour chaque x, on garde le y avec la valeur volume max.
+            # On utilise np.argmax sur un tableau masqué par x pour A et B.
+            max_y_A = np.full(w, -1, dtype=np.int32)
+            max_y_B = np.full(w, -1, dtype=np.int32)
+            max_val_A = np.full(w, -np.inf, dtype=np.float32)
+            max_val_B = np.full(w, -np.inf, dtype=np.float32)
+
+            for y, x in zip(yA, xA):
+                val = slice_vol[y, x]
+                if val > max_val_A[x]:
+                    max_val_A[x] = val
+                    max_y_A[x] = y
+
+            for y, x in zip(yB, xB):
+                val = slice_vol[y, x]
+                if val > max_val_B[x]:
+                    max_val_B[x] = val
+                    max_y_B[x] = y
+
+            valid = (max_y_A >= 0) & (max_y_B >= 0)
+            if not np.any(valid):
+                continue
+
+            dy = np.abs(max_y_A.astype(np.float32) - max_y_B.astype(np.float32)) * scale
+            distance_map[zi, valid] = dy[valid]
+
+        return distance_map
 
     def _normalize_class_key(self, class_id: str) -> str:
         """Normalize a class identifier to a comparable string key."""

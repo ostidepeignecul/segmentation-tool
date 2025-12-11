@@ -50,7 +50,7 @@ class AnnotationModel:
             self.label_palette.setdefault(cls_int, tuple(int(c) for c in color))
             self.label_visibility.setdefault(cls_int, True)
 
-    def set_slice_mask(self, slice_idx: int, mask: Any) -> None:
+    def set_slice_mask(self, slice_idx: int, mask: Any, *, invalidate_cache: bool = True) -> None:
         """Set or replace the mask for a specific slice."""
         if self.mask_volume is None:
             return
@@ -59,7 +59,8 @@ class AnnotationModel:
         if mask_array.shape != self.mask_volume[slice_idx].shape:
             return
         self.mask_volume[slice_idx] = mask_array
-        self.overlay_cache = None
+        if invalidate_cache:
+            self.overlay_cache = None
 
     def clear(self) -> None:
         """Reset masks and label state."""

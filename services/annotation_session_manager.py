@@ -193,19 +193,13 @@ class AnnotationSessionManager:
         roi_model: RoiModel,
         view_state_model: ViewStateModel,
     ) -> AnnotationSessionState:
-        mask_volume = (
-            None if annotation_model.mask_volume is None else np.array(annotation_model.mask_volume, copy=True)
-        )
+        mask_volume = annotation_model.mask_volume
         label_palette = copy.deepcopy(annotation_model.label_palette)
         label_visibility = copy.deepcopy(annotation_model.label_visibility)
         overlay_cache = annotation_model.get_overlay_cache()
 
-        temp_mask_volume = (
-            None if temp_mask_model.mask_volume is None else np.array(temp_mask_model.mask_volume, copy=True)
-        )
-        temp_coverage_volume = (
-            None if temp_mask_model.coverage_volume is None else np.array(temp_mask_model.coverage_volume, copy=True)
-        )
+        temp_mask_volume = temp_mask_model.mask_volume
+        temp_coverage_volume = temp_mask_model.coverage_volume
         temp_palette = copy.deepcopy(temp_mask_model.label_palette)
         temp_visibility = copy.deepcopy(temp_mask_model.label_visibility)
 

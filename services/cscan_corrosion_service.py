@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -13,7 +14,6 @@ import numpy as np
 from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
-from services.ascan_service import export_ascan_values_to_json
 from services.cscan_service import CScanService
 from services.distance_measurement import DistanceMeasurementService
 
@@ -95,53 +95,43 @@ class CScanCorrosionService(CScanService):
             raise ValueError("Aucun masque global disponible pour l'analyse corrosion")
 
         self._logger.info("=== ANALYSE CORROSION : démarrage ===")
+        self._log_progress(0.0, "Démarrage")
+        t0 = time.perf_counter()
 
-        label_filter = {int(class_A_id), int(class_B_id)}
-        ascan_data = export_ascan_values_to_json(
-            global_masks_array=global_masks,
-            volume_data=volume_data,
-            orientation=orientation,
-            transpose=transpose,
-            rotation_applied=rotation_applied,
-            nde_filename=nde_filename,
-            allowed_labels=label_filter,
-        )
-
-        distance_results = self._distance_service.measure_distance_all_endviews(
-            ascan_data=ascan_data,
+        # Calcul vectorisé de la carte de distances (Z,X) directement depuis volume + masques
+        mask_stack = np.stack(global_masks, axis=0)
+        distance_map = self._distance_service.measure_distance_vectorized(
+            volume=volume_data,
+            masks=mask_stack,
             class_A=class_A_id,
             class_B=class_B_id,
-            resolution_crosswise=resolution_crosswise_mm,
+            use_mm=use_mm,
             resolution_ultrasound=resolution_ultrasound_mm,
         )
+        self._logger.info("[Corrosion] Carte distance calculée en %.2f s", time.perf_counter() - t0)
+        self._log_progress(0.5, "Carte distance")
+        t_overlay = time.perf_counter()
+        distance_results: Dict = {}
 
-        if distance_results.get("status") == "error":
-            raise RuntimeError(distance_results.get("error", "Erreur lors du calcul des distances"))
-
-        height, width = global_masks[0].shape
-        distance_map = self._distance_service.build_distance_map(
-            distance_results=distance_results,
-            num_endviews=len(global_masks),
-            width=width,
-            use_mm=use_mm,
+        color_A = self._CLASS_TO_PLOT_VALUE.get(class_A_id, 5)
+        color_B = self._CLASS_TO_PLOT_VALUE.get(class_B_id, 6)
+        lines_overlay = self._build_overlay_from_masks(
+            mask_stack=mask_stack,
+            class_A_id=class_A_id,
+            class_B_id=class_B_id,
+            color_A=color_A,
+            color_B=color_B,
+            line_thickness=2,
         )
+        self._logger.info("[Corrosion] Overlay lignes construit en %.2f s", time.perf_counter() - t_overlay)
+        self._log_progress(0.75, "Overlay lignes")
+        t_interp = time.perf_counter()
 
         valid_values = distance_map[np.isfinite(distance_map)]
         if valid_values.size > 0:
             value_range = (float(valid_values.min()), float(valid_values.max()))
         else:
             value_range = (0.0, 0.0)
-
-        lines_overlay = self._build_front_back_overlay(
-            distance_results=distance_results,
-            num_endviews=len(global_masks),
-            image_shape=global_masks[0].shape,
-            class_A_id=class_A_id,
-            class_B_id=class_B_id,
-        )
-
-        color_A = self._CLASS_TO_PLOT_VALUE.get(class_A_id, 5)
-        color_B = self._CLASS_TO_PLOT_VALUE.get(class_B_id, 6)
 
         interpolated_distance_map = self._build_interpolated_distance_map(
             overlay=lines_overlay,
@@ -150,6 +140,8 @@ class CScanCorrosionService(CScanService):
             use_mm=use_mm,
             resolution_ultrasound_mm=resolution_ultrasound_mm,
         )
+        self._logger.info("[Corrosion] Carte interpolée calculée en %.2f s", time.perf_counter() - t_interp)
+        self._log_progress(0.9, "Interpolation")
 
         interpolated_valid = interpolated_distance_map[np.isfinite(interpolated_distance_map)]
         interpolated_value_range = (
@@ -164,9 +156,10 @@ class CScanCorrosionService(CScanService):
         }
 
         self._logger.info("=== ANALYSE CORROSION : terminée ===")
+        self._log_progress(1.0, "Terminé")
 
         return CorrosionAnalysisResult(
-            distance_results=distance_results,
+            distance_results={},
             distance_map=distance_map,
             distance_value_range=value_range,
             interpolated_distance_map=interpolated_distance_map,
@@ -193,7 +186,7 @@ class CScanCorrosionService(CScanService):
         color_A = self._CLASS_TO_PLOT_VALUE.get(class_A_id, 5)
         color_B = self._CLASS_TO_PLOT_VALUE.get(class_B_id, 6)
 
-        endviews_data = distance_results.get("endviews", {})
+        endviews_data = distance_results.get("endviews", {}) if distance_results else {}
         for endview_id_str, endview_result in endviews_data.items():
             try:
                 endview_id = int(endview_id_str)
@@ -265,8 +258,8 @@ class CScanCorrosionService(CScanService):
         """
         Recalcule une carte de distances (Z, X) à partir des lignes interpolées BW/FW.
 
-        Pour chaque slice (Z) et position X, on recherche la moyenne des positions Y
-        pour les valeurs class_A_value et class_B_value dans l'overlay, puis on
+        Pour chaque slice (Z), calcule en une passe la moyenne des positions Y par X
+        pour les valeurs class_A_value et class_B_value via des bincounts, puis
         calcule la distance verticale. Les positions manquantes sont laissées à NaN.
         """
         if overlay.size == 0:
@@ -279,22 +272,96 @@ class CScanCorrosionService(CScanService):
         num_slices, height, width = volume.shape
         interpolated = np.full((num_slices, width), np.nan, dtype=np.float32)
 
+        scale = float(resolution_ultrasound_mm) if use_mm else 1.0
+
         for z in range(num_slices):
             slice_mask = volume[z]
-            for x in range(width):
-                ys_A = np.where(slice_mask[:, x] == class_A_value)[0]
-                ys_B = np.where(slice_mask[:, x] == class_B_value)[0]
-                if ys_A.size == 0 or ys_B.size == 0:
-                    continue
-                yA = float(ys_A.mean())
-                yB = float(ys_B.mean())
-                dist = abs(yA - yB)
-                if use_mm:
-                    dist *= float(resolution_ultrasound_mm)
-                interpolated[z, x] = float(dist)
+            yA, xA = np.nonzero(slice_mask == class_A_value)
+            yB, xB = np.nonzero(slice_mask == class_B_value)
+            if yA.size == 0 or yB.size == 0:
+                continue
+
+            sumA = np.bincount(xA, weights=yA, minlength=width)
+            cntA = np.bincount(xA, minlength=width)
+            sumB = np.bincount(xB, weights=yB, minlength=width)
+            cntB = np.bincount(xB, minlength=width)
+
+            valid = (cntA > 0) & (cntB > 0)
+            if not np.any(valid):
+                continue
+
+            meanA = np.zeros(width, dtype=np.float32)
+            meanB = np.zeros(width, dtype=np.float32)
+            meanA[valid] = sumA[valid] / cntA[valid]
+            meanB[valid] = sumB[valid] / cntB[valid]
+
+            dist = np.abs(meanA - meanB) * scale
+            interpolated[z, valid] = dist[valid]
 
         return interpolated
 
+    def _build_overlay_from_masks(
+        self,
+        *,
+        mask_stack: np.ndarray,
+        class_A_id: int,
+        class_B_id: int,
+        color_A: int,
+        color_B: int,
+        line_thickness: int = 1,
+    ) -> np.ndarray:
+        """Construit un overlay de lignes BW/FW (moyenne Y par X, ligne fine)."""
+        if mask_stack.ndim != 3:
+            raise ValueError(f"Overlay attendu 3D (Z,H,W), reçu shape {mask_stack.shape}")
+
+        num_slices, height, width = mask_stack.shape
+        lines_volume = np.zeros((num_slices, height, width), dtype=np.uint8)
+
+        for z in range(num_slices):
+            slice_mask = mask_stack[z]
+            yA, xA = np.nonzero(slice_mask == class_A_id)
+            yB, xB = np.nonzero(slice_mask == class_B_id)
+            if yA.size == 0 or yB.size == 0:
+                continue
+
+            # Moyenne Y par X pour chaque classe
+            sumA = np.bincount(xA, weights=yA, minlength=width)
+            cntA = np.bincount(xA, minlength=width)
+            sumB = np.bincount(xB, weights=yB, minlength=width)
+            cntB = np.bincount(xB, minlength=width)
+            validA = cntA > 0
+            validB = cntB > 0
+
+            ysA = np.zeros(width, dtype=np.float32)
+            ysB = np.zeros(width, dtype=np.float32)
+            ysA[validA] = sumA[validA] / cntA[validA]
+            ysB[validB] = sumB[validB] / cntB[validB]
+
+            x_coords_A = np.nonzero(validA)[0].tolist()
+            x_coords_B = np.nonzero(validB)[0].tolist()
+            pts_A = [(int(x), int(round(ysA[x]))) for x in x_coords_A]
+            pts_B = [(int(x), int(round(ysB[x]))) for x in x_coords_B]
+
+            if len(pts_A) >= 2:
+                for i in range(len(pts_A) - 1):
+                    cv2.line(lines_volume[z], pts_A[i], pts_A[i + 1], color=color_A, thickness=line_thickness)
+            elif len(pts_A) == 1:
+                lines_volume[z, pts_A[0][1], pts_A[0][0]] = color_A
+
+            if len(pts_B) >= 2:
+                for i in range(len(pts_B) - 1):
+                    cv2.line(lines_volume[z], pts_B[i], pts_B[i + 1], color=color_B, thickness=line_thickness)
+            elif len(pts_B) == 1:
+                lines_volume[z, pts_B[0][1], pts_B[0][0]] = color_B
+
+        return lines_volume
+
+    def _log_progress(self, fraction: float, label: str) -> None:
+        """Affiche une barre de progression ASCII dans les logs."""
+        frac = max(0.0, min(1.0, float(fraction)))
+        filled = int(frac * 20)
+        bar = "#" * filled + "-" * (20 - filled)
+        self._logger.info("[Corrosion][%3d%%] [%s] %s", int(frac * 100), bar, label)
 
 @dataclass
 class CorrosionWorkflowResult:

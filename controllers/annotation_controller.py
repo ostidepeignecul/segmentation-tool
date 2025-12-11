@@ -100,7 +100,9 @@ class AnnotationController:
         self.view_state_model.toggle_overlay(enabled)
         self.refresh_overlay(rebuild=False)
 
-    def refresh_overlay(self, *, defer_volume: bool = False, rebuild: bool = True) -> None:
+    def refresh_overlay(
+        self, *, defer_volume: bool = False, rebuild: bool = True, changed_slice: Optional[int] = None
+    ) -> None:
         """Recalcule et pousse l'overlay vers les vues selon l'état actuel."""
         if not self.view_state_model.show_overlay:
             self.logger.info("Overlay hidden by toggle; clearing views.")
@@ -113,16 +115,31 @@ class AnnotationController:
         visible_labels = self.annotation_model.get_visible_labels()
 
         overlay_data = None
-        if not rebuild:
-            cached = self.annotation_model.get_overlay_cache()
-            if cached is not None:
-                overlay_data = OverlayData(
-                    label_volumes=cached.label_volumes,
-                    palette=palette,
-                )
+        cached = self.annotation_model.get_overlay_cache()
+        if changed_slice is not None:
+            overlay_data = self.overlay_service.update_overlay_slice(
+                mask_volume=mask_volume,
+                label_palette=palette,
+                overlay_cache=cached,
+                slice_idx=changed_slice,
+            )
+        elif not rebuild and cached is not None:
+            overlay_data = OverlayData(
+                label_volumes=cached.label_volumes,
+                palette=palette,
+            )
         if overlay_data is None:
             overlay_data = self.overlay_service.build_overlay_data(mask_volume, palette)
-            self.annotation_model.set_overlay_cache(overlay_data)
+
+        changed_labels = None
+        if changed_slice is not None:
+            changed_labels = self._compute_changed_labels_for_slice(
+                cached_overlay=cached,
+                new_overlay=overlay_data,
+                slice_idx=changed_slice,
+            )
+
+        self.annotation_model.set_overlay_cache(overlay_data)
 
         if overlay_data is None:
             self.logger.info("No overlay available to push; clearing views.")
@@ -145,6 +162,8 @@ class AnnotationController:
             overlay_data,
             visible_labels=visible_labels,
             defer_3d=defer_volume,
+            changed_slice=changed_slice,
+            changed_labels=changed_labels,
         )
 
     def clear_labels(self) -> None:
@@ -479,7 +498,11 @@ class AnnotationController:
 
             updated = np.array(current_slice, copy=True)
             updated[coverage] = temp_slice[coverage]
-            self.annotation_model.set_slice_mask(target_slice, updated)
+            self.annotation_model.set_slice_mask(
+                target_slice,
+                updated,
+                invalidate_cache=False,
+            )
 
         for label, color in self.temp_mask_model.label_palette.items():
             self.annotation_model.ensure_label(label, color, visible=True)
@@ -493,7 +516,11 @@ class AnnotationController:
         self.annotation_view.clear_roi_boxes()
         self.annotation_view.clear_roi_points()
 
-        self.refresh_overlay(defer_volume=True, rebuild=True)
+        self.refresh_overlay(
+            defer_volume=True,
+            rebuild=self.view_state_model.apply_volume,
+            changed_slice=None if self.view_state_model.apply_volume else target_slice,
+        )
         self.refresh_roi_overlay_for_slice(target_slice)
 
     # ------------------------------------------------------------------ #
@@ -580,6 +607,46 @@ class AnnotationController:
             return volume[int(slice_idx)]
         except Exception:
             return None
+
+    def _compute_changed_labels_for_slice(
+        self,
+        *,
+        cached_overlay: Optional[OverlayData],
+        new_overlay: Optional[OverlayData],
+        slice_idx: int,
+    ) -> Optional[set[int]]:
+        """Compare cached/new overlay data on a slice to limit GPU uploads."""
+        if new_overlay is None or new_overlay.label_volumes is None:
+            return None
+        if slice_idx < 0:
+            return None
+        changed: set[int] = set()
+        cached_volumes = cached_overlay.label_volumes if cached_overlay is not None else {}
+        new_volumes = new_overlay.label_volumes if new_overlay is not None else {}
+
+        for label, vol in new_volumes.items():
+            try:
+                new_slice = np.asarray(vol, dtype=np.float32)[int(slice_idx)]
+            except Exception:
+                changed.add(int(label))
+                continue
+            old_vol = cached_volumes.get(label)
+            if old_vol is None:
+                changed.add(int(label))
+                continue
+            try:
+                old_slice = np.asarray(old_vol, dtype=np.float32)[int(slice_idx)]
+            except Exception:
+                changed.add(int(label))
+                continue
+            if old_slice.shape != new_slice.shape or not np.array_equal(old_slice, new_slice):
+                changed.add(int(label))
+
+        for label in cached_volumes.keys():
+            if label not in new_volumes:
+                changed.add(int(label))
+
+        return changed if changed else None
 
     def _rebuild_slice_preview(self, slice_idx: int) -> None:
         """Rebuild temporary mask and box for a given slice from stored ROIs."""

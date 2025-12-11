@@ -2129,3 +2129,71 @@ Les switches de session étaient lents car chaque passage recréait l’overlay 
 2. Lier le cache C-scan au `volume.shape` et l’invalider lors d’un reset corrosion pour rester cohérent avec les changements de volume.
 
 ---
+
+### **2025-12-10** — Optimisation analyse corrosion (interpolation vectorisée)
+
+**Tags :** `#services/cscan_corrosion_service.py`, `#services/distance_measurement.py`, `#corrosion`, `#performance`, `#numpy`, `#branch:interpolation`
+
+**Actions effectuées :**
+- Vectorisé le recalcul de carte de distance interpolée BW/FW dans `_build_interpolated_distance_map` en utilisant `np.nonzero` + `np.bincount` par slice (suppression des boucles X), avec facteur métrique appliqué en une fois.
+- Désactivé les logs de performance détaillés (`ENABLE_PERF_LOGS=False`) dans `DistanceMeasurementService` pour réduire la surcharge CPU/IO lors de l’analyse corrosion.
+
+**Contexte :**
+L’analyse corrosion était lente à cause de boucles imbriquées (Z/X) pour l’interpolation et de logs détaillés. La nouvelle implémentation calcule les moyennes Y par X pour les deux classes en une passe vectorisée, puis la distance verticale, ce qui réduit fortement le temps CPU. Les logs de perf sont coupés par défaut pour ne pas pénaliser le runtime.
+
+**Décisions techniques :**
+1. Utiliser `bincount` pour sommer/compter les positions Y par X et dériver les moyennes, car cette approche est O(n) et évite les boucles Python sur X.
+2. Laisser le facteur métrique appliqué en fin de calcul (scale) pour conserver un seul chemin de calcul et éviter les multiplications dans la boucle.
+
+---
+
+### **2025-12-10** — Hotfix corrosion: distance_results missing after vectorization
+
+**Tags :** `#services/cscan_corrosion_service.py`, `#corrosion`, `#bugfix`, `#branch:interpolation`
+
+**Actions effectuées :**
+- Initialisé `distance_results` à un dict vide dans `run_analysis` après le calcul vectorisé de `distance_map`, pour éviter NameError et permettre le passage à `_build_front_back_overlay` (qui gère un dict vide en produisant un overlay vide).
+
+**Contexte :**
+Le refactor vectorisé supprimait l’ancienne structure distance_results; un NameError se produisait lors de l’appel à `_build_front_back_overlay`. Le correctif rétablit une valeur par défaut cohérente (dict vide) pour maintenir le pipeline sans plantage.
+
+**Décisions techniques :**
+1. Fournir un `distance_results` vide pour compatibilité avec la signature existante, en assumant un overlay nul si aucune donnée détaillée n’est disponible.
+
+---
+
+### **2025-12-10** — Overlay corrosion aligné sur l’interpolation BW/FW
+
+**Tags :** `#services/cscan_corrosion_service.py`, `#corrosion`, `#overlay`, `#performance`, `#branch:interpolation`
+
+**Actions effectuées :**
+- Construction de l’overlay corrosion à partir du mask_stack en reliant les points BW/FW par X croissant (`_build_overlay_from_masks`), au lieu de mapper tout le masque; l’interpolation BW/FW se base maintenant sur cet overlay de lignes.
+- L’interpolation de carte de distances réutilise cet overlay de lignes (colors A/B), évitant d’avoir le même NPZ que l’original dans la nouvelle session.
+
+**Contexte :**
+La nouvelle session héritait d’un overlay identique au masque brut. Désormais l’overlay corrosion est constitué uniquement des lignes front/back dérivées du mask_stack, ce qui alimente l’interpolation et différencie clairement la session interpolée.
+
+**Décisions techniques :**
+1. Générer un overlay de lignes via `np.nonzero` + tri par X et tracé OpenCV, plutôt que de réaffecter tout le masque.
+2. Utiliser cet overlay de lignes comme base pour la carte interpolée afin de rester cohérent entre NPZ interpolé et C-scan interpolé.
+
+---
+
+### **2025-12-10** — Overlay slice update sans rebuild 3D
+
+**Tags :** `#controllers/annotation_controller.py`, `#views/volume_view.py`, `#services/overlay_service.py`, `#models/annotation_model.py`, `#overlay`, `#performance`, `#mvc`, `#branch:interpolation`
+
+**Actions effectuées :**
+- Ajouté `OverlayService.update_overlay_slice` pour réutiliser le cache et ne recalculer qu’une slice, en copiant uniquement les labels concernés et en purgeant les labels vides.
+- Étendu `AnnotationModel.set_slice_mask(invalidate_cache=False)` et `AnnotationController.refresh_overlay(changed_slice)` qui calcule les `changed_labels` par comparaison cache/nouveau, puis pousse l’overlay sans invalider le cache sur les mises à jour mono-slice.
+- `VolumeView.set_overlay` accepte `changed_slice/changed_labels` et limite les uploads VisPy aux labels concernés (déferables via timer), tout en continuant à retomber sur le rebuild complet si forme/profondeur incohérente.
+
+**Contexte :**
+La modification d’une slice endview déclenchait un upload 3D complet de l’overlay, ce qui ralentissait fortement l’UI. Le flux s’appuie maintenant sur le cache d’overlay pour mettre à jour uniquement la slice éditée, en propulsant des mises à jour ciblées vers la vue 3D et la slice 2D sans reconstruire tout le volume.
+
+**Décisions techniques :**
+1. Conserver le cache lors des écritures slice-only et ne l’invalider que pour les opérations volume (apply_volume), afin d’éviter un rebuild systématique.
+2. Détecter les labels réellement modifiés sur la slice (`changed_labels`) en comparant cache/nouveau pour réduire les uploads GPU ; fallback rebuild complet si le cache est absent ou incompatible.
+3. Utiliser des uploads partiels dans `VolumeView` (gating par `labels_to_push` + timer) pour éviter de réuploader les volumes overlay inchangés tout en gardant un chemin de secours en cas de mismatch de shape.
+
+---

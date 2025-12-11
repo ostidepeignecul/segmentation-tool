@@ -150,6 +150,8 @@ class CScanController:
             self.view_state_model.deactivate_corrosion()
             return
 
+        self.logger.info("Corrosion analysis: started")
+        self.status_callback("Analyse corrosion en cours...", 2000)
         result = self.corrosion_workflow.run(
             nde_model=nde_model,
             annotation_model=self.annotation_model,
@@ -166,6 +168,7 @@ class CScanController:
         self.view_state_model.activate_corrosion(result.projection, result.value_range)
         self.update_views(volume)
         self.status_callback(result.message, 3000)
+        self.logger.info("Corrosion analysis: completed")
 
         if self.on_corrosion_completed is not None:
             try:
