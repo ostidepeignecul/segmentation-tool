@@ -95,6 +95,21 @@ class AnnotationController:
         self.view_state_model.set_active_label(label_id)
         self.refresh_overlay(defer_volume=True, rebuild=False)
 
+    def on_label_deleted(self, label_id: int) -> None:
+        """Supprime un label (palette + masques + ROIs) et rafraîchit les vues."""
+        lbl = int(label_id)
+        self.annotation_model.remove_label(lbl)
+        self.temp_mask_model.remove_label(lbl)
+        self.roi_model.remove_label(lbl)
+        if self.view_state_model.active_label == lbl:
+            self.view_state_model.set_active_label(None)
+        self.annotation_view.clear_temp_shapes()
+        self.annotation_view.clear_roi_overlay()
+        self.annotation_view.clear_roi_boxes()
+        self.annotation_view.clear_roi_points()
+        self.refresh_overlay(defer_volume=True, rebuild=False)
+        self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
+
     def on_overlay_toggled(self, enabled: bool) -> None:
         """Gère le toggle de visibilité de l'overlay."""
         self.view_state_model.toggle_overlay(enabled)

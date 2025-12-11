@@ -86,6 +86,15 @@ class AnnotationModel:
         """Toggle visibility for a given label id."""
         self.label_visibility[int(label_id)] = bool(visible)
 
+    def remove_label(self, label_id: int) -> None:
+        """Delete a label from palette/visibility and clear it from the mask."""
+        key = int(label_id)
+        if self.mask_volume is not None:
+            self.mask_volume[self.mask_volume == key] = 0
+        self.label_palette.pop(key, None)
+        self.label_visibility.pop(key, None)
+        self.overlay_cache = None
+
     def visible_labels(self) -> Optional[set[int]]:
         """Return the set of labels currently marked visible (None = all)."""
         if not self.label_visibility:

@@ -2216,3 +2216,22 @@ Le menu Affichage devait réellement masquer/afficher le ToolsPanel et refléter
 3. Centraliser la valeur par défaut du threshold dans le modèle et la pousser à l’UI au setup pour conserver la cohérence modèle/vue sans émettre de signaux initiaux.
 
 ---
+
+### **2025-12-11** — Suppression de labels via Overlay Settings
+
+**Tags :** `#views/overlay_settings_view.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/annotation_model.py`, `#models/temp_mask_model.py`, `#models/roi_model.py`, `#ui`, `#labels`, `#overlay`, `#roi`, `#mvc`, `#branch:interpolation`
+
+**Actions effectuées :**
+- Ajouté un bouton « Supprimer » par ligne de label dans Overlay Settings avec signal `label_deleted`; la ligne est retirée de la liste puis l’événement est propagé.
+- Implémenté la suppression de label côté modèles (`AnnotationModel.remove_label`, `TempMaskModel.remove_label`, `RoiModel.remove_label`) en purgeant palette/visibilité et en remplaçant les voxels du label par 0 (masque principal et temporaire, coverage mis à jour).
+- Ajouté `AnnotationController.on_label_deleted` pour orchestrer la suppression (masques, temp mask, ROIs), réinitialiser l’`active_label` si besoin, nettoyer les previews ROI et rafraîchir l’overlay; connecté dans `MasterController` pour resynchroniser le ToolsPanel.
+
+**Contexte :**
+Le besoin était de retirer proprement des labels depuis la fenêtre Overlay Settings : supprimer le label doit aussi effacer son empreinte dans les masques et ROIs afin d’éviter une réapparition dans l’overlay ou les previews. Le ToolsPanel doit refléter la liste à jour des labels.
+
+**Décisions techniques :**
+1. Purger le masque principal et temporaire lors de la suppression pour éviter des volumes overlay fantômes; invalider le cache overlay implicitement via la remise à zéro.
+2. Supprimer les ROIs associées au label pour empêcher toute réinjection lors des reconstructions ROI/volume.
+3. Propager l’événement via un signal dédié (`label_deleted`) et resynchroniser le ToolsPanel/active_label pour garder la cohérence modèle/vue sans dépendre d’un rebuild manuel de la liste UI.
+
+---

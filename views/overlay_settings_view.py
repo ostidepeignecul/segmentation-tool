@@ -24,6 +24,7 @@ class OverlaySettingsView(QDialog):
     label_visibility_changed = pyqtSignal(int, bool)
     label_color_changed = pyqtSignal(int, QColor)
     label_added = pyqtSignal(int, QColor)
+    label_deleted = pyqtSignal(int)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -74,6 +75,7 @@ class OverlaySettingsView(QDialog):
         row = _LabelRow(label_id, color, visible, parent=self)
         row.visibility_toggled.connect(self.label_visibility_changed)
         row.color_changed.connect(self.label_color_changed)
+        row.deleted.connect(self._on_label_deleted)
         self._labels[label_id] = row
         self._list_layout.addWidget(row)
 
@@ -84,6 +86,15 @@ class OverlaySettingsView(QDialog):
         for label_id, color, visible in entries:
             self.ensure_label(label_id, color, visible=visible)
             seen.add(int(label_id))
+
+    def _on_label_deleted(self, label_id: int) -> None:
+        """Remove row then propagate deletion event."""
+        lbl = int(label_id)
+        row = self._labels.pop(lbl, None)
+        if row is not None:
+            row.setParent(None)
+            row.deleteLater()
+        self.label_deleted.emit(lbl)
 
     # ------------------------------------------------------------------ #
     # Color helpers
@@ -142,6 +153,7 @@ class _LabelRow(QWidget):
 
     visibility_toggled = pyqtSignal(int, bool)
     color_changed = pyqtSignal(int, QColor)
+    deleted = pyqtSignal(int)
 
     def __init__(self, label_id: int, color: QColor, visible: bool, parent: Optional[QWidget]) -> None:
         super().__init__(parent)
@@ -161,6 +173,11 @@ class _LabelRow(QWidget):
         self._apply_color_style()
         self._color_button.clicked.connect(self._on_pick_color)
         layout.addWidget(self._color_button, 0)
+
+        self._delete_button = QPushButton("Supprimer", self)
+        self._delete_button.setFixedWidth(90)
+        self._delete_button.clicked.connect(self._on_delete_clicked)
+        layout.addWidget(self._delete_button, 0)
 
     # ------------------------------------------------------------------ #
     # Public setters
@@ -194,3 +211,6 @@ class _LabelRow(QWidget):
 
     def _color_name(self) -> str:
         return self._color.name()
+
+    def _on_delete_clicked(self) -> None:
+        self.deleted.emit(self.label_id)

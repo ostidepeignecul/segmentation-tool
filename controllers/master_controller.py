@@ -284,6 +284,7 @@ class MasterController:
             self.annotation_controller.on_label_color_changed
         )
         self.overlay_settings_view.label_added.connect(self._on_label_added)
+        self.overlay_settings_view.label_deleted.connect(self._on_label_deleted)
         self.nde_settings_view.endview_colormap_changed.connect(self._on_endview_colormap_changed)
         self.nde_settings_view.cscan_colormap_changed.connect(self._on_cscan_colormap_changed)
 
@@ -769,6 +770,13 @@ class MasterController:
         self.annotation_controller.on_label_added(label_id, color)
         self.view_state_model.set_active_label(label_id)
         self._sync_tools_labels(select_label_id=label_id)
+
+    def _on_label_deleted(self, label_id: int) -> None:
+        """Forward label deletion then resync tool panel labels."""
+        self.annotation_controller.on_label_deleted(label_id)
+        if self.view_state_model.active_label == int(label_id):
+            self.view_state_model.set_active_label(None)
+        self._sync_tools_labels(select_label_id=None)
 
     def _sync_tools_labels(self, select_label_id: Optional[int] = None) -> None:
         """Sync the label list in the tools panel with the annotation model."""

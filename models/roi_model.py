@@ -101,6 +101,11 @@ class RoiModel:
         idx = int(slice_idx)
         self._rois = [r for r in self._rois if r.slice_idx != idx]
 
+    def remove_label(self, label_id: int) -> None:
+        """Remove all ROIs associated with a given label."""
+        lbl = int(label_id)
+        self._rois = [r for r in self._rois if r.label != lbl]
+
     def boxes_for_slice(self, slice_idx: int, *, include_persistent: bool = True) -> List[Tuple[int, int, int, int]]:
         """
         Return box coordinates (x1, y1, x2, y2) for a slice.

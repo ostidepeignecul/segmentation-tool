@@ -92,6 +92,24 @@ class TempMaskModel:
         slice_mask = self.mask_volume[slice_idx]
         slice_mask[slice_mask == lbl] = 0
         self.mask_volume[slice_idx] = slice_mask
+        if self.coverage_volume is not None:
+            coverage_slice = self.coverage_volume[slice_idx]
+            coverage_slice[self.mask_volume[slice_idx] == 0] = False
+            self.coverage_volume[slice_idx] = coverage_slice
+
+    def remove_label(self, label_id: int) -> None:
+        """Remove a label entirely from temp mask and palette."""
+        lbl = int(label_id)
+        if self.mask_volume is not None:
+            self.mask_volume[self.mask_volume == lbl] = 0
+        if self.coverage_volume is not None:
+            if self.mask_volume is not None:
+                # Coverage remains only where mask is non-zero after deletion
+                self.coverage_volume = np.logical_and(self.coverage_volume, self.mask_volume != 0)
+            else:
+                self.coverage_volume[:] = False
+        self.label_palette.pop(lbl, None)
+        self.label_visibility.pop(lbl, None)
 
     def get_slice_mask(self, slice_idx: int) -> Optional[np.ndarray]:
         """Return a slice mask (preview) if available."""
