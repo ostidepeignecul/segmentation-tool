@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QFileDialog,
+    QDialog,
     QMainWindow,
     QMessageBox,
     QStackedLayout,
@@ -39,6 +40,7 @@ from ui_mainwindow import Ui_MainWindow
 from views.annotation_view import AnnotationView
 from views.cscan_view_corrosion import CscanViewCorrosion
 from views.nde_settings_view import NdeSettingsView
+from views.endview_resize_dialog import EndviewResizeDialog
 from views.overlay_settings_view import OverlaySettingsView
 from views.session_manager_dialog import SessionManagerDialog
 
@@ -199,6 +201,8 @@ class MasterController:
             if dock is not None:
                 action.setChecked(dock.isVisible())
                 dock.visibilityChanged.connect(self._on_tools_panel_visibility_changed)
+        if hasattr(self.ui, "actionResize_endview"):
+            self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
 
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
@@ -302,6 +306,17 @@ class MasterController:
             sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
             sc.activated.connect(handler)
             self._shortcuts.append(sc)
+
+    def _on_resize_endview(self) -> None:
+        """Open a dialog to resize only the displayed endview viewport."""
+        if self.annotation_view is None:
+            return
+        current_size = self.annotation_view.get_display_size()
+        dialog = EndviewResizeDialog(current_size, parent=self.main_window)
+        result = dialog.exec()
+        if result == QDialog.DialogCode.Accepted:
+            width, height = dialog.get_size()
+            self.annotation_view.set_display_size(width, height)
 
     def _on_toggle_tools_panel(self, checked: bool) -> None:
         """Show/hide the tools dock when the menu action is toggled."""

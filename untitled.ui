@@ -114,6 +114,7 @@
      <string>Affichage</string>
     </property>
     <addaction name="actionToggle_tools_panel"/>
+    <addaction name="actionResize_endview"/>
    </widget>
    <widget class="QMenu" name="menuSession">
     <property name="title">
@@ -456,6 +457,11 @@
   <action name="actionSession_selector">
    <property name="text">
     <string>Session selector</string>
+   </property>
+  </action>
+  <action name="actionResize_endview">
+   <property name="text">
+    <string>Resize endview</string>
    </property>
   </action>
  </widget>

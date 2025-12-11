@@ -50,6 +50,8 @@ class EndviewView(QFrame):
         self._colormap_name: str = "Gris"
         self._colormap_lut: Optional[np.ndarray] = None
         self._pixmaps = _PixmapBundle()
+        self._display_size: Optional[Tuple[int, int]] = None
+        self._zoom_factor: float = 1.0
 
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
@@ -178,7 +180,7 @@ class EndviewView(QFrame):
                     return False
                 zoom_in = event.angleDelta().y() > 0
                 factor = 1.15 if zoom_in else 1 / 1.15
-                self._view.scale(factor, factor)
+                self._apply_zoom(factor)
                 event.accept()
                 return True
         return super().eventFilter(obj, event)
@@ -188,7 +190,7 @@ class EndviewView(QFrame):
             return
         zoom_in = event.angleDelta().y() > 0
         factor = 1.15 if zoom_in else 1 / 1.15
-        self._view.scale(factor, factor)
+        self._apply_zoom(factor)
         event.accept()
 
     def _handle_mouse_press(self, event: QMouseEvent) -> bool:
@@ -264,6 +266,7 @@ class EndviewView(QFrame):
         self._pixmaps.base = pixmap
         self._image_item.setPixmap(pixmap)
         self._scene.setSceneRect(self._image_item.boundingRect())
+        self._apply_display_scale()
         self._refresh_overlay_pixmap()
 
     def _refresh_overlay_pixmap(self) -> None:
@@ -424,6 +427,46 @@ class EndviewView(QFrame):
         """Show or hide the crosshair lines."""
         self._crosshair_h.setVisible(visible)
         self._crosshair_v.setVisible(visible)
+
+    def get_display_size(self) -> Tuple[int, int]:
+        """Return the requested display size (viewport), defaults to current if unset."""
+        if self._display_size is not None:
+            return self._display_size
+        size = self._view.viewport().size()
+        return size.width(), size.height()
+
+    def set_display_size(self, width: int, height: int) -> None:
+        """Resize and scale the view so the image is visually stretched to the given size."""
+        width = max(1, int(width))
+        height = max(1, int(height))
+        self._display_size = (width, height)
+        self._view.setFixedSize(width, height)
+        self.setMinimumSize(width, height)
+        self.updateGeometry()
+        self._apply_display_scale()
+
+    def _apply_display_scale(self) -> None:
+        """Apply a transform so the scene fills the requested display size (can deform)."""
+        if self._display_size is None:
+            return
+        rect = self._scene.sceneRect()
+        if rect.isEmpty():
+            return
+        base_w = max(1.0, rect.width())
+        base_h = max(1.0, rect.height())
+        target_w, target_h = self._display_size
+        scale_x = float(target_w) / base_w
+        scale_y = float(target_h) / base_h
+        center = self._view.mapToScene(self._view.viewport().rect().center())
+        self._view.resetTransform()
+        self._view.scale(scale_x * self._zoom_factor, scale_y * self._zoom_factor)
+        if center is not None:
+            self._view.centerOn(center)
+
+    def _apply_zoom(self, factor: float) -> None:
+        """Scale view while tracking user zoom so resize keeps proportion."""
+        self._zoom_factor *= factor
+        self._view.scale(factor, factor)
 
     def _emit_slice_scroll(self, delta: int) -> None:
         if self._volume is None or delta == 0:
