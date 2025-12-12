@@ -36,6 +36,7 @@ class CScanView(QFrame):
         self._current_crosshair: Optional[Tuple[int, int]] = None
         self._colormap_name: str = "Gris"
         self._colormap_lut: Optional[np.ndarray] = None
+        self._value_scale_mm: Optional[float] = None
         self._panning: bool = False
         self._pan_last = QPointF()
 
@@ -93,26 +94,29 @@ class CScanView(QFrame):
         projection: np.ndarray,
         value_range: Optional[Tuple[float, float]] = None,
         colormaps: Optional[Tuple[str, ...]] = None,
+        value_scale_mm: Optional[float] = None,
     ) -> None:
         """Display the projection (Z, X)."""
         if projection is None or projection.size == 0:
             self._projection = None
             self._current_crosshair = None
+            self._value_scale_mm = None
             self._status.setText("C-scan vide")
             self._pixmap_item.setPixmap(QPixmap())
             return
 
         self._projection = np.asarray(projection, dtype=np.float32)
+        self._value_scale_mm = value_scale_mm
         if value_range is None:
             value_range = (float(self._projection.min()), float(self._projection.max()))
         self._value_range = value_range
-        self._status.setText(f"Z={projection.shape[0]} · X={projection.shape[1]}")
         self._view.setTransform(QTransform())  # reset zoom when updating projection
         self._current_crosshair = (
             projection.shape[0] // 2,
             projection.shape[1] // 2,
         )
         self._render_pixmap()
+        self._update_cursor(*self._current_crosshair)
 
         if colormaps:
             self._lut_combo.blockSignals(True)
@@ -244,8 +248,29 @@ class CScanView(QFrame):
         self._cursor_h.setLine(0, z_clamped, self._projection.shape[1], z_clamped)
         self._cursor_v.setLine(x_clamped, 0, x_clamped, self._projection.shape[0])
         self._current_crosshair = (z_clamped, x_clamped)
+        self._update_status(z_clamped, x_clamped)
 
     def set_cross_visible(self, visible: bool) -> None:
         """Show or hide the crosshair lines."""
         self._cursor_h.setVisible(visible)
         self._cursor_v.setVisible(visible)
+
+    def _update_status(self, z: int, x: int) -> None:
+        """Refresh header label with current coordinates and pixel value."""
+        if self._projection is None:
+            self._status.setText("C-scan non disponible")
+            return
+        try:
+            value = float(self._projection[z, x])
+        except Exception:
+            value = float("nan")
+
+        text_value = "-"
+        if np.isfinite(value):
+            if self._value_scale_mm is not None:
+                mm = value * float(self._value_scale_mm)
+                text_value = f"{mm:.2f} mm ({value:.2f} px)"
+            else:
+                text_value = f"{value:.2f} px"
+
+        self._status.setText(f"Z={z} · X={x} · dist={text_value}")

@@ -216,6 +216,7 @@ class MasterController:
             box_radio=self.ui.radioButton_2,
             grow_radio=self.ui.radioButton_3,
             paint_radio=self.ui.radioButton_4,
+            paint_slider=self.ui.horizontalSlider_3,
             nde_label=self.ui.label,
             endview_label=self.ui.label_5,
             position_label=self.ui.label_4,
@@ -237,10 +238,12 @@ class MasterController:
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
+        self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
 
         self.tools_panel.slice_changed.connect(self._on_slice_changed)
         self.tools_panel.goto_requested.connect(self._on_goto_requested)
         self.tools_panel.tool_mode_changed.connect(self.annotation_controller.on_tool_mode_changed)
+        self.tools_panel.paint_size_changed.connect(self.annotation_controller.on_paint_size_changed)
         self.tools_panel.threshold_changed.connect(self.annotation_controller.on_threshold_changed)
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
@@ -300,6 +303,8 @@ class MasterController:
             (QKeySequence(Qt.Key.Key_D), self._on_next_slice),
             (QKeySequence(Qt.Key.Key_W), self.annotation_controller.on_apply_temp_mask_requested),
             (QKeySequence(Qt.Key.Key_Escape), self.annotation_controller.on_selection_cancel_requested),
+            (QKeySequence(Qt.Key.Key_Return), self.annotation_controller.on_apply_all_temp_masks_requested),
+            (QKeySequence(Qt.Key.Key_Enter), self.annotation_controller.on_apply_all_temp_masks_requested),
         ]
         for seq, handler in mapping:
             sc = QShortcut(seq, parent)

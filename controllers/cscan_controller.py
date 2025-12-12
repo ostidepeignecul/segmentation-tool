@@ -100,6 +100,9 @@ class CScanController:
         if volume is None:
             return
 
+        nde_model = self.get_nde_model()
+        ultrasound_resolution_mm = self._compute_ultrasound_resolution_mm(nde_model)
+
         use_cache = (
             self._cached_standard_projection is not None
             and self._cached_standard_range is not None
@@ -123,7 +126,12 @@ class CScanController:
         ):
             projection, value_range = self.view_state_model.corrosion_projection
             self.show_corrosion()
-            self.corrosion_view.set_projection(projection, value_range, colormaps=("Corrosion",))
+            self.corrosion_view.set_projection(
+                projection,
+                value_range,
+                colormaps=("Corrosion",),
+                value_scale_mm=ultrasound_resolution_mm,
+            )
         else:
             self.view_state_model.deactivate_corrosion()
             self.show_standard()
@@ -175,3 +183,35 @@ class CScanController:
                 self.on_corrosion_completed(result)
             except Exception:  # noqa: BLE001
                 self.logger.exception("Corrosion completion callback failed")
+
+    # --- Resolution helpers ------------------------------------------------------- #
+    def _compute_ultrasound_resolution_mm(self, nde_model: Optional[NdeModel]) -> Optional[float]:
+        """Return the step (mm/px) along the ultrasound axis, if available."""
+        if nde_model is None:
+            return None
+
+        positions = nde_model.metadata.get("positions") or {}
+        axis_order = nde_model.metadata.get("axis_order") or []
+
+        target_axis = None
+        for name in axis_order:
+            if isinstance(name, str) and name.lower() == "ultrasound":
+                target_axis = name
+                break
+
+        if target_axis is None and len(axis_order) >= 2:
+            target_axis = axis_order[1]
+
+        coords = positions.get(target_axis)
+        if coords is None or len(coords) < 2:
+            return None
+
+        try:
+            diffs = np.diff(coords)
+            finite = diffs[np.isfinite(diffs)]
+            if finite.size == 0:
+                return None
+            step = float(np.median(np.abs(finite)))
+            return step if step > 0 else None
+        except Exception:
+            return None

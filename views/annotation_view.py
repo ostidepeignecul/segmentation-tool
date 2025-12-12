@@ -163,6 +163,16 @@ class AnnotationView(EndviewView):
             self._view.setCursor(Qt.CursorShape.ArrowCursor)
             self._view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
 
+    def set_paint_radius(self, radius: int) -> None:
+        """Update paint cursor radius and refresh cursor if active."""
+        radius = max(1, int(radius))
+        if radius == self._paint_cursor_radius and self._paint_cursor is not None:
+            return
+        self._paint_cursor_radius = radius
+        self._paint_cursor = None  # force rebuild
+        if self._tool_mode == "paint":
+            self._apply_tool_cursor()
+
     def _ensure_paint_cursor(self) -> QCursor:
         """Build (or reuse) a hollow-circle cursor for the paint tool."""
         if self._paint_cursor is not None:

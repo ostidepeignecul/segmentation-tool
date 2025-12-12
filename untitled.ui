@@ -137,7 +137,7 @@
    <property name="minimumSize">
     <size>
      <width>300</width>
-     <height>655</height>
+     <height>701</height>
     </size>
    </property>
    <property name="features">
@@ -267,6 +267,20 @@
          </widget>
         </item>
         <item>
+         <widget class="QLabel" name="label_6">
+          <property name="text">
+           <string>Paint zise : </string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="horizontalSlider_3">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QCheckBox" name="checkBox">
           <property name="text">
            <string>Appliquer au volume</string>
@@ -370,8 +384,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>260</width>
-             <height>104</height>
+             <width>243</width>
+             <height>75</height>
             </rect>
            </property>
            <property name="minimumSize">

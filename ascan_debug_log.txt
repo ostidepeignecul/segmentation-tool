@@ -1,5 +1,5 @@
-=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/nde test/SB70_MGO_151272_40M_45M/SB70_MGO_151272_40M_45M.nde ===
+=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/datasets/Suzlon/SB86_MGO_161001/SB86_MGO_161001_5000-10000/SB86_MGO_161001_5000-10000.nde ===
 
-[0.002s] A-SCAN PREVIEW slice=1704 x=56 y=138
-  normalized: {'len': 276, 'min': 1.0353227853775024, 'max': 51.97591018676758, 'mean': 9.007857322692871, 'head5': [4.669102668762207, 5.961564540863037, 6.5502777099609375, 6.57734489440918, 6.049533367156982], 'marker': 138, 'crosshair': (56, 138)}
-  raw: {'ultrasound_axis': 1, 'len': 276, 'min': 153.0, 'max': 7681.0, 'mean': 1331.18115234375, 'head5': [690.0, 881.0, 968.0, 972.0, 894.0]}
+[0.015s] A-SCAN PREVIEW slice=1659 x=98 y=236
+  normalized: {'len': 472, 'min': 0.3418073058128357, 'max': 79.8516845703125, 'mean': 9.959922790527344, 'head5': [30.475784301757812, 18.982513427734375, 20.2093563079834, 21.28666114807129, 29.99969482421875], 'marker': 236, 'crosshair': (98, 236)}
+  raw: {'ultrasound_axis': 1, 'len': 472, 'min': 112.0, 'max': 26165.0, 'mean': 3263.56787109375, 'head5': [9986.0, 6220.0, 6622.0, 6975.0, 9830.0]}

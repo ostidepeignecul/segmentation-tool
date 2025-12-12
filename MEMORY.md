@@ -2235,3 +2235,75 @@ Le besoin était de retirer proprement des labels depuis la fenêtre Overlay Set
 3. Propager l’événement via un signal dédié (`label_deleted`) et resynchroniser le ToolsPanel/active_label pour garder la cohérence modèle/vue sans dépendre d’un rebuild manuel de la liste UI.
 
 ---
+
+### **2025-12-11** — Redimension endview par scaling (déformation visuelle)
+
+**Tags :** `#views/endview_view.py`, `#views/endview_resize_dialog.py`, `#controllers/master_controller.py`, `#ui`, `#resize`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Ajouté `set_display_size`/`get_display_size` dans `EndviewView` pour stocker une taille d’affichage cible et appliquer un transform de scène (scale_x/scale_y) calculé depuis la sceneRect, combiné au zoom utilisateur (`_zoom_factor`), avec recentrage après `resetTransform`.
+- L’action menu `actionResize_endview` ouvre toujours `EndviewResizeDialog` et appelle `set_display_size` sur l’annotation view; le dialog conserve largeur/hauteur avec option carré.
+
+**Contexte :**
+Besoin de déformer visuellement l’endview 2D (étirer/compresser) sans changer les données ni les modèles. Le scaling est appliqué sur la vue pour étirer l’image et les overlays tout en gardant la correspondance des coordonnées scène/volume.
+
+**Décisions techniques :**
+1. Utiliser le transform du `QGraphicsView` (scale_x/scale_y depuis la taille cible vs sceneRect) plutôt qu’un simple resize de widget afin de déformer l’image sans resampler les données.
+2. Conserver un `_zoom_factor` séparé pour composer zoom utilisateur et déformation, évitant des sauts lors des zooms après redimensionnement.
+3. Recentre la vue après `resetTransform` pour éviter les sauts visuels lors de la réapplication du scale.
+
+---
+
+### **2025-12-11** — Affichage distance locale sur C-scan
+
+**Tags :** `#views/cscan_view.py`, `#controllers/cscan_controller.py`, `#cscan`, `#distance`, `#ui`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Ajouté une mise à jour du bandeau CScanView pour afficher le point courant (Z, X) et la valeur du pixel sélectionné; format en mm si une échelle est fournie, sinon en pixels, avec fallback '-' sur NaN.
+- Introduit un paramètre `value_scale_mm` dans `set_projection` (vue standard/corrosion) et conversion affichée `mm (px)` quand disponible; status rafraîchi à chaque `_update_cursor`.
+- Calculé dans `CScanController` la résolution mm/px de l’axe ultrasound à partir des positions NDE (axis "Ultrasound" si présent, sinon axis_order[1]) via la médiane des diff absolues, puis injectée dans la vue corrosion.
+
+**Contexte :**
+Le besoin est d’afficher la distance calculée au pixel cliqué sur le C-scan (shift+clic), en privilégiant les millimètres lorsque la résolution NDE est disponible. La projection corrosion reste en pixels mais le facteur mm/px (axe ultrasound) est appliqué pour l’affichage, tandis que la vue standard continue d’afficher la valeur brute.
+
+**Décisions techniques :**
+1. Utiliser l’axe ultrasound issu de `metadata.positions`/`axis_order` comme référence pour le facteur mm/px; fallback sur axis_order[1] pour conserver une correspondance avec l’axe vertical (Y) de la carte Z×X.
+2. Séparer l’échelle d’affichage (`value_scale_mm`) de la projection pour ne pas modifier les données ni le LUT; l’échelle est optionnelle afin de conserver le comportement pixels quand aucune résolution fiable n’est fournie.
+3. Formater le statut en `Z=.. · X=.. · dist=..` avec conversion mm et valeur pixel entre parenthèses pour transparence, et ignorer les valeurs non finies pour éviter des affichages incohérents.
+
+---
+
+### **2025-12-11** — Taille pinceau Paint + Entrée applique tous les masques
+
+**Tags :** `#views/tools_panel.py`, `#views/annotation_view.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#ui_mainwindow.py`, `#roi`, `#paint`, `#shortcuts`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Ajouté un slider `horizontalSlider_3` (label_6) dans ToolsPanel pour régler le rayon du pinceau paint; signal `paint_size_changed` propagé au ViewStateModel puis à AnnotationView qui régénère le curseur et au contrôleur qui l’utilise pour le disk mask.
+- Intégré la taille du pinceau dans ViewStateModel (`paint_radius`), avec setter dédié; AnnotationController récupère ce rayon pour `build_disk_mask` et initialise la vue au démarrage.
+- Ajouté un raccourci global Enter/Return dans MasterController qui appelle `on_apply_all_temp_masks_requested`, forçant l’application des masques temporaires sur tout le volume puis restaurant l’état apply_volume.
+
+**Contexte :**
+Le mode paint devait permettre de choisir la grosseur du pinceau et un raccourci clavier pour appliquer simultanément tous les masques temporaires sur l’ensemble des slices/endviews. Le slider existant (label_6/horizontalSlider_3) a été câblé dans le pipeline ToolsPanel → ViewStateModel → AnnotationController → AnnotationView, et Enter/Return déclenche maintenant une application globale des masques.
+
+**Décisions techniques :**
+1. Stocker le rayon dans le modèle de vue pour que contrôleur et vue partagent la même source de vérité; rayon borné à [1,50] via le slider, valeur initiale 8.
+2. Invalider/reconstruire le curseur cercle dans AnnotationView à chaque changement de rayon pour refléter visuellement la taille choisie.
+3. Implémenter l’application globale en activant temporairement `apply_volume` lors de l’appel Enter, afin de réutiliser la logique existante d’application volume puis de restaurer l’état précédent sans modifier l’UI.
+
+---
+
+### **2025-12-11** — Seuil ROI jusqu’à 255
+
+**Tags :** `#views/tools_panel.py`, `#threshold`, `#ui`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Configuré le slider de threshold (horizontalSlider) dans ToolsPanel pour couvrir 0–255, avec valeur initiale 50, et connexion du signal après réglage des bornes.
+
+**Contexte :**
+Le seuil devait pouvoir monter jusqu’à 255 pour le mode ROI/paint. Le slider n’avait pas de bornes explicites; on les fixe pour aligner avec la plage 8 bits.
+
+**Décisions techniques :**
+1. Bornage explicite min=0, max=255 et valeur de départ 50 afin d’éviter des valeurs par défaut Qt (0–99) insuffisantes.
+2. Le branchement du signal `valueChanged` reste identique, le label continue d’afficher la valeur sélectionnée.
+
+---

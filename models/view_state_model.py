@@ -37,6 +37,7 @@ class ViewStateModel:
         # --- Metadata for Views ---
         self.axis_order: Optional[list[str]] = None
         self.camera_state: dict = {}
+        self.paint_radius: int = 8
 
         # --- Corrosion Mode ---
         self.corrosion_active: bool = False
@@ -106,6 +107,10 @@ class ViewStateModel:
             self.active_label = None
         else:
             self.active_label = int(label_id)
+
+    def set_paint_radius(self, radius: int) -> None:
+        """Update brush radius (in pixels) for paint tool."""
+        self.paint_radius = max(1, int(radius))
 
     # ------------------------------------------------------------------ #
     # Visibility toggles

@@ -26,7 +26,7 @@ from views.volume_view import VolumeView
 class AnnotationController:
     """Gère les annotations, labels et overlays (visibilité, couleurs, synchronisation)."""
 
-    PAINT_RADIUS_PX = 8
+    PAINT_RADIUS_DEFAULT = 8
 
     def __init__(
         self,
@@ -56,6 +56,7 @@ class AnnotationController:
         self.overlay_settings_view = overlay_settings_view
         self.logger = logger
         self._get_volume = get_volume
+        self.on_paint_size_changed(self.view_state_model.paint_radius)
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -207,6 +208,11 @@ class AnnotationController:
         """Handle drawing tool changes (stub)."""
         self.view_state_model.set_tool_mode(mode)
         self.annotation_view.set_tool_mode(mode)
+
+    def on_paint_size_changed(self, radius: int) -> None:
+        """Handle brush size updates from the tools panel."""
+        self.view_state_model.set_paint_radius(radius)
+        self.annotation_view.set_paint_radius(self.view_state_model.paint_radius)
 
     def on_threshold_changed(self, value: int) -> None:
         """Handle manual threshold change (stub)."""
@@ -408,7 +414,8 @@ class AnnotationController:
         if need_init:
             self.temp_mask_model.initialize((depth, mask_shape[0], mask_shape[1]))
 
-        disk = self.annotation_service.build_disk_mask(mask_shape, (int(pos[0]), int(pos[1])), self.PAINT_RADIUS_PX)
+        radius = self.view_state_model.paint_radius or self.PAINT_RADIUS_DEFAULT
+        disk = self.annotation_service.build_disk_mask(mask_shape, (int(pos[0]), int(pos[1])), radius)
         if disk is None:
             return
 
@@ -541,6 +548,15 @@ class AnnotationController:
             changed_slice=None if self.view_state_model.apply_volume else target_slice,
         )
         self.refresh_roi_overlay_for_slice(target_slice)
+
+    def on_apply_all_temp_masks_requested(self) -> None:
+        """Apply temp masks across the whole volume regardless of the current slice mode."""
+        prev_apply_volume = self.view_state_model.apply_volume
+        self.view_state_model.set_apply_volume(True)
+        try:
+            self.on_apply_temp_mask_requested()
+        finally:
+            self.view_state_model.set_apply_volume(prev_apply_volume)
 
     # ------------------------------------------------------------------ #
     # Saving

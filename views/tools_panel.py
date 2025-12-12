@@ -37,6 +37,7 @@ class ToolsPanel(QFrame):
     overlay_toggled = pyqtSignal(bool)
     cross_toggled = pyqtSignal(bool)
     label_selected = pyqtSignal(int)
+    paint_size_changed = pyqtSignal(int)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -53,6 +54,7 @@ class ToolsPanel(QFrame):
         self._box_radio: Optional[QRadioButton] = None
         self._grow_radio: Optional[QRadioButton] = None
         self._paint_radio: Optional[QRadioButton] = None
+        self._paint_size_slider: Optional[QSlider] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
         self._overlay_checkbox: Optional[QCheckBox] = None
@@ -85,6 +87,7 @@ class ToolsPanel(QFrame):
         box_radio: QRadioButton,
         grow_radio: QRadioButton,
         paint_radio: QRadioButton,
+        paint_slider: QSlider,
         nde_label: QLabel,
         endview_label: QLabel,
         position_label: QLabel,
@@ -117,6 +120,7 @@ class ToolsPanel(QFrame):
         self._box_radio = box_radio
         self._grow_radio = grow_radio
         self._paint_radio = paint_radio
+        self._paint_size_slider = paint_slider
         self._overlay_checkbox = overlay_checkbox
         self._cross_checkbox = cross_checkbox
         self._apply_volume_checkbox = apply_volume_checkbox
@@ -139,6 +143,9 @@ class ToolsPanel(QFrame):
             self._next_button.clicked.connect(self.next_requested)
         if self._apply_roi_button is not None:
             self._apply_roi_button.clicked.connect(self.apply_roi_requested)
+        self._threshold_slider.setMinimum(0)
+        self._threshold_slider.setMaximum(255)
+        self._threshold_slider.setValue(50)
         self._threshold_slider.valueChanged.connect(self._on_threshold_changed)
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)
@@ -161,6 +168,11 @@ class ToolsPanel(QFrame):
         self._paint_radio.toggled.connect(
             lambda checked: checked and self.tool_mode_changed.emit("paint")
         )
+        if self._paint_size_slider is not None:
+            self._paint_size_slider.setMinimum(1)
+            self._paint_size_slider.setMaximum(50)
+            self._paint_size_slider.setValue(8)
+            self._paint_size_slider.valueChanged.connect(self.paint_size_changed.emit)
 
         self._wired = True
         self.set_nde_name("")
@@ -314,6 +326,14 @@ class ToolsPanel(QFrame):
         if not self._position_label:
             return
         self._position_label.setText(f"position x = {x} ; y = {y}")
+
+    def set_paint_size(self, radius: int) -> None:
+        """Update the paint size slider without emitting signals."""
+        if not self._paint_size_slider:
+            return
+        self._paint_size_slider.blockSignals(True)
+        self._paint_size_slider.setValue(max(self._paint_size_slider.minimum(), min(self._paint_size_slider.maximum(), int(radius))))
+        self._paint_size_slider.blockSignals(False)
 
     def set_nde_name(self, name: str) -> None:
         """Display the opened NDE file name."""
