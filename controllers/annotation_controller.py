@@ -8,6 +8,7 @@ from typing import Any, Optional
 import numpy as np
 
 from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QDialog
 
 from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
@@ -20,6 +21,7 @@ from services.overlay_service import OverlayService
 from services.overlay_export import OverlayExport
 from views.annotation_view import AnnotationView
 from views.overlay_settings_view import OverlaySettingsView
+from views.overlay_export_dialog import OverlayExportDialog
 from views.volume_view import VolumeView
 
 
@@ -582,11 +584,23 @@ class AnnotationController:
                 if mask_volume.shape != tgt_shape:
                     raise ValueError(f"Overlay shape {mask_volume.shape} différent du volume {tgt_shape}.")
 
+        options_dialog = OverlayExportDialog(parent)
+        result = options_dialog.exec()
+        if result != int(QDialog.DialogCode.Accepted):
+            return None
+        options = options_dialog.get_options()
+
         file_path = self.annotation_view.select_overlay_save_path(parent)
         if not file_path:
             return None
 
-        saved_path = self.overlay_export.save_npz(mask_volume, file_path, expected_shape=volume_shape)
+        saved_path = self.overlay_export.save_npz(
+            mask_volume,
+            file_path,
+            expected_shape=volume_shape,
+            mirror_vertical=options.mirror_vertical,
+            rotation_degrees=options.rotation_degrees,
+        )
         return saved_path
 
     # ------------------------------------------------------------------ #

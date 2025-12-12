@@ -2307,3 +2307,21 @@ Le seuil devait pouvoir monter jusqu’à 255 pour le mode ROI/paint. Le slider 
 2. Le branchement du signal `valueChanged` reste identique, le label continue d’afficher la valeur sélectionnée.
 
 ---
+
+### **2025-12-12** — Options d'export NPZ (rotation + miroir)
+
+**Tags :** `#views/overlay_export_dialog.py`, `#controllers/annotation_controller.py`, `#services/overlay_export.py`, `#overlay`, `#npz`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Ajouté `OverlayExportDialog` avec combobox rotation 0/90/180/270 et checkbox miroir vertical (gauche/droite), renvoyant `OverlayExportOptions` (mirror + rotation).
+- Étendu `OverlayExport.save_npz` pour accepter `rotation_degrees` (validation 0/90/180/270) et appliquer `np.rot90` slice-wise sur axes (H,W) avant un éventuel `np.flip` sur l’axe W.
+- `AnnotationController.save_overlay_via_dialog` ouvre désormais le dialog d’options, récupère rotation/miroir et les passe au service d’export NPZ après validation de shape.
+
+**Contexte :**
+Le menu Overlay > Exporter .npz doit proposer des transformations simples avant écriture (miroir vertical, rotations multiples de 90°) sans modifier le workflow existant. La rotation est appliquée sur chaque slice (axes H/W) puis le flip éventuellement, après les validations de shape.
+
+**Décisions techniques :**
+1. Rotation slice-wise via `np.rot90(..., axes=(1,2))` pour rester cohérent avec un volume (Z,H,W) et conserver l’ordre des slices.
+2. Ordre des transformations: rotation puis miroir pour un comportement déterministe; erreur si la rotation demandée n’est pas dans {0,90,180,270}.
+
+---
