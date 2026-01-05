@@ -12,8 +12,10 @@ from PyQt6.QtWidgets import (
     QDialog,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QStackedLayout,
     QWidget,
+    QVBoxLayout,
 )
 
 from config.constants import MASK_COLORS_BGRA
@@ -42,6 +44,7 @@ from views.cscan_view_corrosion import CscanViewCorrosion
 from views.nde_settings_view import NdeSettingsView
 from views.endview_resize_dialog import EndviewResizeDialog
 from views.overlay_settings_view import OverlaySettingsView
+from views.piece3d_view import Piece3DView
 from views.session_manager_dialog import SessionManagerDialog
 
 
@@ -76,6 +79,12 @@ class MasterController:
         )
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
         self.nde_settings_view = NdeSettingsView(self.main_window)
+        self._piece3d_window: Optional[QWidget] = None
+        self._piece3d_view: Optional[Piece3DView] = None
+        self._piece_toggle_btn: Optional[QPushButton] = None
+        self._piece_volume_raw: Optional[np.ndarray] = None
+        self._piece_volume_interpolated: Optional[np.ndarray] = None
+        self._piece_show_interpolated: bool = True
         self._shortcuts: list[QShortcut] = []
         self._omniscan_lut: Optional[np.ndarray] = None
         self._session_dialog: Optional[SessionManagerDialog] = None
@@ -1003,11 +1012,83 @@ class MasterController:
 
         self._after_session_switch()
         self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
+        if (result.piece_volume_raw is not None and result.piece_volume_raw.size > 0) or (
+            result.piece_volume_interpolated is not None and result.piece_volume_interpolated.size > 0
+        ):
+            self._show_piece3d_volume(
+                raw_volume=result.piece_volume_raw,
+                interpolated_volume=result.piece_volume_interpolated,
+            )
 
     def _current_volume(self) -> Optional[Any]:
         if self.nde_model is None:
             return None
         return self.nde_model.get_active_volume()
+
+    def _show_piece3d_volume(
+        self,
+        *,
+        raw_volume: Optional[np.ndarray],
+        interpolated_volume: Optional[np.ndarray],
+    ) -> None:
+        """Affiche ou met à jour la fenêtre flottante de la pièce 3D corrosion."""
+        if self._piece3d_window is None:
+            self._piece3d_window = QDialog(self.main_window)
+            self._piece3d_window.setWindowTitle("Pièce 3D corrosion")
+            layout = QVBoxLayout(self._piece3d_window)
+            self._piece3d_view = Piece3DView(parent=self._piece3d_window)
+            self._piece_toggle_btn = QPushButton("Montrer volume interpolé", parent=self._piece3d_window)
+            self._piece_toggle_btn.clicked.connect(self._toggle_piece_volume)
+            layout.addWidget(self._piece3d_view)
+            layout.addWidget(self._piece_toggle_btn)
+
+        if self._piece3d_view is None:
+            return
+
+        self._piece_volume_raw = raw_volume.astype(np.float32) if raw_volume is not None else None
+        self._piece_volume_interpolated = (
+            interpolated_volume.astype(np.float32) if interpolated_volume is not None else None
+        )
+
+        # Choix initial : interpolé si disponible, sinon brut
+        if self._piece_volume_interpolated is not None:
+            self._piece_show_interpolated = True
+            current = self._piece_volume_interpolated
+        else:
+            self._piece_show_interpolated = False
+            current = self._piece_volume_raw
+
+        if current is not None:
+            self._piece3d_view.set_piece_volume(current)
+            self._update_piece_toggle_label()
+            self._piece3d_window.show()  # type: ignore[union-attr]
+            self._piece3d_window.raise_()  # type: ignore[union-attr]
+            self._piece3d_window.activateWindow()  # type: ignore[union-attr]
+
+    def _toggle_piece_volume(self) -> None:
+        """Bascule entre volume brut et volume interpolé si les deux sont disponibles."""
+        if self._piece3d_view is None:
+            return
+
+        has_interp = self._piece_volume_interpolated is not None and self._piece_volume_interpolated.size > 0
+        has_raw = self._piece_volume_raw is not None and self._piece_volume_raw.size > 0
+        if not (has_interp and has_raw):
+            return
+
+        self._piece_show_interpolated = not self._piece_show_interpolated
+        volume = self._piece_volume_interpolated if self._piece_show_interpolated else self._piece_volume_raw
+        if volume is not None:
+            self._piece3d_view.set_piece_volume(volume)
+            self._update_piece_toggle_label()
+
+    def _update_piece_toggle_label(self) -> None:
+        """Met à jour le texte du bouton selon le volume affiché."""
+        if self._piece_toggle_btn is None:
+            return
+        if self._piece_show_interpolated:
+            self._piece_toggle_btn.setText("Afficher volume brut BW/FW")
+        else:
+            self._piece_toggle_btn.setText("Afficher volume interpolé BW/FW")
 
     def _update_nde_label(self) -> None:
         """Reflect the opened NDE file into the tools panel label."""

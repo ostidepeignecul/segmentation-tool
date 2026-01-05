@@ -31,6 +31,8 @@ class CorrosionAnalysisResult:
     overlay_label_ids: Tuple[int, int]
     overlay_palette: Dict[int, Tuple[int, int, int, int]]
     overlay_npz_path: Optional[str]
+    piece_volume_raw: Optional[np.ndarray] = None
+    piece_volume_interpolated: Optional[np.ndarray] = None
 
 
 class CScanCorrosionService(CScanService):
@@ -155,6 +157,17 @@ class CScanCorrosionService(CScanService):
             color_B: tuple(int(c) for c in MASK_COLORS_BGRA.get(color_B, (255, 0, 255, 160))),
         }
 
+        piece_volume_raw = self._build_solid_volume(
+            mask_stack=mask_stack,
+            class_A_id=class_A_id,
+            class_B_id=class_B_id,
+        )
+        piece_volume_interpolated = self._build_solid_volume(
+            mask_stack=lines_overlay,
+            class_A_id=color_A,
+            class_B_id=color_B,
+        )
+
         self._logger.info("=== ANALYSE CORROSION : terminée ===")
         self._log_progress(1.0, "Terminé")
 
@@ -168,6 +181,8 @@ class CScanCorrosionService(CScanService):
             overlay_label_ids=(color_A, color_B),
             overlay_palette=overlay_palette,
             overlay_npz_path=None,
+            piece_volume_raw=piece_volume_raw,
+            piece_volume_interpolated=piece_volume_interpolated,
         )
 
     # --- Helpers --------------------------------------------------------------------
@@ -363,6 +378,76 @@ class CScanCorrosionService(CScanService):
         bar = "#" * filled + "-" * (20 - filled)
         self._logger.info("[Corrosion][%3d%%] [%s] %s", int(frac * 100), bar, label)
 
+    def _build_solid_volume(
+        self,
+        *,
+        mask_stack: np.ndarray,
+        class_A_id: int,
+        class_B_id: int,
+    ) -> np.ndarray:
+        """
+        Construit un volume solide en remplissant l'espace entre frontwall et backwall.
+
+        Pour chaque slice Z et chaque colonne X où A et B sont présents, on remplit
+        verticalement entre les extrêmes des deux classes. Le résultat est un volume
+        float32 de même shape que ``mask_stack`` (Z, H, W) avec des valeurs 0/1.
+        """
+        if mask_stack.ndim != 3:
+            raise ValueError(f"Volume attendu 3D (Z,H,W), reçu shape {mask_stack.shape}")
+
+        depth, height, width = mask_stack.shape
+        solid = np.zeros((depth, height, width), dtype=np.float32)
+
+        def _min_max_by_x(y_coords: np.ndarray, x_coords: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            if y_coords.size == 0:
+                return np.array([], dtype=np.int32), np.array([], dtype=np.int32), np.array([], dtype=np.int32)
+            order = np.argsort(x_coords)
+            xs = x_coords[order]
+            ys = y_coords[order]
+            unique_x, start_idx, counts = np.unique(xs, return_index=True, return_counts=True)
+            end_idx = start_idx + counts - 1
+            min_y = ys[start_idx]
+            max_y = ys[end_idx]
+            return unique_x.astype(np.int32), min_y.astype(np.int32), max_y.astype(np.int32)
+
+        for z in range(depth):
+            slice_mask = mask_stack[z]
+            yA, xA = np.nonzero(slice_mask == class_A_id)
+            yB, xB = np.nonzero(slice_mask == class_B_id)
+            if yA.size == 0 or yB.size == 0:
+                continue
+
+            xA_unique, minA, maxA = _min_max_by_x(yA, xA)
+            xB_unique, minB, maxB = _min_max_by_x(yB, xB)
+            if xA_unique.size == 0 or xB_unique.size == 0:
+                continue
+
+            common_x = np.intersect1d(xA_unique, xB_unique, assume_unique=True)
+            if common_x.size == 0:
+                continue
+
+            minA_full = np.full(width, np.inf, dtype=np.float32)
+            maxA_full = np.full(width, -np.inf, dtype=np.float32)
+            minB_full = np.full(width, np.inf, dtype=np.float32)
+            maxB_full = np.full(width, -np.inf, dtype=np.float32)
+            minA_full[xA_unique] = minA
+            maxA_full[xA_unique] = maxA
+            minB_full[xB_unique] = minB
+            maxB_full[xB_unique] = maxB
+
+            for x in common_x:
+                start_y = min(minA_full[x], minB_full[x])
+                end_y = max(maxA_full[x], maxB_full[x])
+                if not np.isfinite(start_y) or not np.isfinite(end_y):
+                    continue
+                y0 = int(max(0, min(height - 1, start_y)))
+                y1 = int(max(0, min(height - 1, end_y)))
+                if y1 < y0:
+                    y0, y1 = y1, y0
+                solid[z, y0 : y1 + 1, int(x)] = 1.0
+
+        return solid
+
 @dataclass
 class CorrosionWorkflowResult:
     """Résultat du workflow d'analyse corrosion."""
@@ -378,6 +463,8 @@ class CorrosionWorkflowResult:
     overlay_volume: Optional[np.ndarray] = None
     overlay_label_ids: Optional[Tuple[int, int]] = None
     overlay_palette: Optional[Dict[int, Tuple[int, int, int, int]]] = None
+    piece_volume_raw: Optional[np.ndarray] = None
+    piece_volume_interpolated: Optional[np.ndarray] = None
 
 
 class CorrosionWorkflowService:
@@ -487,6 +574,8 @@ class CorrosionWorkflowService:
                 overlay_volume=result.overlay_volume,
                 overlay_label_ids=result.overlay_label_ids,
                 overlay_palette=result.overlay_palette,
+                piece_volume_raw=result.piece_volume_raw,
+                piece_volume_interpolated=result.piece_volume_interpolated,
             )
 
         except Exception as exc:

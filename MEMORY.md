@@ -2325,3 +2325,23 @@ Le menu Overlay > Exporter .npz doit proposer des transformations simples avant 
 2. Ordre des transformations: rotation puis miroir pour un comportement déterministe; erreur si la rotation demandée n’est pas dans {0,90,180,270}.
 
 ---
+
+### **2026-01-05** — Affichage pièce 3D corrosion (volume solide)
+
+**Tags :** `#services/cscan_corrosion_service.py`, `#controllers/master_controller.py`, `#views/piece3d_view.py`, `#ascan_debug_log.txt`, `#corrosion`, `#3d-visualization`, `#vispy`, `#pyqt6`, `#numpy`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Étendu l'analyse corrosion pour produire des volumes solides brut + interpolé et les exposer dans `CorrosionAnalysisResult`/workflow.
+- Ajouté `Piece3DView` (VisPy iso) avec colormap métal, overlays désactivés et seuil iso configuré.
+- Ouverture d’une fenêtre flottante dans `MasterController` pour afficher la pièce 3D et basculer brut/interpolé.
+- Mis à jour une entrée de timing dans `ascan_debug_log.txt`.
+
+**Contexte :**
+L’objectif est de visualiser la pièce corrosion en 3D à partir des masques (frontwall/backwall) et permettre la comparaison entre volumes bruts et interpolés dans une vue dédiée, sans overlays 2D.
+
+**Décisions techniques :**
+1. Construire un volume solide en remplissant entre les extrêmes des classes A/B par colonne X et slice Z pour obtenir un volume 0/1 en float32.
+2. Privilégier l’interpolé quand disponible, avec un bouton de bascule pour comparer au brut.
+3. Dériver la vue de `VolumeView` en mode iso, colormap métal, overlays désactivés et depth test activé pour un rendu solide.
+
+---
