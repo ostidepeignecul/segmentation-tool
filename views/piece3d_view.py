@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtWidgets import QWidget
+from enum import Enum, auto
+from PyQt6.QtWidgets import QWidget, QMenu
+from PyQt6.QtGui import QAction, QActionGroup
 from vispy import scene
 
 from views.volume_view import VolumeView
+
+
+class AnchorMode(Enum):
+    SLICE = auto()
+    VOLUME_CENTER = auto()
 
 
 class Piece3DView(VolumeView):
@@ -15,8 +22,10 @@ class Piece3DView(VolumeView):
         self._canvas.bgcolor = "#0b0b0b"
         self._slider.hide()
         self._iso_threshold: float = 0.5
+        self._shading_profile = "standard"
         self.set_base_colormap("Metal", self._metal_lut())
         self._status.setText("Pièce 3D non chargée")
+        self._anchor_mode = AnchorMode.VOLUME_CENTER
 
     def set_piece_volume(self, volume: np.ndarray) -> None:
         """Charge le volume solide (0/1) et reconstruit la scène iso."""
@@ -24,10 +33,71 @@ class Piece3DView(VolumeView):
         self.set_volume(volume)
         if self._volume_visual is not None:
             self._volume_visual.threshold = self._iso_threshold
+            self._apply_shading()
 
     def set_overlay(self, *args, **kwargs) -> None:  # type: ignore[override]
         """Désactive les overlays pour cette vue (non utilisés)."""
         return
+
+    def contextMenuEvent(self, event) -> None:
+        """Affiche un menu contextuel pour changer le mode d'ancrage."""
+        menu = QMenu(self)
+
+        group = QActionGroup(self)
+        group.setExclusive(True)
+
+        shading_menu = menu.addMenu("Ombrage")
+        action_std = QAction("Standard", self)
+        action_std.setCheckable(True)
+        action_std.setActionGroup(group)
+        action_std.setChecked(self._shading_profile == "standard")
+        action_std.triggered.connect(lambda: self._set_shading_profile("standard"))
+        shading_menu.addAction(action_std)
+
+        action_boost = QAction("Renforcé", self)
+        action_boost.setCheckable(True)
+        action_boost.setActionGroup(group)
+        action_boost.setChecked(self._shading_profile == "boosted")
+        action_boost.triggered.connect(lambda: self._set_shading_profile("boosted"))
+        shading_menu.addAction(action_boost)
+
+        action_slice = QAction("Ancrage: Slice", self)
+        action_slice.setCheckable(True)
+        action_slice.setChecked(self._anchor_mode == AnchorMode.SLICE)
+        action_slice.triggered.connect(lambda: self._set_anchor_mode(AnchorMode.SLICE))
+        menu.addAction(action_slice)
+
+        action_center = QAction("Ancrage: Centre du Volume", self)
+        action_center.setCheckable(True)
+        action_center.setChecked(self._anchor_mode == AnchorMode.VOLUME_CENTER)
+        action_center.triggered.connect(lambda: self._set_anchor_mode(AnchorMode.VOLUME_CENTER))
+        menu.addAction(action_center)
+
+        menu.exec(event.globalPos())
+
+    def _set_anchor_mode(self, mode: AnchorMode) -> None:
+        if self._anchor_mode != mode:
+            self._anchor_mode = mode
+            if mode == AnchorMode.SLICE:
+                self._slider.show()
+            else:
+                self._slider.hide()
+            self._focus_camera_on_slice()
+
+    def _focus_camera_on_slice(self) -> None:
+        """Recentre la caméra selon le mode d'ancrage choisi."""
+        if self._anchor_mode == AnchorMode.SLICE:
+            super()._focus_camera_on_slice()
+        elif self._anchor_mode == AnchorMode.VOLUME_CENTER:
+            if self._view.camera is None or self._volume is None:
+                return
+            depth, height, width = self._volume.shape[:3]
+            # Focus : centre absolu du volume
+            self._view.camera.center = (
+                width / 2.0,
+                height / 2.0,
+                depth / 2.0,
+            )
 
     def _build_scene(self) -> None:
         """Recrée la scène VisPy en mode iso, sans overlay 2D."""
@@ -50,11 +120,42 @@ class Piece3DView(VolumeView):
             method="iso",
             cmap=self._base_colormap,
             threshold=self._iso_threshold,
+            relative_step_size=0.7,
         )
         # Activer le depth test pour un rendu plus solide
         self._volume_visual.set_gl_state(depth_test=True, cull_face=False)
+        self._apply_shading()
         self._configure_camera(depth, height, width)
         self._apply_visual_transform()
+
+    def _set_shading_profile(self, profile: str) -> None:
+        if profile not in {"standard", "boosted"}:
+            return
+        if self._shading_profile == profile:
+            return
+        self._shading_profile = profile
+        self._apply_shading()
+
+    def _apply_shading(self) -> None:
+        # Shading uniforms not applied; VisPy version marque certains uniforms en const
+        # et rejette l'écriture. On conserve le profil pour une compat éventuelle future.
+        return
+
+    @staticmethod
+    def _shading_params(profile: str) -> dict[str, float]:
+        if profile == "boosted":
+            return {
+                "ambient": 0.45,
+                "diffuse": 0.85,
+                "specular": 0.9,
+                "shininess": 120.0,
+            }
+        return {
+            "ambient": 0.35,
+            "diffuse": 0.75,
+            "specular": 0.65,
+            "shininess": 80.0,
+        }
 
     @staticmethod
     def _metal_lut() -> np.ndarray:
@@ -63,6 +164,8 @@ class Piece3DView(VolumeView):
         mid = np.array([140, 70, 35], dtype=np.float32)
         bright = np.array([230, 170, 120], dtype=np.float32)
         t = np.linspace(0.0, 1.0, 256, dtype=np.float32)[:, None]
+        # Accentue le contraste autour des valeurs intermédiaires
+        t = np.clip(0.5 + 1.15 * (t - 0.5), 0.0, 1.0)
         lut = np.where(
             t < 0.5,
             dark + (mid - dark) * (t * 2.0),

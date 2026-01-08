@@ -2345,3 +2345,30 @@ L’objectif est de visualiser la pièce corrosion en 3D à partir des masques (
 3. Dériver la vue de `VolumeView` en mode iso, colormap métal, overlays désactivés et depth test activé pour un rendu solide.
 
 ---
+### **2026-01-08** — Refonte complète du nde_loader.py avec support multi-types
+
+**Tags :** `#services/nde_loader.py`, `#utils/extract_data_from_nde.py`, `#utils/nde_versions_helper.py`, `#utils/sectorial_nde.py`, `#refactoring`, `#mvc`, `#branch:main`
+
+**Actions effectuées :**
+- Refonte complète de `services/nde_loader.py` (~1100 lignes) pour utiliser 100% du code des fichiers utils
+- Import et intégration de `nde_versions_helper.py` : classes `Unistatus_NDE_3_0_0`, `Unistatus_NDE_4_0_0_Dev`, fonction `get_unistatus()`
+- Import et intégration de `sectorial_nde.py` : classe `SectorialScanNDE`, types `SScanSliceInfo`, fonctions de conversion cartésienne
+- Implémentation des classes d'extraction par type de données :
+  - `NDEGroupData` : classe de base
+  - `NDEGroupDataZeroDegUT` : UT standard 0°
+  - `NDEGroupDataSectorialScan` : scans sectoriels avec reconstruction cartésienne
+  - `NDEGroupDataTFM` : Total Focusing Method (transpose z,y,x → z,x,y)
+  - `NDEGroupDataFMC` : Full Matrix Capture (reshape pulser/receiver)
+- Ajout de `NDEDataTypeCheck` : détection automatique du type (is_sectorial_scan, is_tfm, is_fmc)
+- Ajout de `_reorder_axes_by_metadata()` : réordonnancement des axes selon uCoordinateOrientation
+- Ajout de `_rotate_clockwise()` : rotation 90° horaire finale sur chaque slice
+
+**Contexte :**
+L'ancien `nde_loader.py` était un loader minimal. Le nouveau utilise intégralement le code d'extraction existant dans utils/ pour supporter tous les types de données NDE (zero_deg, sectorial, tfm, fmc) tout en maintenant la compatibilité avec `NdeModel`.
+
+**Décisions techniques :**
+1. **Stratégie d'orientation** : Si `uCoordinateOrientation` existe ("around" ou "length"), U est l'axe slice. Sinon, l'axe avec le plus d'éléments (U ou V) devient l'axe slice.
+2. **Rotation 90° CW** : Appliquée systématiquement à la fin du pipeline via `np.rot90(data, k=-1, axes=(1, 2))` pour orientation display-ready.
+3. **Ordre du pipeline** : Chargement → Détection type → Extraction → Réordonnancement axes → Rotation 90° → NdeModel
+
+---

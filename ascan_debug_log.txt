@@ -1,5 +1,5 @@
-=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/nde test/CORROSION - HY2  4/CORROSION - HY2  4.nde ===
+=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/datasets/corrosion/From Alexandre Gregoire/M X HydroFORM2 Lab Pipe_2024_06_20 06h41m47s.nde ===
 
-[0.003s] A-SCAN PREVIEW slice=100 x=155 y=162
-  normalized: {'len': 324, 'min': 0.10681478679180145, 'max': 92.7365951538086, 'mean': 8.653288841247559, 'head5': [0.10681478679180145, 0.22583696246147156, 0.3906369209289551, 0.5798516869544983, 0.7873775362968445], 'marker': 162, 'crosshair': (155, 162)}
-  raw: {'ultrasound_axis': 1, 'len': 324, 'min': 35.0, 'max': 30387.0, 'mean': 2835.4228515625, 'head5': [35.0, 74.0, 128.0, 190.0, 258.0]}
+[0.002s] A-SCAN PREVIEW slice=381 x=250 y=586
+  normalized: {'len': 1172, 'min': 21.538110733032227, 'max': 81.45723724365234, 'mean': 49.9819221496582, 'head5': [50.012969970703125, 50.014495849609375, 50.014495849609375, 50.009918212890625, 49.994659423828125], 'marker': 586, 'crosshair': (250, 586)}
+  raw: {'ultrasound_axis': 1, 'len': 1172, 'min': -18653.0, 'max': 20615.0, 'mean': -12.347270011901855, 'head5': [8.0, 9.0, 9.0, 6.0, -4.0]}
