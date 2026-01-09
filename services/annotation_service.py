@@ -411,12 +411,32 @@ class AnnotationService:
         if not np.any(inside):
             return mask
         data_inside = data[inside]
-        dmin = float(data_inside.min()) if data_inside.size else 0.0
-        dmax = float(data_inside.max()) if data_inside.size else 1.0
-        if dmax <= dmin:
-            norm = np.zeros_like(data_inside, dtype=np.float32)
+        if data_inside.size == 0:
+            return mask
+        finite = np.isfinite(data_inside)
+        if not np.all(finite):
+            data_inside = data_inside[finite]
+            if data_inside.size == 0:
+                return mask
+        dmin = float(data_inside.min())
+        dmax = float(data_inside.max())
+        lo, hi = dmin, dmax
+        try:
+            lo_p, hi_p = np.percentile(data_inside, (1.0, 99.0))
+            if np.isfinite(lo_p) and np.isfinite(hi_p) and hi_p > lo_p:
+                lo, hi = float(lo_p), float(hi_p)
+        except Exception:
+            pass
+        if hi <= lo:
+            if dmax <= dmin:
+                norm = np.zeros_like(data_inside, dtype=np.float32)
+            else:
+                lo, hi = dmin, dmax
+                clipped = np.clip(data_inside, lo, hi)
+                norm = (clipped - lo) / (hi - lo) * 255.0
         else:
-            norm = (data_inside - dmin) / (dmax - dmin) * 255.0
+            clipped = np.clip(data_inside, lo, hi)
+            norm = (clipped - lo) / (hi - lo) * 255.0
         thr = float(threshold)
         mask_inside = (norm >= thr).astype(np.uint8)
         mask[inside] = mask_inside

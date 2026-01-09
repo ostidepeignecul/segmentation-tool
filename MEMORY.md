@@ -2371,4 +2371,21 @@ L'ancien `nde_loader.py` était un loader minimal. Le nouveau utilise intégrale
 2. **Rotation 90° CW** : Appliquée systématiquement à la fin du pipeline via `np.rot90(data, k=-1, axes=(1, 2))` pour orientation display-ready.
 3. **Ordre du pipeline** : Chargement → Détection type → Extraction → Réordonnancement axes → Rotation 90° → NdeModel
 
+---### **2026-01-09** — Seuil ROI robuste et labels persistants NDE/NPZ
+
+**Tags :** `#services/annotation_service.py`, `#models/annotation_model.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#roi`, `#threshold`, `#overlay`, `#labels`, `#mvc`, `#branch:annotation`
+
+**Actions effectuees :**
+- Rendu le threshold ROI rectangle robuste aux outliers via normalisation percentile (1/99) + clipping dans `build_thresholded_mask`, avec filtrage NaN/inf.
+- Ajoute l'option `preserve_labels` a `AnnotationModel.set_mask_volume` pour garder palette/visibilite et fusionner les classes manquantes d'un NPZ.
+- Ajoute `preserve_labels` a `AnnotationController.reset_overlay_state` et adapte le chargement NDE/NPZ pour conserver les labels du tools panel et resynchroniser l'overlay settings.
+
+**Contexte :**
+Un pixel aberrant dans une ROI avec threshold faible faisait disparaitre la selection. Les labels disparaissaient du tools panel lors du chargement d'un NDE alors qu'ils doivent persister, et le NPZ doit seulement ajouter ses classes manquantes.
+
+**Decisions techniques :**
+1. Normaliser la ROI avec percentiles 1/99 plutot que min/max pour rester relatif tout en limitant l'impact des outliers.
+2. Preserver les labels lors des resets NDE/NPZ (masques/ROI vides) et re-synchroniser la fenetre overlay plutot que tout vider.
+3. Ne pas modifier le flow nnUNet.
+
 ---

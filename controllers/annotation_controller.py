@@ -192,14 +192,15 @@ class AnnotationController:
         """Synchronise la vue de paramètres overlay avec le modèle d'annotation."""
         self._sync_overlay_settings_with_model()
 
-    def reset_overlay_state(self) -> None:
+    def reset_overlay_state(self, *, preserve_labels: bool = False) -> None:
         """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""
         self.annotation_model.clear_overlay_cache()
         self.annotation_view.set_overlay(None)
         self.annotation_view.clear_roi_overlay()
         self.annotation_view.clear_temp_shapes()
         self.volume_view.set_overlay(None)
-        self.overlay_settings_view.clear_labels()
+        if not preserve_labels:
+            self.overlay_settings_view.clear_labels()
         self.temp_mask_model.clear()
         self.roi_model.clear()
 

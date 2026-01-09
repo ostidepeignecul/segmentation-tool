@@ -32,22 +32,24 @@ class AnnotationModel:
         self.mask_volume = np.zeros((int(depth), int(height), int(width)), dtype=np.uint8)
         self.overlay_cache = None
 
-    def set_mask_volume(self, mask_volume: Any) -> None:
-        """Assign a full mask volume (uint8, shape (Z,H,W))."""
+    def set_mask_volume(self, mask_volume: Any, *, preserve_labels: bool = False) -> None:
+        """Assign a full mask volume (uint8, shape (Z,H,W)), optionally preserving labels."""
         arr = np.asarray(mask_volume, dtype=np.uint8)
         if arr.ndim != 3:
             raise ValueError("Mask volume must be 3D (Z,H,W).")
         self.mask_volume = arr
         self.overlay_cache = None
         # Reset palette/visibilité et auto-register labels présents
-        self.label_palette = {}
-        self.label_visibility = {}
+        if not preserve_labels:
+            self.label_palette = {}
+            self.label_visibility = {}
         for cls_value in np.unique(arr):
             cls_int = int(cls_value)
             if cls_int == 0:
                 continue
-            color = MASK_COLORS_BGRA.get(cls_int, FallbackColor)
-            self.label_palette.setdefault(cls_int, tuple(int(c) for c in color))
+            if cls_int not in self.label_palette:
+                color = MASK_COLORS_BGRA.get(cls_int, FallbackColor)
+                self.label_palette[cls_int] = tuple(int(c) for c in color)
             self.label_visibility.setdefault(cls_int, True)
 
     def set_slice_mask(self, slice_idx: int, mask: Any, *, invalidate_cache: bool = True) -> None:
