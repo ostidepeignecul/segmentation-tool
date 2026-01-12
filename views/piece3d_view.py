@@ -23,6 +23,7 @@ class Piece3DView(VolumeView):
         self._slider.hide()
         self._iso_threshold: float = 0.5
         self._shading_profile = "standard"
+        self._shading_lut_boost: bool = False
         self.set_base_colormap("Metal", self._metal_lut())
         self._status.setText("Pièce 3D non chargée")
         self._anchor_mode = AnchorMode.VOLUME_CENTER
@@ -134,38 +135,56 @@ class Piece3DView(VolumeView):
         if self._shading_profile == profile:
             return
         self._shading_profile = profile
+        self._shading_lut_boost = profile == "boosted"
         self._apply_shading()
 
     def _apply_shading(self) -> None:
-        # Shading uniforms not applied; VisPy version marque certains uniforms en const
-        # et rejette l'écriture. On conserve le profil pour une compat éventuelle future.
-        return
+        if self._volume_visual is None:
+            return
+        params = self._shading_params(self._shading_profile)
+        # VisPy iso shader uses const lighting, so we vary gamma/contrast/step for visible modes.
+        self._volume_visual.gamma = params["gamma"]
+        self._volume_visual.clim = (params["clim_low"], params["clim_high"])
+        self._volume_visual.relative_step_size = params["relative_step_size"]
+        self._volume_visual.interpolation = params["interpolation"]
+        lut = self._metal_lut(boosted=self._shading_lut_boost)
+        self.set_base_colormap("Metal", lut)
 
     @staticmethod
-    def _shading_params(profile: str) -> dict[str, float]:
+    def _shading_params(profile: str) -> dict[str, float | str]:
         if profile == "boosted":
             return {
-                "ambient": 0.45,
-                "diffuse": 0.85,
-                "specular": 0.9,
-                "shininess": 120.0,
+                "gamma": 1.25,
+                "clim_low": 0.12,
+                "clim_high": 0.86,
+                "relative_step_size": 0.45,
+                "interpolation": "linear",
             }
         return {
-            "ambient": 0.35,
-            "diffuse": 0.75,
-            "specular": 0.65,
-            "shininess": 80.0,
+            "gamma": 1.0,
+            "clim_low": 0.0,
+            "clim_high": 1.0,
+            "relative_step_size": 0.7,
+            "interpolation": "linear",
         }
 
     @staticmethod
-    def _metal_lut() -> np.ndarray:
+    def _metal_lut(*, boosted: bool = False) -> np.ndarray:
         """Construit un dégradé cuivré pour l'iso surface."""
-        dark = np.array([40, 20, 10], dtype=np.float32)
-        mid = np.array([140, 70, 35], dtype=np.float32)
-        bright = np.array([230, 170, 120], dtype=np.float32)
+        if boosted:
+            dark = np.array([20, 10, 6], dtype=np.float32)
+            mid = np.array([90, 45, 25], dtype=np.float32)
+            bright = np.array([190, 130, 90], dtype=np.float32)
+        else:
+            dark = np.array([40, 20, 10], dtype=np.float32)
+            mid = np.array([140, 70, 35], dtype=np.float32)
+            bright = np.array([230, 170, 120], dtype=np.float32)
         t = np.linspace(0.0, 1.0, 256, dtype=np.float32)[:, None]
         # Accentue le contraste autour des valeurs intermédiaires
-        t = np.clip(0.5 + 1.15 * (t - 0.5), 0.0, 1.0)
+        if boosted:
+            t = np.clip(0.5 + 1.35 * (t - 0.5), 0.0, 1.0)
+        else:
+            t = np.clip(0.5 + 1.15 * (t - 0.5), 0.0, 1.0)
         lut = np.where(
             t < 0.5,
             dark + (mid - dark) * (t * 2.0),
