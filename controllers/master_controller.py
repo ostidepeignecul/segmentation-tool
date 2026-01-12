@@ -303,6 +303,9 @@ class MasterController:
         self.overlay_settings_view.label_deleted.connect(self._on_label_deleted)
         self.nde_settings_view.endview_colormap_changed.connect(self._on_endview_colormap_changed)
         self.nde_settings_view.cscan_colormap_changed.connect(self._on_cscan_colormap_changed)
+        self.nde_settings_view.apply_volume_range_changed.connect(
+            self._on_apply_volume_range_changed
+        )
 
     def _register_shortcuts(self) -> None:
         """Global keyboard shortcuts (active anywhere in the window)."""
@@ -372,6 +375,7 @@ class MasterController:
             self.view_state_model.set_slice_bounds(0, num_slices - 1)
             self.view_state_model.set_slice(0)
             self.view_state_model.set_current_point(None)
+            self.view_state_model.set_apply_volume_range(0, num_slices - 1, include_current=True)
             self.annotation_controller.reset_overlay_state(preserve_labels=True)
             self.annotation_model.initialize(volume.shape)
             self.temp_mask_model.clear()
@@ -413,6 +417,7 @@ class MasterController:
             self._nde_path = file_path
             self._update_nde_label()
             self._update_endview_label()
+            self._sync_apply_volume_range_view()
 
             self.status_message(f"NDE chargé: {file_path}")
 
@@ -636,9 +641,26 @@ class MasterController:
             endview=self.view_state_model.endview_colormap,
             cscan=self.view_state_model.cscan_colormap,
         )
+        self._sync_apply_volume_range_view()
         self.nde_settings_view.show()
         self.nde_settings_view.raise_()
         self.nde_settings_view.activateWindow()
+
+    def _sync_apply_volume_range_view(self) -> None:
+        """Sync apply-to-volume range bounds/values into the settings dialog."""
+        volume = self._current_volume()
+        if volume is None or getattr(volume, "shape", None) is None:
+            self.nde_settings_view.set_apply_volume_bounds(0, 0)
+            self.nde_settings_view.set_apply_volume_range(0, 0)
+            return
+        max_idx = max(0, int(volume.shape[0]) - 1)
+        start_idx, end_idx = self.view_state_model.set_apply_volume_range(
+            self.view_state_model.apply_volume_start,
+            self.view_state_model.apply_volume_end,
+            include_current=True,
+        )
+        self.nde_settings_view.set_apply_volume_bounds(0, max_idx)
+        self.nde_settings_view.set_apply_volume_range(start_idx, end_idx)
 
     def _on_quit(self) -> None:
         """Quit the application."""
@@ -655,6 +677,16 @@ class MasterController:
         self.view_state_model.set_cscan_colormap(name)
         if self.cscan_view is not None:
             self.cscan_view.set_colormap(name, lut)
+
+    def _on_apply_volume_range_changed(self, start: int, end: int) -> None:
+        """Handle apply-to-volume range updates from settings."""
+        volume = self._current_volume()
+        if volume is None:
+            return
+        start_idx, end_idx = self.view_state_model.set_apply_volume_range(
+            start, end, include_current=True
+        )
+        self.nde_settings_view.set_apply_volume_range(start_idx, end_idx)
 
     def _get_colormap_lut(self, name: str) -> Optional[np.ndarray]:
         """Return LUT (256x3 float) for known colormap names."""

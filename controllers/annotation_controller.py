@@ -243,6 +243,7 @@ class AnnotationController:
             depth, mask_shape = self._resolve_volume_dimensions()
             if depth is None or mask_shape is None:
                 return
+            start_idx, end_idx = self._resolve_apply_volume_range(depth)
             self.annotation_service.rebuild_volume_preview_from_rois(
                 depth=depth,
                 mask_shape=mask_shape,
@@ -250,6 +251,8 @@ class AnnotationController:
                 temp_mask_model=self.temp_mask_model,
                 palette=self.annotation_model.get_label_palette(),
                 slice_data_provider=self._slice_data,
+                start_idx=start_idx,
+                end_idx=end_idx,
             )
             self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
         else:
@@ -311,6 +314,7 @@ class AnnotationController:
             depth, _ = self._resolve_volume_dimensions()
             if depth is None:
                 return
+            start_idx, end_idx = self._resolve_apply_volume_range(depth)
             self.annotation_service.propagate_grow_volume_from_slice(
                 start_slice=slice_idx,
                 point=point,
@@ -322,6 +326,8 @@ class AnnotationController:
                 temp_mask_model=self.temp_mask_model,
                 palette=self.annotation_model.get_label_palette(),
                 slice_data_provider=self._slice_data,
+                start_idx=start_idx,
+                end_idx=end_idx,
             )
         else:
             grow_mask = self.annotation_service.apply_grow_roi(
@@ -371,18 +377,35 @@ class AnnotationController:
             return
 
         palette = self.annotation_model.get_label_palette()
-        self.annotation_service.apply_box_roi(
-            slice_idx=slice_idx,
-            box=box,
-            shape=(h, w),
-            label=label,
-            threshold=self.view_state_model.threshold,
-            persistent=self.view_state_model.roi_persistence,
-            roi_model=self.roi_model,
-            temp_mask_model=self.temp_mask_model,
-            palette=palette,
-            slice_data=self._slice_data(slice_idx),
-        )
+        if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
+            depth = mask_volume.shape[0]
+            start_idx, end_idx = self._resolve_apply_volume_range(depth)
+            self.annotation_service.apply_box_roi_to_range(
+                start_idx=start_idx,
+                end_idx=end_idx,
+                box=box,
+                shape=(h, w),
+                label=label,
+                threshold=self.view_state_model.threshold,
+                persistent=self.view_state_model.roi_persistence,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=palette,
+                slice_data_provider=self._slice_data,
+            )
+        else:
+            self.annotation_service.apply_box_roi(
+                slice_idx=slice_idx,
+                box=box,
+                shape=(h, w),
+                label=label,
+                threshold=self.view_state_model.threshold,
+                persistent=self.view_state_model.roi_persistence,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=palette,
+                slice_data=self._slice_data(slice_idx),
+            )
         self.refresh_roi_overlay_for_slice(slice_idx)
 
     def _handle_paint_click(self, pos: tuple[Any, Any]) -> None:
@@ -473,6 +496,7 @@ class AnnotationController:
             depth, mask_shape = self._resolve_volume_dimensions()
             if depth is None or mask_shape is None:
                 return
+            start_idx, end_idx = self._resolve_apply_volume_range(depth)
             # Preserve existing temp (e.g., paint) before rebuild from ROIs
             prev_temp = self.temp_mask_model.get_mask_volume()
             prev_cov = self.temp_mask_model.get_coverage_volume()
@@ -483,6 +507,8 @@ class AnnotationController:
                 temp_mask_model=self.temp_mask_model,
                 palette=self.annotation_model.get_label_palette(),
                 slice_data_provider=self._slice_data,
+                start_idx=start_idx,
+                end_idx=end_idx,
             )
             if prev_temp is not None and prev_cov is not None:
                 new_temp = self.temp_mask_model.get_mask_volume()
@@ -502,6 +528,8 @@ class AnnotationController:
             self.annotation_service.apply_temp_volume_to_model(
                 temp_mask_model=self.temp_mask_model,
                 annotation_model=self.annotation_model,
+                start_idx=start_idx,
+                end_idx=end_idx,
             )
             target_slice = self.view_state_model.current_slice
         else:
@@ -555,11 +583,17 @@ class AnnotationController:
     def on_apply_all_temp_masks_requested(self) -> None:
         """Apply temp masks across the whole volume regardless of the current slice mode."""
         prev_apply_volume = self.view_state_model.apply_volume
+        prev_range = (self.view_state_model.apply_volume_start, self.view_state_model.apply_volume_end)
         self.view_state_model.set_apply_volume(True)
+        depth, _ = self._resolve_volume_dimensions()
+        if depth is not None and depth > 0:
+            self.view_state_model.set_apply_volume_range(0, depth - 1, include_current=False)
         try:
             self.on_apply_temp_mask_requested()
         finally:
             self.view_state_model.set_apply_volume(prev_apply_volume)
+            self.view_state_model.apply_volume_start = prev_range[0]
+            self.view_state_model.apply_volume_end = prev_range[1]
 
     # ------------------------------------------------------------------ #
     # Saving
@@ -645,6 +679,26 @@ class AnnotationController:
                     mask_shape = (volume.shape[1], volume.shape[2])
 
         return depth, mask_shape
+
+    def _resolve_apply_volume_range(self, depth: int) -> tuple[int, int]:
+        """Clamp apply-to-volume range to depth and include current slice."""
+        max_idx = max(0, int(depth) - 1)
+        start_idx = int(getattr(self.view_state_model, "apply_volume_start", 0))
+        end_idx = int(getattr(self.view_state_model, "apply_volume_end", max_idx))
+        if start_idx > end_idx:
+            start_idx, end_idx = end_idx, start_idx
+        start_idx = max(0, min(max_idx, start_idx))
+        end_idx = max(0, min(max_idx, end_idx))
+        if start_idx > end_idx:
+            start_idx, end_idx = end_idx, start_idx
+        current = int(self.view_state_model.current_slice)
+        if current < start_idx:
+            start_idx = current
+        elif current > end_idx:
+            end_idx = current
+        start_idx = max(0, min(max_idx, start_idx))
+        end_idx = max(0, min(max_idx, end_idx))
+        return start_idx, end_idx
 
     def _slice_data(self, slice_idx: int):
         """Return raw slice data (H, W) from the current volume if available."""

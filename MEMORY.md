@@ -2389,3 +2389,21 @@ Un pixel aberrant dans une ROI avec threshold faible faisait disparaitre la sele
 3. Ne pas modifier le flow nnUNet.
 
 ---
+### **2026-01-12** — Range d'application au volume et decouplage ROI box/persistance
+
+**Tags :** `#views/nde_settings_view.py`, `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#models/view_state_model.py`, `#services/annotation_service.py`, `#apply-volume`, `#roi`, `#settings`, `#mvc`, `#branch:annotation`
+
+**Actions effectuees :**
+- Ajoute un range "Appliquer au volume (de/a)" dans la fenetre Parametres via `NdeSettingsView`, avec signaux et setters de bornes/valeurs.
+- Ajoute `apply_volume_start/end` dans `ViewStateModel` et synchronise le range depuis `MasterController` en forcant l'inclusion de la slice courante.
+- Limite l'application au volume au range (rebuild/apply/propagate grow) et applique la ROI box sur le range quand apply-volume est actif, sans depender de la persistance.
+
+**Contexte :**
+Le checkbox "Appliquer au volume" devait etre independant de la persistance des ROI et permettre d'appliquer uniquement un intervalle de slices (incluant la slice courante) au lieu du volume entier.
+
+**Decisions techniques :**
+1. Garde le range dans le modele de vue pour le partager entre UI et logique, avec clamp aux bornes volume.
+2. Applique le range au niveau service pour la reconstruction et l'application des masques temporaires.
+3. Pour la ROI box, appliquer le masque sur le range sans rendre les ROI persistantes.
+
+---

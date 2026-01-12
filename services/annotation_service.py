@@ -361,6 +361,8 @@ class AnnotationService:
         temp_mask_model: TempMaskModel,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         slice_data_provider: Callable[[int], Optional[np.ndarray]],
+        start_idx: Optional[int] = None,
+        end_idx: Optional[int] = None,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -370,7 +372,12 @@ class AnnotationService:
         else:
             temp_mask_model.clear()
 
-        for idx in range(int(depth)):
+        min_idx = 0 if start_idx is None else max(0, int(start_idx))
+        max_idx = (int(depth) - 1) if end_idx is None else min(int(end_idx), int(depth) - 1)
+        if max_idx < min_idx:
+            return
+
+        for idx in range(min_idx, max_idx + 1):
             rois = list(roi_model.list_on_slice(idx))
             persistent_rois = roi_model.list_persistent()
             if persistent_rois:
@@ -517,6 +524,8 @@ class AnnotationService:
         *,
         temp_mask_model: TempMaskModel,
         annotation_model: AnnotationModel,
+        start_idx: Optional[int] = None,
+        end_idx: Optional[int] = None,
     ) -> None:
         """Apply the entire temp mask volume into the annotation model."""
         temp_volume = temp_mask_model.get_mask_volume()
@@ -531,8 +540,12 @@ class AnnotationService:
             return
 
         depth = min(temp_volume.shape[0], mask_volume.shape[0])
+        min_idx = 0 if start_idx is None else max(0, int(start_idx))
+        max_idx = (depth - 1) if end_idx is None else min(int(end_idx), depth - 1)
+        if max_idx < min_idx:
+            return
         coverage_volume = temp_mask_model.get_coverage_volume()
-        for idx in range(depth):
+        for idx in range(min_idx, max_idx + 1):
             temp_slice = temp_volume[idx]
             current_slice = mask_volume[idx]
             if current_slice.shape != temp_slice.shape:
@@ -565,6 +578,8 @@ class AnnotationService:
         temp_mask_model: TempMaskModel,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         slice_data_provider: Callable[[int], Optional[np.ndarray]],
+        start_idx: Optional[int] = None,
+        end_idx: Optional[int] = None,
     ) -> None:
         """
         Apply grow ROI forward/backward from a slice until threshold fails.
@@ -580,6 +595,13 @@ class AnnotationService:
             if palette is not None and label in palette:
                 temp_mask_model.ensure_label(label, palette[label], visible=True)
                 break
+
+        min_idx = 0 if start_idx is None else max(0, int(start_idx))
+        max_idx = (int(depth) - 1) if end_idx is None else min(int(end_idx), int(depth) - 1)
+        if max_idx < min_idx:
+            return
+        if start_slice < min_idx or start_slice > max_idx:
+            return
 
         def apply_once(idx: int) -> bool:
             slice_data = slice_data_provider(idx)
@@ -602,10 +624,43 @@ class AnnotationService:
         if not apply_once(start_slice):
             return
 
-        for idx in range(start_slice + 1, int(depth)):
+        for idx in range(start_slice + 1, max_idx + 1):
             if not apply_once(idx):
                 break
 
-        for idx in range(start_slice - 1, -1, -1):
+        for idx in range(start_slice - 1, min_idx - 1, -1):
             if not apply_once(idx):
                 break
+
+    def apply_box_roi_to_range(
+        self,
+        *,
+        start_idx: int,
+        end_idx: int,
+        box: Any,
+        shape: Tuple[int, int],
+        label: int,
+        threshold: Optional[float],
+        persistent: bool,
+        roi_model: RoiModel,
+        temp_mask_model: TempMaskModel,
+        palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
+        slice_data_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+    ) -> None:
+        """Apply a box ROI across a slice range."""
+        min_idx = int(min(start_idx, end_idx))
+        max_idx = int(max(start_idx, end_idx))
+        for idx in range(min_idx, max_idx + 1):
+            slice_data = slice_data_provider(idx) if slice_data_provider is not None else None
+            self.apply_box_roi(
+                slice_idx=idx,
+                box=box,
+                shape=shape,
+                label=label,
+                threshold=threshold,
+                persistent=persistent,
+                roi_model=roi_model,
+                temp_mask_model=temp_mask_model,
+                palette=palette,
+                slice_data=slice_data,
+            )

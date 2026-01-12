@@ -26,6 +26,8 @@ class ViewStateModel:
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
         self.active_label: Optional[int] = None
+        self.apply_volume_start: int = 0
+        self.apply_volume_end: int = 0
 
         # --- Navigation ---
         self.cursor_position: Optional[Tuple[int, int]] = None
@@ -107,6 +109,26 @@ class ViewStateModel:
             self.active_label = None
         else:
             self.active_label = int(label_id)
+
+    def set_apply_volume_range(self, start: int, end: int, *, include_current: bool = True) -> tuple[int, int]:
+        """Set slice range for apply-to-volume, optionally enforcing current slice inclusion."""
+        start_idx = int(start)
+        end_idx = int(end)
+        if start_idx > end_idx:
+            start_idx, end_idx = end_idx, start_idx
+        start_idx = max(self.slice_min, min(self.slice_max, start_idx))
+        end_idx = max(self.slice_min, min(self.slice_max, end_idx))
+        if start_idx > end_idx:
+            start_idx, end_idx = end_idx, start_idx
+        if include_current:
+            cur = int(self.current_slice)
+            if cur < start_idx:
+                start_idx = cur
+            elif cur > end_idx:
+                end_idx = cur
+        self.apply_volume_start = start_idx
+        self.apply_volume_end = end_idx
+        return start_idx, end_idx
 
     def set_paint_radius(self, radius: int) -> None:
         """Update brush radius (in pixels) for paint tool."""
