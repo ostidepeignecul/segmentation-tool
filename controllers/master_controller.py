@@ -212,6 +212,11 @@ class MasterController:
                 dock.visibilityChanged.connect(self._on_tools_panel_visibility_changed)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
+        if hasattr(self.ui, "actionAfficher_solide_3d"):
+            action = self.ui.actionAfficher_solide_3d
+            action.setCheckable(True)
+            action.setChecked(False)
+            action.toggled.connect(self._on_piece3d_toggled)
 
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
@@ -1054,6 +1059,73 @@ class MasterController:
             return None
         return self.nde_model.get_active_volume()
 
+    def _on_piece3d_toggled(self, checked: bool) -> None:
+        """Show/hide the piece3D window from the Analyse menu."""
+        if checked:
+            self._show_piece3d_window()
+        else:
+            self._close_piece3d_window()
+
+    def _sync_piece3d_action(self, checked: bool) -> None:
+        """Update the menu action without re-triggering the toggle handler."""
+        action = getattr(self.ui, "actionAfficher_solide_3d", None)
+        if action is None:
+            return
+        action.blockSignals(True)
+        action.setChecked(bool(checked))
+        action.blockSignals(False)
+
+    def _ensure_piece3d_window(self) -> None:
+        """Create the piece3D window lazily and wire close tracking."""
+        if self._piece3d_window is not None:
+            return
+        self._piece3d_window = QDialog(self.main_window)
+        self._piece3d_window.setWindowTitle("Pièce 3D corrosion")
+        self._piece3d_window.finished.connect(self._on_piece3d_window_closed)
+        layout = QVBoxLayout(self._piece3d_window)
+        self._piece3d_view = Piece3DView(parent=self._piece3d_window)
+        self._piece_toggle_btn = QPushButton("Montrer volume interpolé", parent=self._piece3d_window)
+        self._piece_toggle_btn.clicked.connect(self._toggle_piece_volume)
+        layout.addWidget(self._piece3d_view)
+        layout.addWidget(self._piece_toggle_btn)
+
+    def _show_piece3d_window(self) -> None:
+        """Open the piece3D window using the latest available volume."""
+        self._ensure_piece3d_window()
+        if self._piece3d_view is None or self._piece3d_window is None:
+            return
+
+        volume = None
+        if self._piece_show_interpolated and self._piece_volume_interpolated is not None:
+            volume = self._piece_volume_interpolated
+        elif (not self._piece_show_interpolated) and self._piece_volume_raw is not None:
+            volume = self._piece_volume_raw
+        elif self._piece_volume_interpolated is not None:
+            self._piece_show_interpolated = True
+            volume = self._piece_volume_interpolated
+        elif self._piece_volume_raw is not None:
+            self._piece_show_interpolated = False
+            volume = self._piece_volume_raw
+
+        if volume is not None:
+            self._piece3d_view.set_piece_volume(volume)
+            self._update_piece_toggle_label()
+
+        self._piece3d_window.show()
+        self._piece3d_window.raise_()
+        self._piece3d_window.activateWindow()
+        self._sync_piece3d_action(True)
+
+    def _close_piece3d_window(self) -> None:
+        """Close the piece3D window if open."""
+        if self._piece3d_window is None:
+            return
+        self._piece3d_window.close()
+
+    def _on_piece3d_window_closed(self, *_args) -> None:
+        """Keep the menu action in sync when the window is closed."""
+        self._sync_piece3d_action(False)
+
     def _show_piece3d_volume(
         self,
         *,
@@ -1061,16 +1133,7 @@ class MasterController:
         interpolated_volume: Optional[np.ndarray],
     ) -> None:
         """Affiche ou met à jour la fenêtre flottante de la pièce 3D corrosion."""
-        if self._piece3d_window is None:
-            self._piece3d_window = QDialog(self.main_window)
-            self._piece3d_window.setWindowTitle("Pièce 3D corrosion")
-            layout = QVBoxLayout(self._piece3d_window)
-            self._piece3d_view = Piece3DView(parent=self._piece3d_window)
-            self._piece_toggle_btn = QPushButton("Montrer volume interpolé", parent=self._piece3d_window)
-            self._piece_toggle_btn.clicked.connect(self._toggle_piece_volume)
-            layout.addWidget(self._piece3d_view)
-            layout.addWidget(self._piece_toggle_btn)
-
+        self._ensure_piece3d_window()
         if self._piece3d_view is None:
             return
 
@@ -1090,9 +1153,7 @@ class MasterController:
         if current is not None:
             self._piece3d_view.set_piece_volume(current)
             self._update_piece_toggle_label()
-            self._piece3d_window.show()  # type: ignore[union-attr]
-            self._piece3d_window.raise_()  # type: ignore[union-attr]
-            self._piece3d_window.activateWindow()  # type: ignore[union-attr]
+            self._show_piece3d_window()
 
     def _toggle_piece_volume(self) -> None:
         """Bascule entre volume brut et volume interpolé si les deux sont disponibles."""
