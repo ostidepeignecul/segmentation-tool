@@ -122,11 +122,10 @@ class AnnotationController:
         self, *, defer_volume: bool = False, rebuild: bool = True, changed_slice: Optional[int] = None
     ) -> None:
         """Recalcule et pousse l'overlay vers les vues selon l'état actuel."""
-        if not self.view_state_model.show_overlay:
-            self.logger.info("Overlay hidden by toggle; clearing views.")
-            self.annotation_view.set_overlay(None)
+        show_volume_overlay = self.view_state_model.show_overlay
+        if not show_volume_overlay:
+            self.logger.info("Overlay hidden by toggle; clearing 3D view only.")
             self.volume_view.set_overlay(None)
-            return
 
         mask_volume = self.annotation_model.get_mask_volume()
         palette = self.annotation_model.get_label_palette()
@@ -176,13 +175,14 @@ class AnnotationController:
         )
 
         self.annotation_view.set_overlay(overlay_data, visible_labels=visible_labels)
-        self.volume_view.set_overlay(
-            overlay_data,
-            visible_labels=visible_labels,
-            defer_3d=defer_volume,
-            changed_slice=changed_slice,
-            changed_labels=changed_labels,
-        )
+        if show_volume_overlay:
+            self.volume_view.set_overlay(
+                overlay_data,
+                visible_labels=visible_labels,
+                defer_3d=defer_volume,
+                changed_slice=changed_slice,
+                changed_labels=changed_labels,
+            )
 
     def clear_labels(self) -> None:
         """Efface tous les labels de la vue de paramètres overlay."""
