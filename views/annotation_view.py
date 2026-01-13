@@ -6,8 +6,8 @@ from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
-from PyQt6.QtGui import QCursor, QMouseEvent, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import QFileDialog, QGraphicsPixmapItem, QGraphicsRectItem
+from PyQt6.QtGui import QCursor, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtWidgets import QFileDialog, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem
 
 from config.constants import MASK_COLORS_BGRA
 from views.endview_view import EndviewView
@@ -21,11 +21,14 @@ class AnnotationView(EndviewView):
     previous_requested = pyqtSignal()
     next_requested = pyqtSignal()
     apply_roi_requested = pyqtSignal()
+    line_drawn = pyqtSignal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._temp_mask_points: list[Tuple[int, int]] = []
         self._temp_box: Optional[Tuple[int, int, int, int]] = None
+        self._temp_line_points: list[Tuple[int, int]] = []
+        self._line_drawing: bool = False
         self._roi_overlay: Optional[Any] = None
         self._box_start: Optional[Tuple[int, int]] = None
         self._roi_item = QGraphicsPixmapItem()
@@ -36,6 +39,10 @@ class AnnotationView(EndviewView):
         self._temp_box_item.setPen(QPen(Qt.GlobalColor.yellow))
         self._temp_box_item.setZValue(6)
         self._scene.addItem(self._temp_box_item)
+        self._temp_line_item = QGraphicsPathItem()
+        self._temp_line_item.setPen(QPen(Qt.GlobalColor.yellow))
+        self._temp_line_item.setZValue(6)
+        self._scene.addItem(self._temp_line_item)
         self._roi_box_items: list[QGraphicsRectItem] = []
         self._roi_pen = QPen(Qt.GlobalColor.white)
         self._roi_pen.setWidth(2)
@@ -64,12 +71,26 @@ class AnnotationView(EndviewView):
         ymin, ymax = sorted((y1, y2))
         self._temp_box_item.setRect(xmin, ymin, xmax - xmin, ymax - ymin)
 
+    def set_temp_line(self, points: Sequence[Tuple[int, int]]) -> None:
+        """Display a temporary freehand line in progress."""
+        self._temp_line_points = [(int(x), int(y)) for x, y in points]
+        path = QPainterPath()
+        if self._temp_line_points:
+            x0, y0 = self._temp_line_points[0]
+            path.moveTo(x0, y0)
+            for x, y in self._temp_line_points[1:]:
+                path.lineTo(x, y)
+        self._temp_line_item.setPath(path)
+
     def clear_temp_shapes(self) -> None:
-        """Clear any temporary mask/box."""
+        """Clear any temporary mask/box/line."""
         self._temp_mask_points = []
         self._temp_box = None
         self._box_start = None
         self._temp_box_item.setRect(0, 0, 0, 0)
+        self._temp_line_points = []
+        self._line_drawing = False
+        self._temp_line_item.setPath(QPainterPath())
 
     # ------------------------------------------------------------------ #
     # ROI overlay (stub)
@@ -147,10 +168,11 @@ class AnnotationView(EndviewView):
     # Tool mode
     # ------------------------------------------------------------------ #
     def set_tool_mode(self, mode: Optional[str]) -> None:
-        """Synchronize active tool to enable/disable box drawing."""
+        """Synchronize active tool and clear transient shapes when switching."""
+        prev_mode = self._tool_mode
         self._tool_mode = mode
         self._apply_tool_cursor()
-        if mode != "box":
+        if prev_mode != mode:
             self.clear_temp_shapes()
 
     def _apply_tool_cursor(self) -> None:
@@ -201,13 +223,24 @@ class AnnotationView(EndviewView):
         if obj is self._view.viewport():
             if isinstance(event, QMouseEvent):
                 if event.type() == QMouseEvent.Type.MouseButtonPress:
+                    if self._tool_mode == "line":
+                        handled = self._handle_line_press(event)
+                        if handled:
+                            return True
                     if self._tool_mode == "box":
                         handled = self._handle_box_press(event)
                         if handled:
                             return True
                 if event.type() == QMouseEvent.Type.MouseMove:
+                    if self._tool_mode == "line":
+                        self._handle_line_move(event)
                     if self._tool_mode == "box":
                         self._handle_box_move(event)
+                if event.type() == QMouseEvent.Type.MouseButtonRelease:
+                    if self._tool_mode == "line":
+                        handled = self._handle_line_release(event)
+                        if handled:
+                            return True
         return super().eventFilter(obj, event)
 
     def _roi_to_pixmap(self, mask: Any, palette: Optional[dict[int, tuple[int, int, int, int]]] = None):
@@ -260,6 +293,49 @@ class AnnotationView(EndviewView):
             return
         box = (self._box_start[0], self._box_start[1], coords[0], coords[1])
         self.set_temp_box(box)
+
+    def _handle_line_press(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            return False
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is None:
+            return False
+        self._view.setFocus(Qt.FocusReason.MouseFocusReason)
+        self._line_drawing = True
+        self._temp_line_points = [coords]
+        self.set_temp_line(self._temp_line_points)
+        return False
+
+    def _handle_line_move(self, event: QMouseEvent) -> None:
+        if not self._line_drawing:
+            return
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is None:
+            return
+        if self._temp_line_points and coords == self._temp_line_points[-1]:
+            return
+        self._temp_line_points.append(coords)
+        self.set_temp_line(self._temp_line_points)
+
+    def _handle_line_release(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if not self._line_drawing:
+            return False
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is not None and (
+            not self._temp_line_points or coords != self._temp_line_points[-1]
+        ):
+            self._temp_line_points.append(coords)
+        points = list(self._temp_line_points)
+        self.clear_temp_shapes()
+        if points:
+            self.line_drawn.emit(points)
+        return False
 
     def _clamped_scene_coords_from_event(self, event: QMouseEvent) -> Optional[Tuple[int, int]]:
         if self._volume is None:

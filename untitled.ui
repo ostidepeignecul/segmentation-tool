@@ -138,7 +138,7 @@
    <property name="minimumSize">
     <size>
      <width>300</width>
-     <height>701</height>
+     <height>727</height>
     </size>
    </property>
    <property name="features">
@@ -257,6 +257,13 @@
          <widget class="QRadioButton" name="radioButton_3">
           <property name="text">
            <string>Grow</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioButton_5">
+          <property name="text">
+           <string>Line</string>
           </property>
          </widget>
         </item>

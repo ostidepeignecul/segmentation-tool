@@ -53,6 +53,7 @@ class ToolsPanel(QFrame):
         self._free_hand_radio: Optional[QRadioButton] = None
         self._box_radio: Optional[QRadioButton] = None
         self._grow_radio: Optional[QRadioButton] = None
+        self._line_radio: Optional[QRadioButton] = None
         self._paint_radio: Optional[QRadioButton] = None
         self._paint_size_slider: Optional[QSlider] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
@@ -86,6 +87,7 @@ class ToolsPanel(QFrame):
         free_hand_radio: QRadioButton,
         box_radio: QRadioButton,
         grow_radio: QRadioButton,
+        line_radio: QRadioButton,
         paint_radio: QRadioButton,
         paint_slider: QSlider,
         nde_label: QLabel,
@@ -119,6 +121,7 @@ class ToolsPanel(QFrame):
         self._free_hand_radio = free_hand_radio
         self._box_radio = box_radio
         self._grow_radio = grow_radio
+        self._line_radio = line_radio
         self._paint_radio = paint_radio
         self._paint_size_slider = paint_slider
         self._overlay_checkbox = overlay_checkbox
@@ -164,6 +167,9 @@ class ToolsPanel(QFrame):
         )
         self._grow_radio.toggled.connect(
             lambda checked: checked and self.tool_mode_changed.emit("grow")
+        )
+        self._line_radio.toggled.connect(
+            lambda checked: checked and self.tool_mode_changed.emit("line")
         )
         self._paint_radio.toggled.connect(
             lambda checked: checked and self.tool_mode_changed.emit("paint")
@@ -271,6 +277,7 @@ class ToolsPanel(QFrame):
             "free_hand": self._free_hand_radio,
             "box": self._box_radio,
             "grow": self._grow_radio,
+            "line": self._line_radio,
             "paint": self._paint_radio,
         }
         target = mapping.get(mode)

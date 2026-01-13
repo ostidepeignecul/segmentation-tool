@@ -347,6 +347,81 @@ class AnnotationController:
 
         self.refresh_roi_overlay_for_slice(slice_idx)
 
+    def on_annotation_line_drawn(self, points: Any) -> None:
+        """Handle freehand line completion (line grow tool)."""
+        if self.view_state_model.tool_mode != "line":
+            return
+        if self.view_state_model.active_label is None:
+            return
+        if not isinstance(points, (list, tuple)):
+            return
+        clean_points: list[tuple[int, int]] = []
+        for pt in points:
+            if not isinstance(pt, (list, tuple)) or len(pt) != 2:
+                continue
+            try:
+                clean_points.append((int(pt[0]), int(pt[1])))
+            except Exception:
+                continue
+        if not clean_points:
+            return
+
+        label = self.view_state_model.active_label
+        threshold = self.view_state_model.threshold if self.view_state_model.threshold is not None else 0
+
+        try:
+            slice_idx = int(self.view_state_model.current_slice)
+        except Exception:
+            return
+
+        shape = (
+            self.annotation_model.mask_shape_hw()
+            or self.temp_mask_model.mask_shape_hw()
+        )
+        slice_data = self._slice_data(slice_idx)
+        if slice_data is not None and shape is None and slice_data.ndim >= 2:
+            shape = (int(slice_data.shape[0]), int(slice_data.shape[1]))
+        if slice_data is None or shape is None:
+            return
+
+        palette = self.annotation_model.get_label_palette()
+        if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
+            depth, _ = self._resolve_volume_dimensions()
+            if depth is None:
+                return
+            start_idx, end_idx = self._resolve_apply_volume_range(depth)
+            self.annotation_service.propagate_line_volume_from_slice(
+                start_slice=slice_idx,
+                points=clean_points,
+                shape=shape,
+                threshold=threshold,
+                label=label,
+                depth=depth,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=palette,
+                slice_data_provider=self._slice_data,
+                start_idx=start_idx,
+                end_idx=end_idx,
+            )
+        else:
+            line_mask = self.annotation_service.apply_line_roi(
+                slice_idx=slice_idx,
+                points=clean_points,
+                shape=shape,
+                slice_data=slice_data,
+                label=label,
+                threshold=threshold,
+                persistent=self.view_state_model.roi_persistence,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=palette,
+            )
+            if line_mask is None:
+                return
+
+        self.refresh_roi_overlay_for_slice(slice_idx)
+
     def on_annotation_freehand_started(self, pos: Any) -> None:
         """Handle free-hand start (stub)."""
         pass

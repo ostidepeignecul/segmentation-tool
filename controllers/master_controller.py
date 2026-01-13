@@ -229,6 +229,7 @@ class MasterController:
             free_hand_radio=self.ui.radioButton,
             box_radio=self.ui.radioButton_2,
             grow_radio=self.ui.radioButton_3,
+            line_radio=self.ui.radioButton_5,
             paint_radio=self.ui.radioButton_4,
             paint_slider=self.ui.horizontalSlider_3,
             nde_label=self.ui.label,
@@ -277,6 +278,7 @@ class MasterController:
         self.annotation_view.freehand_started.connect(self.annotation_controller.on_annotation_freehand_started)
         self.annotation_view.freehand_point_added.connect(self.annotation_controller.on_annotation_freehand_point_added)
         self.annotation_view.freehand_completed.connect(self.annotation_controller.on_annotation_freehand_completed)
+        self.annotation_view.line_drawn.connect(self.annotation_controller.on_annotation_line_drawn)
         self.annotation_view.box_drawn.connect(self.annotation_controller.on_annotation_box_drawn)
         self.annotation_view.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
         self.annotation_view.point_selected.connect(self._on_endview_point_selected)
