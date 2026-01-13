@@ -2389,6 +2389,25 @@ Un pixel aberrant dans une ROI avec threshold faible faisait disparaitre la sele
 3. Ne pas modifier le flow nnUNet.
 
 ---
+### **2026-01-13** — Ajout ROI line (ligne libre)
+
+**Tags:** `#views/tools_panel.py`, `#controllers/master_controller.py`, `#views/annotation_view.py`, `#controllers/annotation_controller.py`, `#models/roi_model.py`, `#services/annotation_service.py`, `#roi`, `#line`, `#grow`, `#mvc`, `#pyqt6`, `#branch:annotation`
+
+**Actions effectuees:**
+- Ajoute le mode outil "line" dans ToolsPanel et le wiring du radio Designer via MasterController (tool_mode="line").
+- AnnotationView: capture press-drag-release, preview de la ligne via QGraphicsPathItem et emission de `line_drawn`.
+- RoiModel: ajout du type `line` et stockage des points; AnnotationService: rasterise la polyline en graines puis applique un grow multi-seeds (rebuild/propagation volume inclus).
+- AnnotationController: applique la ROI line avec seuil/label/persistance/apply-volume puis rafraichit la preview ROI.
+
+**Contexte:**
+Besoin d'un mode ROI line similaire au grow: tracer une ligne libre pour semer plusieurs graines et lancer la germination sur les pixels touches.
+
+**Decisions techniques:**
+1. Reutiliser la logique grow en multi-graines via la rasterisation de la polyline (Bresenham) pour garder un comportement coherent avec le seuil.
+2. Garder le flux MVC: dessin/preview en vue, orchestration dans le controleur, logique grow/rasterisation dans le service.
+3. Integrer le mode line aux chemins apply-volume et rebuild ROI pour conserver persistance et preview.
+
+---
 ### **2026-01-12** — Range d'application au volume et decouplage ROI box/persistance
 
 **Tags :** `#views/nde_settings_view.py`, `#controllers/master_controller.py`, `#controllers/annotation_controller.py`, `#models/view_state_model.py`, `#services/annotation_service.py`, `#apply-volume`, `#roi`, `#settings`, `#mvc`, `#branch:annotation`
