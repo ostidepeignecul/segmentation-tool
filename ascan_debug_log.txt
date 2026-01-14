@@ -1,5 +1,0 @@
-=== A-SCAN DEBUG SESSION: C:/Users/gabriel.forest/Documents/datasets/corrosion/From Tommy Bourgelas - INTERNAL USE ONLY/BPX_DZUI-AIH-2024-01_S4_430.08IN_2024_12_19 08h45m42s/BPX_DZUI-AIH-2024-01_S4_430.08IN_2024_12_19 08h45m42s.nde ===
-
-[0.031s] A-SCAN PREVIEW slice=324 x=271 y=432
-  normalized: {'len': 864, 'min': 0.015259254723787308, 'max': 78.04498291015625, 'mean': 7.794243335723877, 'head5': [0.027466658502817154, 0.027466658502817154, 0.027466658502817154, 0.027466658502817154, 0.027466658502817154], 'marker': 432, 'crosshair': (271, 432)}
-  raw: {'ultrasound_axis': 1, 'len': 864, 'min': 5.0, 'max': 25573.0, 'mean': 2553.939697265625, 'head5': [9.0, 9.0, 9.0, 9.0, 9.0]}

@@ -2463,3 +2463,20 @@ Le checkbox "Appliquer au volume" devait etre independant de la persistance des 
 3. Pour la ROI box, appliquer le masque sur le range sans rendre les ROI persistantes.
 
 ---
+### **2026-01-14** — Consolidation des helpers NDE dans nde_loader
+
+**Tags :** `#services/nde_loader.py`, `#utils/nde_versions_helper.py`, `#utils/sectorial_nde.py`, `#utils/extract_data_from_nde.py`, `#refactoring`, `#nde_loader`, `#mvc`, `#numpy`, `#hdf5`, `#scipy`, `#branch:annotation`
+
+**Actions effectuées :**
+- Intégré les helpers de version (`Unistatus_*`, `get_unistatus`) et le traitement sectoriel (`SectorialScanNDE`, `SScanSliceInfo`, `s_scan_to_cartesian_image_extremes_fast`) directement dans `services/nde_loader.py`.
+- Nettoyé les imports inutilisés liés aux helpers sectoriels non appelés.
+- Supprimé les fichiers utils redondants/legacy (`utils/nde_versions_helper.py`, `utils/sectorial_nde.py`, `utils/extract_data_from_nde.py`).
+
+**Contexte :**
+Consolidation demandée pour centraliser le pipeline NDE, réduire les dépendances utils non utilisées et préserver le comportement existant dans un seul service.
+
+**Décisions techniques :**
+1. Conserver la logique existante en la déplaçant telle quelle dans `services/nde_loader.py` pour éviter toute régression fonctionnelle.
+2. Supprimer les helpers non utilisés et les modules utils obsolètes pour clarifier la surface API.
+
+---

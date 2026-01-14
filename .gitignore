@@ -9,3 +9,4 @@
 .augment/rules/byterover-rules.md
 __pycache__/
 *.pyc
+ascan_debug_log.txt
