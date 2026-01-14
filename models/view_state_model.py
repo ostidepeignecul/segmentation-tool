@@ -28,6 +28,7 @@ class ViewStateModel:
         self.active_label: Optional[int] = None
         self.apply_volume_start: int = 0
         self.apply_volume_end: int = 0
+        self.restriction_rect: Optional[Tuple[int, int, int, int]] = None
 
         # --- Navigation ---
         self.cursor_position: Optional[Tuple[int, int]] = None
@@ -109,6 +110,14 @@ class ViewStateModel:
             self.active_label = None
         else:
             self.active_label = int(label_id)
+
+    def set_restriction_rect(self, rect: Optional[Tuple[int, int, int, int]]) -> None:
+        """Set the global restriction rectangle (x1, y1, x2, y2) or clear it."""
+        if rect is None:
+            self.restriction_rect = None
+            return
+        x1, y1, x2, y2 = rect
+        self.restriction_rect = (int(x1), int(y1), int(x2), int(y2))
 
     def set_apply_volume_range(self, start: int, end: int, *, include_current: bool = True) -> tuple[int, int]:
         """Set slice range for apply-to-volume, optionally enforcing current slice inclusion."""

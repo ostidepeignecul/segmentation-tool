@@ -2389,6 +2389,43 @@ Un pixel aberrant dans une ROI avec threshold faible faisait disparaitre la sele
 3. Ne pas modifier le flow nnUNet.
 
 ---
+### **2026-01-13** — Blocage des pixels deja masques pour ROI
+
+**Tags:** `#annotation_controller.py`, `#annotation_service.py`, `#roi`, `#blocage`, `#apply-volume`, `#temp-mask`, `#mvc`, `#numpy`, `#branch:annotation`
+
+**Actions effectuees:**
+- Ajoute un helper `_build_blocked_mask` (annotation + temp) et l'utilise pour box/grow/line/paint ainsi que apply-volume/rebuild.
+- Etend AnnotationService pour accepter `blocked_mask`/`blocked_mask_provider` et filtrer box (apres threshold) + grow/line (barriere).
+- Maintient `restriction_mask` et applique le blocage uniquement pour `label != 0`.
+
+**Contexte:**
+Eviter d'ecraser des pixels deja masques lors des ROIs, tout en laissant le label 0 effacer librement; le blocage combine l'annotation existante et, selon le cas, la couverture temporaire.
+
+**Decisions techniques:**
+1. Le blocage n'est applique que pour `label != 0` afin de conserver le comportement d'effacement du label 0.
+2. `include_temp=False` lors des rebuild/apply-volume pour ne pas auto-bloquer la reconstruction; `include_temp=True` en edition interactive.
+3. Le mask est normalise cote service pour garantir un comportement coherent entre box/grow/line et les propagations volume.
+
+---
+### **2026-01-13** — Zone de restriction ROI globale (Alt drag)
+
+**Tags:** `#views/annotation_view.py`, `#controllers/annotation_controller.py`, `#services/annotation_service.py`, `#models/view_state_model.py`, `#controllers/master_controller.py`, `#roi`, `#restriction`, `#grow`, `#line`, `#box`, `#paint`, `#mvc`, `#pyqt6`, `#branch:annotation`
+
+**Actions effectuees:**
+- Ajoute un rectangle de restriction global dans la vue avec overlay en pointilles et edition Alt+drag (deplacement + resize).
+- Stocke la restriction dans ViewStateModel et l'initialise a pleine endview au chargement volume via MasterController.
+- Applique le mask de restriction a tous les modes ROI (grow/line/box/paint) et aux rebuild/propagations volume; les pixels hors zone sont ignores.
+- Filtre les seeds/ROIs et clippe les boxes/disk masks pour respecter la zone pendant la preview.
+
+**Contexte:**
+Besoin d'une zone de dessin globale, editable directement dans l'endview, pour empecher toute segmentation en dehors de la zone.
+
+**Decisions techniques:**
+1. Utiliser un rectangle global (full-frame par defaut) pour rester simple et rapide a manipuler.
+2. Forcer le clipping au niveau service (region growing) et controller (box/paint) pour garantir l'effet sur tous les modes.
+3. Interaction Alt+drag pour ne pas ajouter un nouveau mode d'outil.
+
+---
 ### **2026-01-13** — Ajout ROI line (ligne libre)
 
 **Tags:** `#views/tools_panel.py`, `#controllers/master_controller.py`, `#views/annotation_view.py`, `#controllers/annotation_controller.py`, `#models/roi_model.py`, `#services/annotation_service.py`, `#roi`, `#line`, `#grow`, `#mvc`, `#pyqt6`, `#branch:annotation`

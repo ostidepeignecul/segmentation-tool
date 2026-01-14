@@ -129,6 +129,44 @@ class AnnotationService:
     # ------------------------------------------------------------------ #
     # Grow helpers
     # ------------------------------------------------------------------ #
+    def _normalize_restriction_mask(
+        self,
+        restriction_mask: Optional[np.ndarray],
+        shape: Tuple[int, int],
+    ) -> Optional[np.ndarray]:
+        if restriction_mask is None:
+            return None
+        try:
+            mask = np.asarray(restriction_mask, dtype=bool)
+        except Exception:
+            return None
+        try:
+            h, w = int(shape[0]), int(shape[1])
+        except Exception:
+            return None
+        if mask.shape != (h, w):
+            return None
+        return mask
+
+    def _normalize_blocked_mask(
+        self,
+        blocked_mask: Optional[np.ndarray],
+        shape: Tuple[int, int],
+    ) -> Optional[np.ndarray]:
+        if blocked_mask is None:
+            return None
+        try:
+            mask = np.asarray(blocked_mask, dtype=bool)
+        except Exception:
+            return None
+        try:
+            h, w = int(shape[0]), int(shape[1])
+        except Exception:
+            return None
+        if mask.shape != (h, w):
+            return None
+        return mask
+
     def _normalize_slice_to_uint8(self, slice_data: np.ndarray) -> Optional[np.ndarray]:
         """Normalize arbitrary slice data to uint8 [0, 255]."""
         try:
@@ -152,6 +190,8 @@ class AnnotationService:
         seed: Tuple[int, int],
         slice_data: np.ndarray,
         threshold: Optional[float],
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """Region growing (4-connexe) depuis un seed si la valeur dépasse le threshold."""
         try:
@@ -165,8 +205,14 @@ class AnnotationService:
         if norm is None or norm.shape[0] < h or norm.shape[1] < w:
             return None
 
+        restriction = self._normalize_restriction_mask(restriction_mask, (h, w))
+        blocked = self._normalize_blocked_mask(blocked_mask, (h, w))
         x = max(0, min(w - 1, int(seed[0])))
         y = max(0, min(h - 1, int(seed[1])))
+        if restriction is not None and not restriction[y, x]:
+            return None
+        if blocked is not None and blocked[y, x]:
+            return None
         thr = float(threshold) if threshold is not None else 0.0
         if norm[y, x] < thr:
             return None
@@ -179,6 +225,10 @@ class AnnotationService:
             cx, cy = q.popleft()
             for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
                 if nx < 0 or ny < 0 or nx >= w or ny >= h:
+                    continue
+                if restriction is not None and not restriction[ny, nx]:
+                    continue
+                if blocked is not None and blocked[ny, nx]:
                     continue
                 if mask[ny, nx]:
                     continue
@@ -258,6 +308,8 @@ class AnnotationService:
         seeds: Sequence[Tuple[int, int]],
         slice_data: np.ndarray,
         threshold: Optional[float],
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """Region growing (4-connexe) depuis plusieurs seeds."""
         try:
@@ -273,12 +325,18 @@ class AnnotationService:
         if norm is None or norm.shape[0] < h or norm.shape[1] < w:
             return None
 
+        restriction = self._normalize_restriction_mask(restriction_mask, (h, w))
+        blocked = self._normalize_blocked_mask(blocked_mask, (h, w))
         thr = float(threshold) if threshold is not None else 0.0
         mask = np.zeros((h, w), dtype=np.uint8)
         q: deque[Tuple[int, int]] = deque()
         for sx, sy in seeds:
             x = max(0, min(w - 1, int(sx)))
             y = max(0, min(h - 1, int(sy)))
+            if restriction is not None and not restriction[y, x]:
+                continue
+            if blocked is not None and blocked[y, x]:
+                continue
             if mask[y, x]:
                 continue
             if norm[y, x] < thr:
@@ -292,6 +350,10 @@ class AnnotationService:
             cx, cy = q.popleft()
             for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
                 if nx < 0 or ny < 0 or nx >= w or ny >= h:
+                    continue
+                if restriction is not None and not restriction[ny, nx]:
+                    continue
+                if blocked is not None and blocked[ny, nx]:
                     continue
                 if mask[ny, nx]:
                     continue
@@ -316,11 +378,20 @@ class AnnotationService:
         roi_model: RoiModel,
         temp_mask_model: TempMaskModel,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """
         Region growing ROI: build mask from seed/threshold, store ROI and apply to temp model.
         """
-        grow_mask = self.build_grow_mask(shape, point, slice_data, threshold)
+        grow_mask = self.build_grow_mask(
+            shape,
+            point,
+            slice_data,
+            threshold,
+            restriction_mask=restriction_mask,
+            blocked_mask=blocked_mask,
+        )
         if grow_mask is None:
             return None
 
@@ -354,6 +425,8 @@ class AnnotationService:
         roi_model: RoiModel,
         temp_mask_model: TempMaskModel,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """
         Region growing ROI from a freehand line (multi-seed), store ROI and apply to temp model.
@@ -362,7 +435,14 @@ class AnnotationService:
         if not seeds:
             return None
 
-        line_mask = self.build_grow_mask_from_seeds(shape, seeds, slice_data, threshold)
+        line_mask = self.build_grow_mask_from_seeds(
+            shape,
+            seeds,
+            slice_data,
+            threshold,
+            restriction_mask=restriction_mask,
+            blocked_mask=blocked_mask,
+        )
         if line_mask is None:
             return None
 
@@ -393,6 +473,8 @@ class AnnotationService:
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         clear_slice: bool = True,
         slice_data: Optional[np.ndarray] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask: Optional[np.ndarray] = None,
     ) -> list[Tuple[int, int, int, int]]:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
@@ -402,6 +484,8 @@ class AnnotationService:
         boxes: list[Tuple[int, int, int, int]] = []
         if clear_slice:
             temp_mask_model.clear_slice(slice_idx)
+        restriction = self._normalize_restriction_mask(restriction_mask, shape)
+        blocked = self._normalize_blocked_mask(blocked_mask, shape)
 
         for roi in rois:
             if getattr(roi, "roi_type", None) != "box" or len(getattr(roi, "points", [])) < 2:
@@ -410,6 +494,10 @@ class AnnotationService:
             box_mask = self.build_box_mask(shape, box_tuple)
             if box_mask is None:
                 continue
+            if restriction is not None:
+                box_mask = np.where(restriction, box_mask, 0)
+                if not np.any(box_mask):
+                    continue
             label = getattr(roi, "label", 1)
             color = (palette or {}).get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
             temp_mask_model.ensure_label(label, color, visible=True)
@@ -417,6 +505,8 @@ class AnnotationService:
             roi_threshold = getattr(roi, "threshold", None)
             if slice_data is not None and roi_threshold is not None:
                 mask_to_apply = self.build_thresholded_mask(box_mask, slice_data, roi_threshold)
+            if blocked is not None and int(label) != 0:
+                mask_to_apply = np.where(blocked, 0, mask_to_apply)
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
@@ -436,7 +526,12 @@ class AnnotationService:
             color = (palette or {}).get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
             temp_mask_model.ensure_label(label, color, visible=True)
             grow_mask = self.build_grow_mask(
-                shape, seed, slice_data, getattr(roi, "threshold", None)
+                shape,
+                seed,
+                slice_data,
+                getattr(roi, "threshold", None),
+                restriction_mask=restriction,
+                blocked_mask=blocked if int(label) != 0 else None,
             )
             if grow_mask is None:
                 continue
@@ -460,7 +555,12 @@ class AnnotationService:
             if not seeds:
                 continue
             line_mask = self.build_grow_mask_from_seeds(
-                shape, seeds, slice_data, getattr(roi, "threshold", None)
+                shape,
+                seeds,
+                slice_data,
+                getattr(roi, "threshold", None),
+                restriction_mask=restriction,
+                blocked_mask=blocked if int(label) != 0 else None,
             )
             if line_mask is None:
                 continue
@@ -542,6 +642,8 @@ class AnnotationService:
         slice_data_provider: Callable[[int], Optional[np.ndarray]],
         start_idx: Optional[int] = None,
         end_idx: Optional[int] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -565,6 +667,9 @@ class AnnotationService:
             if not rois:
                 continue
             slice_data = slice_data_provider(idx)
+            blocked_mask = (
+                blocked_mask_provider(idx) if blocked_mask_provider is not None else None
+            )
             self.rebuild_temp_masks_for_slice(
                 rois=rois,
                 shape=mask_shape,
@@ -573,6 +678,8 @@ class AnnotationService:
                 palette=palette,
                 clear_slice=True,
                 slice_data=slice_data,
+                restriction_mask=restriction_mask,
+                blocked_mask=blocked_mask,
             )
 
     def build_thresholded_mask(
@@ -644,6 +751,8 @@ class AnnotationService:
         temp_mask_model: TempMaskModel,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         slice_data: Optional[np.ndarray] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """
         Normalize a box, build its mask, store ROI metadata and apply mask to temp model.
@@ -656,6 +765,11 @@ class AnnotationService:
         box_mask = self.build_box_mask(shape, box_tuple)
         if box_mask is None:
             return None
+        restriction = self._normalize_restriction_mask(restriction_mask, shape)
+        if restriction is not None:
+            box_mask = np.where(restriction, box_mask, 0)
+            if not np.any(box_mask):
+                return None
 
         color = None
         if palette is not None:
@@ -675,6 +789,10 @@ class AnnotationService:
         mask_to_apply = box_mask
         if slice_data is not None and threshold is not None:
             mask_to_apply = self.build_thresholded_mask(box_mask, slice_data, threshold)
+        if blocked_mask is not None and int(label) != 0:
+            blocked = np.asarray(blocked_mask, dtype=bool)
+            if blocked.shape == mask_to_apply.shape:
+                mask_to_apply = np.where(blocked, 0, mask_to_apply)
 
         self.apply_temp_box(
             temp_mask_model, slice_idx, mask_to_apply, label, persistent=persistent
@@ -759,6 +877,8 @@ class AnnotationService:
         slice_data_provider: Callable[[int], Optional[np.ndarray]],
         start_idx: Optional[int] = None,
         end_idx: Optional[int] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """
         Apply grow ROI forward/backward from a slice until threshold fails.
@@ -786,6 +906,9 @@ class AnnotationService:
             slice_data = slice_data_provider(idx)
             if slice_data is None:
                 return False
+            blocked_mask = (
+                blocked_mask_provider(idx) if blocked_mask_provider is not None else None
+            )
             mask = self.apply_grow_roi(
                 slice_idx=idx,
                 point=point,
@@ -797,6 +920,8 @@ class AnnotationService:
                 roi_model=roi_model,
                 temp_mask_model=temp_mask_model,
                 palette=palette,
+                restriction_mask=restriction_mask,
+                blocked_mask=blocked_mask,
             )
             return mask is not None
 
@@ -826,6 +951,8 @@ class AnnotationService:
         slice_data_provider: Callable[[int], Optional[np.ndarray]],
         start_idx: Optional[int] = None,
         end_idx: Optional[int] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """
         Apply line ROI forward/backward from a slice until threshold fails.
@@ -852,6 +979,9 @@ class AnnotationService:
             slice_data = slice_data_provider(idx)
             if slice_data is None:
                 return False
+            blocked_mask = (
+                blocked_mask_provider(idx) if blocked_mask_provider is not None else None
+            )
             mask = self.apply_line_roi(
                 slice_idx=idx,
                 points=points,
@@ -863,6 +993,8 @@ class AnnotationService:
                 roi_model=roi_model,
                 temp_mask_model=temp_mask_model,
                 palette=palette,
+                restriction_mask=restriction_mask,
+                blocked_mask=blocked_mask,
             )
             return mask is not None
 
@@ -891,12 +1023,17 @@ class AnnotationService:
         temp_mask_model: TempMaskModel,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         slice_data_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """Apply a box ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
         max_idx = int(max(start_idx, end_idx))
         for idx in range(min_idx, max_idx + 1):
             slice_data = slice_data_provider(idx) if slice_data_provider is not None else None
+            blocked_mask = (
+                blocked_mask_provider(idx) if blocked_mask_provider is not None else None
+            )
             self.apply_box_roi(
                 slice_idx=idx,
                 box=box,
@@ -908,4 +1045,6 @@ class AnnotationService:
                 temp_mask_model=temp_mask_model,
                 palette=palette,
                 slice_data=slice_data,
+                restriction_mask=restriction_mask,
+                blocked_mask=blocked_mask,
             )

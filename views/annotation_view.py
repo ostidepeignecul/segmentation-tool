@@ -22,9 +22,11 @@ class AnnotationView(EndviewView):
     next_requested = pyqtSignal()
     apply_roi_requested = pyqtSignal()
     line_drawn = pyqtSignal(object)
+    restriction_rect_changed = pyqtSignal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._restriction_rect: Optional[Tuple[int, int, int, int]] = None
         self._temp_mask_points: list[Tuple[int, int]] = []
         self._temp_box: Optional[Tuple[int, int, int, int]] = None
         self._temp_line_points: list[Tuple[int, int]] = []
@@ -43,6 +45,14 @@ class AnnotationView(EndviewView):
         self._temp_line_item.setPen(QPen(Qt.GlobalColor.yellow))
         self._temp_line_item.setZValue(6)
         self._scene.addItem(self._temp_line_item)
+        self._restriction_item = QGraphicsRectItem()
+        restriction_pen = QPen(Qt.GlobalColor.cyan)
+        restriction_pen.setWidth(2)
+        restriction_pen.setStyle(Qt.PenStyle.DashLine)
+        self._restriction_item.setPen(restriction_pen)
+        self._restriction_item.setZValue(8)
+        self._restriction_item.setVisible(False)
+        self._scene.addItem(self._restriction_item)
         self._roi_box_items: list[QGraphicsRectItem] = []
         self._roi_pen = QPen(Qt.GlobalColor.white)
         self._roi_pen.setWidth(2)
@@ -52,6 +62,12 @@ class AnnotationView(EndviewView):
         self._tool_mode: Optional[str] = None
         self._paint_cursor: Optional[QCursor] = None
         self._paint_cursor_radius: int = 8
+        self._restriction_dragging: bool = False
+        self._restriction_drag_mode: Optional[str] = None
+        self._restriction_drag_start: Optional[Tuple[int, int]] = None
+        self._restriction_drag_rect: Optional[Tuple[int, int, int, int]] = None
+        self._restriction_edge_grab: int = 6
+        self._restriction_min_size: int = 10
 
     # ------------------------------------------------------------------ #
     # Temporary shapes (stubs)
@@ -91,6 +107,26 @@ class AnnotationView(EndviewView):
         self._temp_line_points = []
         self._line_drawing = False
         self._temp_line_item.setPath(QPainterPath())
+
+    def set_restriction_rect(self, rect: Optional[Tuple[int, int, int, int]]) -> None:
+        """Display the global restriction rectangle."""
+        if rect is None:
+            self._restriction_rect = None
+            self._restriction_item.setRect(0, 0, 0, 0)
+            self._restriction_item.setVisible(False)
+            return
+        x1, y1, x2, y2 = (int(v) for v in rect)
+        xmin, xmax = sorted((x1, x2))
+        ymin, ymax = sorted((y1, y2))
+        if self._volume is not None:
+            height, width = self._volume.shape[1:]
+            xmax = max(0, min(width - 1, xmax))
+            xmin = max(0, min(width - 1, xmin))
+            ymax = max(0, min(height - 1, ymax))
+            ymin = max(0, min(height - 1, ymin))
+        self._restriction_rect = (xmin, ymin, xmax, ymax)
+        self._restriction_item.setRect(xmin, ymin, xmax - xmin, ymax - ymin)
+        self._restriction_item.setVisible(True)
 
     # ------------------------------------------------------------------ #
     # ROI overlay (stub)
@@ -223,6 +259,12 @@ class AnnotationView(EndviewView):
         if obj is self._view.viewport():
             if isinstance(event, QMouseEvent):
                 if event.type() == QMouseEvent.Type.MouseButtonPress:
+                    if (
+                        event.modifiers() & Qt.KeyboardModifier.AltModifier
+                        and event.button() == Qt.MouseButton.LeftButton
+                    ):
+                        self._handle_restriction_press(event)
+                        return True
                     if self._tool_mode == "line":
                         handled = self._handle_line_press(event)
                         if handled:
@@ -232,11 +274,22 @@ class AnnotationView(EndviewView):
                         if handled:
                             return True
                 if event.type() == QMouseEvent.Type.MouseMove:
+                    if self._restriction_dragging:
+                        self._handle_restriction_move(event)
+                        return True
                     if self._tool_mode == "line":
                         self._handle_line_move(event)
                     if self._tool_mode == "box":
                         self._handle_box_move(event)
                 if event.type() == QMouseEvent.Type.MouseButtonRelease:
+                    if self._restriction_dragging:
+                        self._handle_restriction_release(event)
+                        return True
+                    if (
+                        event.modifiers() & Qt.KeyboardModifier.AltModifier
+                        and event.button() == Qt.MouseButton.LeftButton
+                    ):
+                        return True
                     if self._tool_mode == "line":
                         handled = self._handle_line_release(event)
                         if handled:
@@ -336,6 +389,110 @@ class AnnotationView(EndviewView):
         if points:
             self.line_drawn.emit(points)
         return False
+
+    def _handle_restriction_press(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._restriction_rect is None:
+            return
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is None:
+            return
+        mode = self._restriction_hit_test(coords)
+        if mode is None:
+            return
+        self._restriction_dragging = True
+        self._restriction_drag_mode = mode
+        self._restriction_drag_start = coords
+        self._restriction_drag_rect = self._restriction_rect
+        self._view.setFocus(Qt.FocusReason.MouseFocusReason)
+
+    def _handle_restriction_move(self, event: QMouseEvent) -> None:
+        if not self._restriction_dragging:
+            return
+        if self._restriction_drag_rect is None or self._restriction_drag_mode is None:
+            return
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is None or self._volume is None:
+            return
+        x, y = coords
+        start_x, start_y = self._restriction_drag_start or coords
+        x1, y1, x2, y2 = self._restriction_drag_rect
+        height, width = self._volume.shape[1:]
+        min_w = min(self._restriction_min_size, max(0, width - 1))
+        min_h = min(self._restriction_min_size, max(0, height - 1))
+
+        mode = self._restriction_drag_mode
+        if mode == "move":
+            dx = x - start_x
+            dy = y - start_y
+            rect_w = x2 - x1
+            rect_h = y2 - y1
+            new_x1 = x1 + dx
+            new_y1 = y1 + dy
+            max_x1 = max(0, (width - 1) - rect_w)
+            max_y1 = max(0, (height - 1) - rect_h)
+            new_x1 = max(0, min(max_x1, new_x1))
+            new_y1 = max(0, min(max_y1, new_y1))
+            new_x2 = new_x1 + rect_w
+            new_y2 = new_y1 + rect_h
+        elif mode == "resize_left":
+            limit = x2 - min_w
+            new_x1 = max(0, min(limit, x))
+            new_x2 = x2
+            new_y1, new_y2 = y1, y2
+        elif mode == "resize_right":
+            limit = x1 + min_w
+            new_x2 = min(width - 1, max(limit, x))
+            new_x1 = x1
+            new_y1, new_y2 = y1, y2
+        elif mode == "resize_top":
+            limit = y2 - min_h
+            new_y1 = max(0, min(limit, y))
+            new_y2 = y2
+            new_x1, new_x2 = x1, x2
+        elif mode == "resize_bottom":
+            limit = y1 + min_h
+            new_y2 = min(height - 1, max(limit, y))
+            new_y1 = y1
+            new_x1, new_x2 = x1, x2
+        else:
+            return
+
+        new_rect = (int(new_x1), int(new_y1), int(new_x2), int(new_y2))
+        if new_rect != self._restriction_rect:
+            self.set_restriction_rect(new_rect)
+            self.restriction_rect_changed.emit(new_rect)
+
+    def _handle_restriction_release(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        self._restriction_dragging = False
+        self._restriction_drag_mode = None
+        self._restriction_drag_start = None
+        self._restriction_drag_rect = None
+
+    def _restriction_hit_test(self, coords: Tuple[int, int]) -> Optional[str]:
+        if self._restriction_rect is None:
+            return None
+        x, y = coords
+        x1, y1, x2, y2 = self._restriction_rect
+        xmin, xmax = sorted((x1, x2))
+        ymin, ymax = sorted((y1, y2))
+        edge = self._restriction_edge_grab
+        if x < xmin - edge or x > xmax + edge or y < ymin - edge or y > ymax + edge:
+            return None
+        if abs(x - xmin) <= edge and ymin <= y <= ymax:
+            return "resize_left"
+        if abs(x - xmax) <= edge and ymin <= y <= ymax:
+            return "resize_right"
+        if abs(y - ymin) <= edge and xmin <= x <= xmax:
+            return "resize_top"
+        if abs(y - ymax) <= edge and xmin <= x <= xmax:
+            return "resize_bottom"
+        if xmin <= x <= xmax and ymin <= y <= ymax:
+            return "move"
+        return None
 
     def _clamped_scene_coords_from_event(self, event: QMouseEvent) -> Optional[Tuple[int, int]]:
         if self._volume is None:

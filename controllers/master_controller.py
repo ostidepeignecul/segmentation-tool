@@ -280,6 +280,9 @@ class MasterController:
         self.annotation_view.freehand_completed.connect(self.annotation_controller.on_annotation_freehand_completed)
         self.annotation_view.line_drawn.connect(self.annotation_controller.on_annotation_line_drawn)
         self.annotation_view.box_drawn.connect(self.annotation_controller.on_annotation_box_drawn)
+        self.annotation_view.restriction_rect_changed.connect(
+            self.annotation_controller.on_restriction_rect_changed
+        )
         self.annotation_view.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
         self.annotation_view.point_selected.connect(self._on_endview_point_selected)
         self.annotation_view.drag_update.connect(self._on_endview_drag_update)
@@ -879,6 +882,9 @@ class MasterController:
         # Met à jour l’Endview (pas de changement ici)
         self.annotation_view.set_volume(volume)
         self.annotation_view.set_slice(slice_idx)
+        self.annotation_controller.ensure_restriction_rect(
+            shape=(volume.shape[1], volume.shape[2])
+        )
 
         # Met à jour la C‑scan (standard ou corrosion)
         self.cscan_controller.update_views(volume)
