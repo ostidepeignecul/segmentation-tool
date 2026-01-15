@@ -2389,6 +2389,24 @@ Un pixel aberrant dans une ROI avec threshold faible faisait disparaitre la sele
 3. Ne pas modifier le flow nnUNet.
 
 ---
+### **2026-01-14** — Optimisation du grow et ajout du mode Box-Grow
+
+**Tags :** `#services/annotation_service.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#region-growing`, `#ui`, `#pyqt6`, `#numpy`, `#skimage`, `#scipy`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Optimise le grow mono-seed avec `skimage.morphology.flood` et un masque valide combinant threshold, restriction et blocage.
+- Optimise le grow multi-seeds via `scipy.ndimage.label` en sélectionnant les composantes connectées touchées par les seeds.
+- Ajoute l’option UI "Box-Grow" (radio) dans `ui_mainwindow.py` et `untitled.ui`.
+
+**Contexte :**
+Les opérations de grow étaient effectuées via un BFS Python. Le changement remplace cette logique par des opérations vectorisées (flood + label) pour gagner en performance, tout en respectant le threshold, la restriction et le blocage des pixels. L’UI expose un mode Box-Grow pour l’utilisateur.
+
+**Décisions techniques :**
+1. Construire un `valid_mask` unique (threshold + restriction + blocage) pour centraliser les conditions et réduire les branches.
+2. Utiliser `flood` pour le seed unique et `label` pour regrouper efficacement les régions multi-seeds.
+3. Ajouter un radio button dédié pour rendre le mode Box-Grow explicite dans la vue.
+
+---
 ### **2026-01-13** — Blocage des pixels deja masques pour ROI
 
 **Tags:** `#annotation_controller.py`, `#annotation_service.py`, `#roi`, `#blocage`, `#apply-volume`, `#temp-mask`, `#mvc`, `#numpy`, `#branch:annotation`
@@ -2478,5 +2496,21 @@ Consolidation demandée pour centraliser le pipeline NDE, réduire les dépendan
 **Décisions techniques :**
 1. Conserver la logique existante en la déplaçant telle quelle dans `services/nde_loader.py` pour éviter toute régression fonctionnelle.
 2. Supprimer les helpers non utilisés et les modules utils obsolètes pour clarifier la surface API.
+
+---
+### **2026-01-14** — Optimisation du region growing
+
+**Tags :** `#services/annotation_service.py`, `#region-growing`, `#numpy`, `#skimage`, `#scipy`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Optimise le grow mono-seed avec `skimage.morphology.flood` et un masque valide combinant threshold, restriction et blocage.
+- Optimise le grow multi-seeds via `scipy.ndimage.label` en sélectionnant les composantes connectées touchées par les seeds.
+
+**Contexte :**
+Les opérations de grow étaient effectuées via un BFS Python. Le changement remplace cette logique par des opérations vectorisées (flood + label) pour gagner en performance, tout en respectant le threshold, la restriction et le blocage des pixels.
+
+**Décisions techniques :**
+1. Construire un `valid_mask` unique (threshold + restriction + blocage) pour centraliser les conditions et réduire les branches.
+2. Utiliser `flood` pour le seed unique et `label` pour regrouper efficacement les régions multi-seeds.
 
 ---

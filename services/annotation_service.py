@@ -6,6 +6,8 @@ from collections import deque
 from typing import Any, Callable, Optional, Sequence, Tuple
 
 import numpy as np
+from skimage.morphology import flood
+from scipy.ndimage import label as scipy_label
 
 from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
@@ -193,7 +195,7 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
-        """Region growing (4-connexe) depuis un seed si la valeur dépasse le threshold."""
+        """Region growing (4-connexe) optimisé avec skimage.morphology.flood."""
         try:
             h, w = int(shape[0]), int(shape[1])
         except Exception:
@@ -205,40 +207,39 @@ class AnnotationService:
         if norm is None or norm.shape[0] < h or norm.shape[1] < w:
             return None
 
-        restriction = self._normalize_restriction_mask(restriction_mask, (h, w))
-        blocked = self._normalize_blocked_mask(blocked_mask, (h, w))
         x = max(0, min(w - 1, int(seed[0])))
         y = max(0, min(h - 1, int(seed[1])))
+
+        restriction = self._normalize_restriction_mask(restriction_mask, (h, w))
         if restriction is not None and not restriction[y, x]:
             return None
+        
+        blocked = self._normalize_blocked_mask(blocked_mask, (h, w))
         if blocked is not None and blocked[y, x]:
             return None
+
         thr = float(threshold) if threshold is not None else 0.0
         if norm[y, x] < thr:
             return None
 
-        mask = np.zeros((h, w), dtype=np.uint8)
-        q: deque[Tuple[int, int]] = deque()
-        q.append((x, y))
-        mask[y, x] = 1
-        while q:
-            cx, cy = q.popleft()
-            for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
-                if nx < 0 or ny < 0 or nx >= w or ny >= h:
-                    continue
-                if restriction is not None and not restriction[ny, nx]:
-                    continue
-                if blocked is not None and blocked[ny, nx]:
-                    continue
-                if mask[ny, nx]:
-                    continue
-                if norm[ny, nx] < thr:
-                    continue
-                mask[ny, nx] = 1
-                q.append((nx, ny))
-        if not np.any(mask):
+        valid_mask = (norm >= thr)
+        if restriction is not None:
+            valid_mask &= restriction.astype(bool)
+        if blocked is not None:
+            valid_mask &= ~blocked.astype(bool)
+
+        if not valid_mask[y, x]:
             return None
-        return mask
+
+        try:
+            flooded = flood(valid_mask, (y, x), connectivity=1)
+        except Exception:
+            return None
+            
+        if not np.any(flooded):
+            return None
+
+        return flooded.astype(np.uint8)
 
     def _rasterize_line_segment(
         self,
@@ -311,7 +312,7 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
-        """Region growing (4-connexe) depuis plusieurs seeds."""
+        """Region growing (4-connexe) optimisé depuis plusieurs seeds."""
         try:
             h, w = int(shape[0]), int(shape[1])
         except Exception:
@@ -325,44 +326,42 @@ class AnnotationService:
         if norm is None or norm.shape[0] < h or norm.shape[1] < w:
             return None
 
-        restriction = self._normalize_restriction_mask(restriction_mask, (h, w))
-        blocked = self._normalize_blocked_mask(blocked_mask, (h, w))
         thr = float(threshold) if threshold is not None else 0.0
-        mask = np.zeros((h, w), dtype=np.uint8)
-        q: deque[Tuple[int, int]] = deque()
-        for sx, sy in seeds:
-            x = max(0, min(w - 1, int(sx)))
-            y = max(0, min(h - 1, int(sy)))
-            if restriction is not None and not restriction[y, x]:
-                continue
-            if blocked is not None and blocked[y, x]:
-                continue
-            if mask[y, x]:
-                continue
-            if norm[y, x] < thr:
-                continue
-            mask[y, x] = 1
-            q.append((x, y))
-        if not q:
+
+        valid_mask = (norm >= thr)
+        restriction = self._normalize_restriction_mask(restriction_mask, (h, w))
+        if restriction is not None:
+            valid_mask &= restriction.astype(bool)
+        
+        blocked = self._normalize_blocked_mask(blocked_mask, (h, w))
+        if blocked is not None:
+            valid_mask &= ~blocked.astype(bool)
+        
+        if not np.any(valid_mask):
             return None
 
-        while q:
-            cx, cy = q.popleft()
-            for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
-                if nx < 0 or ny < 0 or nx >= w or ny >= h:
-                    continue
-                if restriction is not None and not restriction[ny, nx]:
-                    continue
-                if blocked is not None and blocked[ny, nx]:
-                    continue
-                if mask[ny, nx]:
-                    continue
-                if norm[ny, nx] < thr:
-                    continue
-                mask[ny, nx] = 1
-                q.append((nx, ny))
-        if not np.any(mask):
+        labeled_array, num_features = scipy_label(valid_mask, structure=[[0,1,0],[1,1,1],[0,1,0]])
+        if num_features == 0:
             return None
+
+        seed_indices = tuple(np.array(seeds).T[::-1])
+        
+        ys, xs = seed_indices
+        valid_seeds_mask = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+        if not np.any(valid_seeds_mask):
+            return None
+            
+        ys = ys[valid_seeds_mask]
+        xs = xs[valid_seeds_mask]
+        
+        touched_labels = labeled_array[ys, xs]
+        unique_labels = np.unique(touched_labels)
+        unique_labels = unique_labels[unique_labels != 0]
+        
+        if unique_labels.size == 0:
+            return None
+            
+        mask = np.isin(labeled_array, unique_labels).astype(np.uint8)
         return mask
 
     def apply_grow_roi(
