@@ -2533,3 +2533,20 @@ Réduction de la mémoire CPU/GPU et simplification du pipeline overlay 3D en é
 3. Accepter un rendu discret (moins de texture alpha) au profit de la stabilité et des performances.
 
 ---
+### **2026-01-16** — Slice indicator 3D: plan RGBA constant
+
+**Tags :** `#views/volume_view.py`, `#vispy`, `#volume-rendering`, `#overlay`, `#mvc`, `#branch:annotation`
+
+**Actions effectuées :**
+- Remplacé l’image de slice (colormap) par un plan RGBA constant (1x1 pixel noir translucide) étiré sur toute la slice.
+- Désactivé le colormap sur `self._slice_image` et forcé `depth_test=False` pour garder l’indicateur visible au-dessus des overlays.
+- Ajusté l’ordre de rendu (`order=11`) et le transform pour scaler la texture 1x1 à la taille complète (width/height).
+
+**Contexte :**
+Le slice indicator devait rester visible même avec l’overlay 3D et ne pas dépendre du colormap de base.
+
+**Décisions techniques :**
+1. Utiliser un pixel RGBA constant + transform de scale pour un indicateur stable et léger.
+2. Couper le depth test pour garantir la visibilité par-dessus l’overlay.
+
+---

@@ -177,8 +177,8 @@ class VolumeView(QFrame):
             self._base_colormap_name = "Gris"
         if self._volume_visual is not None:
             self._volume_visual.cmap = self._base_colormap
-        if self._slice_image is not None:
-            self._slice_image.cmap = self._base_colormap
+        # self._slice_image uses direct RGBA, so no colormap needed.
+        pass
 
     def set_overlay(
         self,
@@ -421,20 +421,21 @@ class VolumeView(QFrame):
         self.set_slice_index(value, update_slider=False, emit=True)
 
     def _add_slice_image(self) -> None:
-        """Add a 2D image of the current slice on top of the 3D volume."""
+        """Add a static translucent black plane to indicate the current slice."""
         if self._volume is None:
             return
-        data = self._get_slice_data(self._current_slice)
-        if data is None:
-            return
+        # Alpha channel (0-255): Lower = More transparent
+        alpha = 100 
+        data = np.array([[[0, 0, 0, alpha]]], dtype=np.uint8)
         self._slice_image = scene.visuals.Image(
             data,
             parent=self._view.scene,
-            cmap=self._base_colormap,
             method="auto",
         )
-        self._slice_image.order = 9
-        self._slice_image.interpolation = "nearest"
+        self._slice_image.order = 11
+        self._slice_image.interpolation = "linear"
+        # Disable depth testing to force visibility over the overlay
+        self._slice_image.set_gl_state(depth_test=False, blend=True)
         self._apply_visual_transform()
         self._update_slice_image()
         self._add_slice_overlay()
@@ -452,23 +453,23 @@ class VolumeView(QFrame):
         )
 
     def _update_slice_image(self) -> None:
-        """Update the 2D slice image data and its position."""
-        if self._slice_image is None:
+        """Update the position of the slice indicator (static black plane)."""
+        if self._slice_image is None or self._volume is None:
             return
-        data = self._get_slice_data(self._current_slice)
-        if data is not None:
-            self._slice_image.set_data(data)
-        if self._volume is not None:
-            height = self._volume.shape[1]
-            width = self._volume.shape[2]
-            self._slice_image.transform = STTransform(
-                scale=(-1.0, -1.0, 1.0),
-                translate=(
-                    float(width),
-                    float(height),
-                    float(self._current_slice),
-                ),
-            )
+        # No data update needed (it's a constant 1x1 pixel)
+        # Just update transform to place it at the correct Z
+        height = self._volume.shape[1]
+        width = self._volume.shape[2]
+        # Scale the 1x1 pixel to cover the full width/height
+        # scale=(-width, -height) because of the existing flip logic
+        self._slice_image.transform = STTransform(
+            scale=(-float(width), -float(height), 1.0),
+            translate=(
+                float(width),
+                float(height),
+                float(self._current_slice),
+            ),
+        )
         self._update_overlay_image()
 
     def _add_slice_overlay(self) -> None:
@@ -597,8 +598,9 @@ class VolumeView(QFrame):
         if self._overlay_volume_visual is not None:
             self._overlay_volume_visual.transform = flip
         if self._slice_image is not None:
+            # Scale 1x1 pixel to full size
             self._slice_image.transform = STTransform(
-                scale=(-1.0, -1.0, 1.0),
+                scale=(-float(width), -float(height), 1.0),
                 translate=(
                     float(width),
                     float(height),
