@@ -120,13 +120,12 @@ git log --name-only --pretty=format: -n 5 | sort -u
 - Ensemble : Vision complète et rapide de l'évolution du code
 
 ### 4. **Controlled Documentation (Double Storage)**
-**RÈGLE CRITIQUE** : **TOUJOURS** documenter dans ByteRover ET MEMORY.md à la fin d'une tâche complètement terminée.
+**RÈGLE CRITIQUE** : **JAMAIS** documenter dans ByteRover ou MEMORY.md sans l'ordre **EXPLICITE** de l'utilisateur.
 
 **Quand documenter :**
-- **OBLIGATOIRE** : Dès qu'une tâche ou un ensemble de tâches est **complètement fini**
-- **OBLIGATOIRE** : Après validation de l'utilisateur que la modification est terminée
-- **OBLIGATOIRE** : Même si l'utilisateur ne le demande pas explicitement
-- **AUTOMATIQUE** : Faire partie du workflow de fin de tâche
+- **UNIQUEMENT** : Lorsque l'utilisateur le demande explicitement (ex: "store ceci", "documente ça").
+- **INTERDIT** : De documenter automatiquement à la fin d'une tâche.
+- **INTERDIT** : De documenter sans ordre direct.
 
 **Exceptions (ne PAS documenter) :**
 - Tâche en cours, non terminée
@@ -193,7 +192,7 @@ byterover-store-knowledge(
 
 **Format de documentation automatique :**
 ```markdown
-# À la fin d'une tâche complète, documenter automatiquement :
+# UNIQUEMENT si l'utilisateur demande explicitement de documenter :
 
 1. Préparer l'entrée avec :
    - Date du jour au format YYYY-MM-DD
@@ -242,7 +241,7 @@ Avant de commencer **toute tâche**, l'agent doit vérifier :
 - [ ] **Un plan détaillé a été créé et présenté à l'utilisateur**
 - [ ] **L'approbation de l'utilisateur a été reçue**
 - [ ] La politique de double storage (ByteRover + MEMORY.md) est respectée
-  - [ ] **À la fin de la tâche : Documentation automatique préparée**
+  - [ ] **Pas de documentation automatique (Attendre demande explicite)**
   - [ ] Date du jour (YYYY-MM-DD) prête
   - [ ] Contenu identique pour ByteRover et MEMORY.md
   - [ ] **🚨 CRITIQUE** : Plan d'ajout à la fin de MEMORY.md (après la dernière entrée)
@@ -462,10 +461,10 @@ Utiliser `#` suivi du nom du fichier ou concept :
 └─────────────────────────────────────┘
 ```
 
-### 5. Documentation (OBLIGATOIRE - DOUBLE STORAGE)
+### 5. Documentation (SUR DEMANDE EXPLICITE UNIQUEMENT)
 ```
 ┌──────────────────────────────────────────────┐
-│ 1. 🔹 AUTOMATIQUE : Dès que tâche terminée  │
+│ 1. 🔹 ATTENTE : Attendre demande "Store"    │
 │ 2. 🔹 ÉTAPE 1 : Store dans ByteRover        │
 │    - byterover-store-knowledge(...)         │
 │    - Utiliser date du jour (YYYY-MM-DD)     │
@@ -638,8 +637,9 @@ def example():
    - Supprimer immédiatement après utilisation
    - Aucun `test_*.py`, `debug_*.py`, `temp_*.py`
 
-3. 🚨 **TOUJOURS documenter à la fin d'une tâche complète (DOUBLE STORAGE)**
-   - **OBLIGATOIRE** : Documenter automatiquement dès qu'une tâche est terminée
+3. 🚨 **JAMAIS documenter sans demande explicite**
+   - **INTERDIT** : Documenter automatiquement
+   - **OBLIGATOIRE** : Attendre l'ordre explicite de l'utilisateur
    - **TOUJOURS** stocker dans ByteRover ET MEMORY.md (les deux systèmes)
    - **TOUJOURS** utiliser la date du jour (YYYY-MM-DD)
    - **TOUJOURS** ajouter à la fin de MEMORY.md (après la dernière entrée, ordre chronologique croissant)

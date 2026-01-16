@@ -44,7 +44,7 @@ class EndviewView(QFrame):
         super().__init__(parent)
         self._volume: Optional[np.ndarray] = None
         self._current_slice: int = 0
-        self._label_volumes: Dict[int, np.ndarray] = {}
+        self._mask_volume: Optional[np.ndarray] = None  # New single mask volume
         self._overlay_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self._visible_labels: Optional[set[int]] = None
         self._colormap_name: str = "Gris"
@@ -130,16 +130,15 @@ class EndviewView(QFrame):
         *,
         visible_labels: Optional[set[int]] = None,
     ) -> None:
-        """Set an overlay using per-label volumes/palette."""
+        """Set an overlay using full mask volume and palette (LUT)."""
         if overlay is None:
-            self._label_volumes = {}
-            self._visible_labels = None
+            self._mask_volume = None
             self._overlay_palette = {}
+            self._visible_labels = None
             self._overlay_item.setPixmap(QPixmap())
             return
-        self._label_volumes = {
-            int(label): np.asarray(vol) for label, vol in overlay.label_volumes.items()
-        }
+        
+        self._mask_volume = overlay.mask_volume
         self._overlay_palette = dict(overlay.palette)
         self._visible_labels = set(visible_labels) if visible_labels is not None else None
         self._refresh_overlay_pixmap()
@@ -270,7 +269,7 @@ class EndviewView(QFrame):
         self._refresh_overlay_pixmap()
 
     def _refresh_overlay_pixmap(self) -> None:
-        if not self._label_volumes or self._volume is None:
+        if self._mask_volume is None or self._volume is None:
             self._overlay_item.setPixmap(QPixmap())
             return
         overlay_slice = self._compose_slice_rgba(self._current_slice)
@@ -370,35 +369,43 @@ class EndviewView(QFrame):
         return rgba
 
     def _compose_slice_rgba(self, index: int) -> np.ndarray:
-        """Compose une slice RGBA à partir des volumes par label et des labels visibles."""
-        if self._volume is None:
+        """Compose une slice RGBA à partir du masque uint8 et de la palette (LUT)."""
+        if self._mask_volume is None:
             return np.zeros((0, 0, 4), dtype=np.uint8)
-        depth, height, width = self._volume.shape[:3]
+
+        depth, height, width = self._mask_volume.shape
         if index < 0 or index >= depth:
             return np.zeros((0, 0, 4), dtype=np.uint8)
-        rgba = np.zeros((height, width, 4), dtype=np.uint8)
+
+        # Build LUT (256 entries for uint8)
+        # We recreate it here for simplicity, but could cache it. 
+        # Given it's 256 it's negligible.
+        lut = np.zeros((256, 4), dtype=np.uint8)
+
         labels_to_draw = (
-            self._visible_labels if self._visible_labels is not None else self._label_volumes.keys()
+            self._visible_labels if self._visible_labels is not None
+            else self._overlay_palette.keys()
         )
+
         for label in labels_to_draw:
-            vol = self._label_volumes.get(label)
-            if vol is None or vol.shape[0] <= index:
+            if not (0 < label < 256):
                 continue
-            slice_alpha = vol[index]
-            if slice_alpha.ndim != 2 or not np.any(slice_alpha):
-                continue
-            mask = slice_alpha > 0
-            if not np.any(mask):
-                continue
-            b, g, r, a = self._overlay_palette.get(label, (255, 0, 255, 160))
-            rgba_slice = np.zeros((height, width, 4), dtype=np.uint8)
-            rgba_slice[..., 0] = r
-            rgba_slice[..., 1] = g
-            rgba_slice[..., 2] = b
-            rgba_slice[..., 3] = np.clip(slice_alpha * (a / 255.0) * 255.0, 0, 255).astype(
-                np.uint8
-            )
-            rgba[mask] = rgba_slice[mask]
+            color = self._overlay_palette.get(label)
+            if color:
+                b, g, r, a = color
+                # Apply alpha scaling logic if needed, or just use palette alpha
+                # The original code did: np.clip(slice_alpha * (a / 255.0) * 255.0, 0, 255)
+                # Since our mask is binary per label (it's an ID), alpha is just 'a'.
+                lut[label] = [r, g, b, a]
+
+        # Get slice (H, W)
+        try:
+            slice_indices = self._mask_volume[index]
+        except IndexError:
+             return np.zeros((height, width, 4), dtype=np.uint8)
+
+        # Apply LUT -> (H, W, 4)
+        rgba = lut[slice_indices]
         return rgba
 
     # ------------------------------------------------------------------ #

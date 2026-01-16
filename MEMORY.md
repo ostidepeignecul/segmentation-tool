@@ -2514,3 +2514,22 @@ Les opérations de grow étaient effectuées via un BFS Python. Le changement re
 2. Utiliser `flood` pour le seed unique et `label` pour regrouper efficacement les régions multi-seeds.
 
 ---
+### **2026-01-16** — Overlay 3D refactor vers masque uint8 + LUT
+
+**Tags :** `#controllers/annotation_controller.py`, `#models/overlay_data.py`, `#services/overlay_service.py`, `#views/endview_view.py`, `#views/volume_view.py`, `#overlay`, `#volume-rendering`, `#vispy`, `#mvc`, `#optimization`, `#branch:annotation`
+
+**Actions effectuées :**
+- Remplacé `OverlayData` pour transporter `mask_volume` (uint8, Z/H/W) et marqué `label_volumes` comme déprécié.
+- Simplifié `OverlayService` : plus de volumes alpha par label, `build_overlay_data` renvoie le masque brut + palette, `update_overlay_slice` délègue à la reconstruction simple.
+- Refondu l’overlay dans `VolumeView` et `EndviewView` : LUT RGBA par palette/visibilités, overlay 2D via LUT, overlay 3D via un seul `VolumeVisual` basé sur le masque uint8 (cmap + clim).
+- Ajusté `AnnotationController` : cache reconstruit avec `mask_volume`, suppression de l’optimisation `changed_labels`, log basé sur la palette.
+
+**Contexte :**
+Réduction de la mémoire CPU/GPU et simplification du pipeline overlay 3D en évitant la génération de volumes alpha par label, tout en conservant palette/visibilités.
+
+**Décisions techniques :**
+1. Utiliser un masque uint8 unique + LUT pour toutes les vues afin de réduire la mémoire et accélérer les mises à jour.
+2. Centraliser l’overlay 3D sur un seul `VolumeVisual` avec colormap discrète et updates différées.
+3. Accepter un rendu discret (moins de texture alpha) au profit de la stabilité et des performances.
+
+---

@@ -8,7 +8,9 @@ import numpy as np
 
 @dataclass(frozen=True)
 class OverlayData:
-    """Overlay payload containing per-label alpha volumes and palette."""
-
-    label_volumes: Mapping[int, np.ndarray]  # label -> float32 alpha volume (Z,H,W) in [0,1]
+    """Overlay payload containing full mask volume and palette."""
+    mask_volume: Optional[np.ndarray]  # uint8 volume (Z,H,W)
     palette: Dict[int, Tuple[int, int, int, int]]  # BGRA colors per label
+
+    # DEPRECATED: Kept for temporary compatibility if needed, but we aim to remove.
+    label_volumes: Mapping[int, np.ndarray] = None  # label -> float32 alpha volume

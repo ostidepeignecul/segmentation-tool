@@ -143,6 +143,7 @@ class AnnotationController:
             )
         elif not rebuild and cached is not None:
             overlay_data = OverlayData(
+                mask_volume=mask_volume,  # Added missing required field
                 label_volumes=cached.label_volumes,
                 palette=palette,
             )
@@ -150,12 +151,7 @@ class AnnotationController:
             overlay_data = self.overlay_service.build_overlay_data(mask_volume, palette)
 
         changed_labels = None
-        if changed_slice is not None:
-            changed_labels = self._compute_changed_labels_for_slice(
-                cached_overlay=cached,
-                new_overlay=overlay_data,
-                slice_idx=changed_slice,
-            )
+        # if changed_slice is not None: ... (removed optimization)
 
         self.annotation_model.set_overlay_cache(overlay_data)
 
@@ -165,7 +161,7 @@ class AnnotationController:
             self.volume_view.set_overlay(None)
             return
 
-        mask_label_count = len(overlay_data.label_volumes)
+        mask_label_count = len(palette) # approximate
         palette_count = len(palette)
         visible_count = len(visible_labels) if visible_labels is not None else palette_count
         self.logger.info(
