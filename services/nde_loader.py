@@ -2119,13 +2119,15 @@ class NdeLoader:
         if slice_axis_name is None:
             u_qty = status_info.get("lengthwise", {}).get("quantity", 0)
             v_qty = status_info.get("crosswise", {}).get("quantity", 0)
-            
-            if v_qty > u_qty:
+
+            # Heuristic: If V is significantly larger (>2x) than U, it's likely the intended scan axis
+            # Otherwise prefer U to respect file structure for similar dimensions
+            if v_qty > u_qty * 2.0:
                 slice_axis_name = "VCoordinate"
-                logger.debug(f"Using VCoordinate as slice axis (V={v_qty} > U={u_qty})")
+                logger.debug(f"Using VCoordinate as slice axis (V={v_qty} >> U={u_qty})")
             else:
                 slice_axis_name = "UCoordinate"
-                logger.debug(f"Using UCoordinate as slice axis (U={u_qty} >= V={v_qty})")
+                logger.debug(f"Using UCoordinate as slice axis (Default preference)")
         
         # Find current indices
         normalized = [str(name).lower() for name in axis_order]

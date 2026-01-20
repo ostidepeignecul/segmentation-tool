@@ -2550,3 +2550,19 @@ Le slice indicator devait rester visible même avec l’overlay 3D et ne pas dé
 2. Couper le depth test pour garantir la visibilité par-dessus l’overlay.
 
 ---
+### **2026-01-20** — Heuristique axe de coupe NDE
+
+**Tags :** `#services/nde_loader.py`, `#nde_loader`, `#mvc`, `#branch:annotation`
+
+**Actions effectuees :**
+- Ajoute une heuristique pour choisir l'axe de coupe: V si V > 2x U, sinon U par defaut.
+- Ajuste les messages de debug pour expliciter le choix (V >> U ou preference par defaut).
+
+**Contexte :**
+Le choix automatique de l'axe de coupe devait mieux distinguer les cas ou V domine nettement, tout en conservant une preference stable quand les dimensions sont proches.
+
+**Decisions techniques :**
+1. Utiliser un seuil 2x pour preferer V quand l'ecart est significatif.
+2. Conserver U comme choix par defaut pour respecter la structure des fichiers.
+
+---
