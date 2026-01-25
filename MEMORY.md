@@ -2566,3 +2566,42 @@ Le choix automatique de l'axe de coupe devait mieux distinguer les cas ou V domi
 2. Conserver U comme choix par defaut pour respecter la structure des fichiers.
 
 ---
+### **2026-01-25** — Effacement label 0 cible via Parametres
+
+**Tags :** `#views/nde_settings_view.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#controllers/annotation_controller.py`, `#services/annotation_service.py`, `#settings`, `#label0`, `#roi`, `#apply-volume`, `#mvc`, `#branch:annotation`
+
+**Actions effectuees :**
+- Ajoute un menu deroulant "Effacement label 0" dans Parametres, alimente par les labels existants et synchro avec l'etat.
+- Stocke la cible d'effacement du label 0 dans ViewStateModel et la met a jour via MasterController.
+- Applique la restriction d'effacement au label 0 pour paint/grow/line/box et les rebuilds ROI (incluant apply-volume) via un blocked mask par label.
+
+**Contexte :**
+Le besoin est de pouvoir effacer uniquement un label specifique avec le label 0, tout en conservant l'option "Tous" pour le comportement historique.
+
+**Decisions techniques :**
+1. Utiliser un blocked mask dedie au label 0 pour ne laisser passer que le label cible (None = aucun filtre).
+2. Passer la cible via Parametres pour rester coherents avec les autres reglages (colormap, apply-volume).
+
+**Tests :**
+- Non executes (commande `python` absente).
+
+---
+### **2025-02-14** — Prefixe/suffixe pour split flaw/noflaw
+
+**Tags :** `#services/split_service.py`, `#controllers/master_controller.py`, `#split_flaw_noflaw`, `#export`, `#ui`, `#mvc`, `#pyqt6`, `#branch:annotation`
+
+**Actions effectuees :**
+- Ajoute des parametres optionnels de prefixe/suffixe au service de split et les applique aux fichiers flaw/noflaw et gtmask sans modifier les endviews complete.
+- Ajoute deux prompts (prefixe, suffixe) dans MasterController et transmet les valeurs au service.
+
+**Contexte :**
+Besoin de personnaliser le nom des images exportees pour le dataset, tout en conservant les noms sources des endviews complete pour la copie.
+
+**Decisions techniques :**
+1. Appliquer prefixe/suffixe uniquement aux sorties flaw/noflaw + gtmask pour conserver la correspondance avec les fichiers complete.
+2. Utiliser QInputDialog pour une saisie simple et garder des valeurs vides par defaut.
+
+**Tests :**
+- Non executes (UI).
+
+---

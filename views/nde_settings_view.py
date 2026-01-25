@@ -23,6 +23,7 @@ class NdeSettingsView(QDialog):
     endview_colormap_changed = pyqtSignal(str)
     cscan_colormap_changed = pyqtSignal(str)
     apply_volume_range_changed = pyqtSignal(int, int)
+    erase_label_target_changed = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -49,6 +50,9 @@ class NdeSettingsView(QDialog):
             box.setValue(0)
         form.addRow(QLabel("Appliquer au volume (de)"), self._apply_volume_start)
         form.addRow(QLabel("Appliquer au volume (à)"), self._apply_volume_end)
+
+        self._erase_label_combo = QComboBox(self)
+        form.addRow(QLabel("Effacement label 0"), self._erase_label_combo)
 
         layout.addLayout(form)
 
@@ -92,6 +96,17 @@ class NdeSettingsView(QDialog):
         self._apply_volume_start.blockSignals(False)
         self._apply_volume_end.blockSignals(False)
 
+    def set_erase_label_choices(self, labels: Iterable[int], *, current: Optional[int]) -> None:
+        """Populate the erase-target combo (None = Tous)."""
+        self._erase_label_combo.blockSignals(True)
+        self._erase_label_combo.clear()
+        self._erase_label_combo.addItem("Tous", None)
+        for label_id in labels:
+            lbl = int(label_id)
+            self._erase_label_combo.addItem(f"Label {lbl}", lbl)
+        self._set_current_data(self._erase_label_combo, current)
+        self._erase_label_combo.blockSignals(False)
+
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -107,6 +122,7 @@ class NdeSettingsView(QDialog):
         self._cscan_combo.currentTextChanged.connect(self.cscan_colormap_changed.emit)
         self._apply_volume_start.valueChanged.connect(self._on_apply_volume_start_changed)
         self._apply_volume_end.valueChanged.connect(self._on_apply_volume_end_changed)
+        self._erase_label_combo.currentIndexChanged.connect(self._on_erase_label_target_changed)
 
     def _emit_apply_volume_range(self) -> None:
         self.apply_volume_range_changed.emit(
@@ -128,6 +144,16 @@ class NdeSettingsView(QDialog):
             self._apply_volume_start.blockSignals(False)
         self._emit_apply_volume_range()
 
+    def _on_erase_label_target_changed(self, _index: int) -> None:
+        value = self._erase_label_combo.currentData()
+        if value is None:
+            self.erase_label_target_changed.emit(None)
+            return
+        try:
+            self.erase_label_target_changed.emit(int(value))
+        except Exception:
+            self.erase_label_target_changed.emit(None)
+
     @staticmethod
     def _set_current(combo: QComboBox, value: str) -> None:
         idx = combo.findText(value)
@@ -135,3 +161,21 @@ class NdeSettingsView(QDialog):
             combo.addItem(value)
             idx = combo.findText(value)
         combo.setCurrentIndex(idx)
+
+    @staticmethod
+    def _set_current_data(combo: QComboBox, value: Optional[int]) -> None:
+        if value is None:
+            combo.setCurrentIndex(0)
+            return
+        target = int(value)
+        for idx in range(combo.count()):
+            data = combo.itemData(idx)
+            if data is None:
+                continue
+            try:
+                if int(data) == target:
+                    combo.setCurrentIndex(idx)
+                    return
+            except Exception:
+                continue
+        combo.setCurrentIndex(0)

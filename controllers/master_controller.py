@@ -10,6 +10,7 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QFileDialog,
     QDialog,
+    QInputDialog,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -315,6 +316,9 @@ class MasterController:
         self.nde_settings_view.cscan_colormap_changed.connect(self._on_cscan_colormap_changed)
         self.nde_settings_view.apply_volume_range_changed.connect(
             self._on_apply_volume_range_changed
+        )
+        self.nde_settings_view.erase_label_target_changed.connect(
+            self._on_erase_label_target_changed
         )
 
     def _register_shortcuts(self) -> None:
@@ -631,12 +635,32 @@ class MasterController:
         if not output_root:
             return
 
+        prefix, ok = QInputDialog.getText(
+            self.main_window,
+            "Split flaw/noflaw",
+            "Préfixe des images exportées (optionnel) :",
+        )
+        if not ok:
+            return
+        suffix, ok = QInputDialog.getText(
+            self.main_window,
+            "Split flaw/noflaw",
+            "Suffixe des images exportées (optionnel) :",
+        )
+        if not ok:
+            return
+
+        prefix = (prefix or "").strip()
+        suffix = (suffix or "").strip()
+
         self.status_message("Split flaw/noflaw en cours...", timeout_ms=2000)
         success, message = self.split_flaw_noflaw_service.split_endviews(
             nde_model=self.nde_model,
             annotation_model=self.annotation_model,
             nde_file=nde_path,
             output_root=output_root,
+            filename_prefix=prefix,
+            filename_suffix=suffix,
         )
 
         if success:
@@ -652,6 +676,7 @@ class MasterController:
             cscan=self.view_state_model.cscan_colormap,
         )
         self._sync_apply_volume_range_view()
+        self._sync_erase_label_choices()
         self.nde_settings_view.show()
         self.nde_settings_view.raise_()
         self.nde_settings_view.activateWindow()
@@ -697,6 +722,16 @@ class MasterController:
             start, end, include_current=True
         )
         self.nde_settings_view.set_apply_volume_range(start_idx, end_idx)
+
+    def _on_erase_label_target_changed(self, label_id: Optional[int]) -> None:
+        """Handle changes to the label-0 erase target setting."""
+        if label_id is None:
+            self.view_state_model.set_label0_erase_target(None)
+            return
+        try:
+            self.view_state_model.set_label0_erase_target(int(label_id))
+        except Exception:
+            self.view_state_model.set_label0_erase_target(None)
 
     def _get_colormap_lut(self, name: str) -> Optional[np.ndarray]:
         """Return LUT (256x3 float) for known colormap names."""
@@ -855,6 +890,17 @@ class MasterController:
             current = None
         self.view_state_model.set_active_label(current)
         self.tools_panel.set_labels(labels, current=current)
+        self._sync_erase_label_choices()
+
+    def _sync_erase_label_choices(self) -> None:
+        """Sync the label-0 erase target choices with the current label palette."""
+        palette = self.annotation_model.get_label_palette()
+        labels = sorted(lbl for lbl in palette.keys() if int(lbl) != 0) if palette else []
+        current = getattr(self.view_state_model, "label0_erase_target", None)
+        if current not in labels:
+            current = None
+            self.view_state_model.set_label0_erase_target(None)
+        self.nde_settings_view.set_erase_label_choices(labels, current=current)
 
     def run(self) -> None:
         """Launch the main window."""

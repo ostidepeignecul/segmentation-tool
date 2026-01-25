@@ -474,6 +474,7 @@ class AnnotationService:
         slice_data: Optional[np.ndarray] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
+        blocked_mask_for_label: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> list[Tuple[int, int, int, int]]:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
@@ -484,7 +485,17 @@ class AnnotationService:
         if clear_slice:
             temp_mask_model.clear_slice(slice_idx)
         restriction = self._normalize_restriction_mask(restriction_mask, shape)
-        blocked = self._normalize_blocked_mask(blocked_mask, shape)
+        default_blocked = self._normalize_blocked_mask(blocked_mask, shape)
+
+        def resolve_blocked(label_id: int) -> Optional[np.ndarray]:
+            if blocked_mask_for_label is not None:
+                per_label = blocked_mask_for_label(int(label_id))
+                per_label_norm = self._normalize_blocked_mask(per_label, shape)
+                if per_label_norm is not None:
+                    return per_label_norm
+                if int(label_id) == 0:
+                    return None
+            return default_blocked
 
         for roi in rois:
             if getattr(roi, "roi_type", None) != "box" or len(getattr(roi, "points", [])) < 2:
@@ -504,7 +515,8 @@ class AnnotationService:
             roi_threshold = getattr(roi, "threshold", None)
             if slice_data is not None and roi_threshold is not None:
                 mask_to_apply = self.build_thresholded_mask(box_mask, slice_data, roi_threshold)
-            if blocked is not None and int(label) != 0:
+            blocked = resolve_blocked(label)
+            if blocked is not None:
                 mask_to_apply = np.where(blocked, 0, mask_to_apply)
             self.apply_temp_box(
                 temp_mask_model,
@@ -524,13 +536,14 @@ class AnnotationService:
             label = getattr(roi, "label", 1)
             color = (palette or {}).get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
             temp_mask_model.ensure_label(label, color, visible=True)
+            blocked = resolve_blocked(label)
             grow_mask = self.build_grow_mask(
                 shape,
                 seed,
                 slice_data,
                 getattr(roi, "threshold", None),
                 restriction_mask=restriction,
-                blocked_mask=blocked if int(label) != 0 else None,
+                blocked_mask=blocked,
             )
             if grow_mask is None:
                 continue
@@ -550,6 +563,7 @@ class AnnotationService:
             label = getattr(roi, "label", 1)
             color = (palette or {}).get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
             temp_mask_model.ensure_label(label, color, visible=True)
+            blocked = resolve_blocked(label)
             seeds = self._rasterize_polyline(roi.points, shape)
             if not seeds:
                 continue
@@ -559,7 +573,7 @@ class AnnotationService:
                 slice_data,
                 getattr(roi, "threshold", None),
                 restriction_mask=restriction,
-                blocked_mask=blocked if int(label) != 0 else None,
+                blocked_mask=blocked,
             )
             if line_mask is None:
                 continue
@@ -643,6 +657,9 @@ class AnnotationService:
         end_idx: Optional[int] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        blocked_mask_for_label_provider: Optional[
+            Callable[[int, int], Optional[np.ndarray]]
+        ] = None,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -669,6 +686,11 @@ class AnnotationService:
             blocked_mask = (
                 blocked_mask_provider(idx) if blocked_mask_provider is not None else None
             )
+            blocked_mask_for_label = None
+            if blocked_mask_for_label_provider is not None:
+                blocked_mask_for_label = lambda label, _idx=idx: blocked_mask_for_label_provider(
+                    _idx, int(label)
+                )
             self.rebuild_temp_masks_for_slice(
                 rois=rois,
                 shape=mask_shape,
@@ -679,6 +701,7 @@ class AnnotationService:
                 slice_data=slice_data,
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
+                blocked_mask_for_label=blocked_mask_for_label,
             )
 
     def build_thresholded_mask(
@@ -788,7 +811,7 @@ class AnnotationService:
         mask_to_apply = box_mask
         if slice_data is not None and threshold is not None:
             mask_to_apply = self.build_thresholded_mask(box_mask, slice_data, threshold)
-        if blocked_mask is not None and int(label) != 0:
+        if blocked_mask is not None:
             blocked = np.asarray(blocked_mask, dtype=bool)
             if blocked.shape == mask_to_apply.shape:
                 mask_to_apply = np.where(blocked, 0, mask_to_apply)

@@ -26,6 +26,7 @@ class ViewStateModel:
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
         self.active_label: Optional[int] = None
+        self.label0_erase_target: Optional[int] = None
         self.apply_volume_start: int = 0
         self.apply_volume_end: int = 0
         self.restriction_rect: Optional[Tuple[int, int, int, int]] = None
@@ -110,6 +111,13 @@ class ViewStateModel:
             self.active_label = None
         else:
             self.active_label = int(label_id)
+
+    def set_label0_erase_target(self, label_id: Optional[int]) -> None:
+        """Set the target label that label 0 is allowed to erase (None = all)."""
+        if label_id is None:
+            self.label0_erase_target = None
+        else:
+            self.label0_erase_target = int(label_id)
 
     def set_restriction_rect(self, rect: Optional[Tuple[int, int, int, int]]) -> None:
         """Set the global restriction rectangle (x1, y1, x2, y2) or clear it."""

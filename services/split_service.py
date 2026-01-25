@@ -38,6 +38,8 @@ class SplitFlawNoflawService:
         annotation_model,
         nde_file: Optional[str],
         output_root: Path | str,
+        filename_prefix: Optional[str] = None,
+        filename_suffix: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """Export endviews et sépare flaw/noflaw selon le masque courant.
 
@@ -46,6 +48,8 @@ class SplitFlawNoflawService:
             annotation_model: AnnotationModel contenant le mask volume actuel.
             nde_file: Chemin du .nde (pour nommer le dossier racine).
             output_root: Dossier parent où créer la structure d'export.
+            filename_prefix: Préfixe optionnel pour les fichiers output flaw/noflaw.
+            filename_suffix: Suffixe optionnel pour les fichiers output flaw/noflaw.
         """
         if nde_model is None:
             return False, "Aucun modèle NDE chargé."
@@ -72,6 +76,9 @@ class SplitFlawNoflawService:
         base_dir = Path(output_root) / base_name
         rgb_complete = base_dir / "endviews_rgb24" / "complete"
         uint8_complete = base_dir / "endviews_uint8" / "complete"
+
+        prefix = filename_prefix or ""
+        suffix = filename_suffix or ""
 
         targets = {
             "rgb": {
@@ -130,18 +137,20 @@ class SplitFlawNoflawService:
             mask_slice = np.asarray(mask_volume[idx], dtype=np.uint8)
             bucket = "flaw" if np.any(mask_slice != 0) else "noflaw"
             position_filename = idx * 1500
-            filename = f"endview_{position_filename:012d}.png"
+            base_filename = f"endview_{position_filename:012d}"
+            source_filename = f"{base_filename}.png"
+            output_filename = f"{prefix}{base_filename}{suffix}.png"
 
             # Écrire les masques
-            cv2.imwrite(str(targets["rgb"][f"gtmask_{bucket}"] / filename), mask_slice)
-            cv2.imwrite(str(targets["uint8"][f"gtmask_{bucket}"] / filename), mask_slice)
+            cv2.imwrite(str(targets["rgb"][f"gtmask_{bucket}"] / output_filename), mask_slice)
+            cv2.imwrite(str(targets["uint8"][f"gtmask_{bucket}"] / output_filename), mask_slice)
             stats[f"{bucket}_masks"] += 1
 
             # Copier les endviews complètes vers flaw/noflaw
-            self._safe_copy(rgb_complete / filename, targets["rgb"][bucket])
-            self._safe_copy(uint8_complete / filename, targets["uint8"][bucket])
-            stats[f"{bucket}_rgb_images"] += int((rgb_complete / filename).exists())
-            stats[f"{bucket}_uint8_images"] += int((uint8_complete / filename).exists())
+            self._safe_copy(rgb_complete / source_filename, targets["rgb"][bucket], output_filename)
+            self._safe_copy(uint8_complete / source_filename, targets["uint8"][bucket], output_filename)
+            stats[f"{bucket}_rgb_images"] += int((rgb_complete / source_filename).exists())
+            stats[f"{bucket}_uint8_images"] += int((uint8_complete / source_filename).exists())
 
             if (idx + 1) % 100 == 0:
                 self.logger.info("Traitement slices: %s/%s", idx + 1, depth)
@@ -149,10 +158,11 @@ class SplitFlawNoflawService:
         summary = "\n=== Résumé ===\n" + "\n".join(f"{k}: {v}" for k, v in stats.items())
         return True, f"Split flaw/noflaw terminé.\n{summary}"
 
-    def _safe_copy(self, src: Path, dst_dir: Path) -> None:
+    def _safe_copy(self, src: Path, dst_dir: Path, dst_name: Optional[str] = None) -> None:
         """Copie un fichier s'il existe, log sinon."""
         if src.exists():
             dst_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst_dir / src.name)
+            target_name = dst_name or src.name
+            shutil.copy2(src, dst_dir / target_name)
         else:
             self.logger.warning("Fichier manquant pour copie: %s", src)
