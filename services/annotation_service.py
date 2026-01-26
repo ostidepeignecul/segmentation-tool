@@ -712,48 +712,19 @@ class AnnotationService:
     ) -> np.ndarray:
         """
         Apply a threshold inside the box mask to select pixels for the temp mask.
+        Threshold is evaluated on the full slice normalized to [0, 255].
         """
         if threshold is None:
             return box_mask
-        try:
-            data = np.asarray(slice_data, dtype=np.float32)
-        except Exception:
-            return box_mask
-        if data.ndim == 3 and data.shape[2] in (3, 4):
-            data = data[..., 0]
         mask = np.zeros_like(box_mask, dtype=np.uint8)
         inside = box_mask > 0
         if not np.any(inside):
             return mask
-        data_inside = data[inside]
-        if data_inside.size == 0:
-            return mask
-        finite = np.isfinite(data_inside)
-        if not np.all(finite):
-            data_inside = data_inside[finite]
-            if data_inside.size == 0:
-                return mask
-        dmin = float(data_inside.min())
-        dmax = float(data_inside.max())
-        lo, hi = dmin, dmax
-        try:
-            lo_p, hi_p = np.percentile(data_inside, (1.0, 99.0))
-            if np.isfinite(lo_p) and np.isfinite(hi_p) and hi_p > lo_p:
-                lo, hi = float(lo_p), float(hi_p)
-        except Exception:
-            pass
-        if hi <= lo:
-            if dmax <= dmin:
-                norm = np.zeros_like(data_inside, dtype=np.float32)
-            else:
-                lo, hi = dmin, dmax
-                clipped = np.clip(data_inside, lo, hi)
-                norm = (clipped - lo) / (hi - lo) * 255.0
-        else:
-            clipped = np.clip(data_inside, lo, hi)
-            norm = (clipped - lo) / (hi - lo) * 255.0
+        norm = self._normalize_slice_to_uint8(slice_data)
+        if norm is None or norm.shape != box_mask.shape:
+            return box_mask
         thr = float(threshold)
-        mask_inside = (norm >= thr).astype(np.uint8)
+        mask_inside = (norm[inside] >= thr).astype(np.uint8)
         mask[inside] = mask_inside
         return mask
 

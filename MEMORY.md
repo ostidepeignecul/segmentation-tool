@@ -2616,3 +2616,19 @@ Besoin de controler l'opacite des labels overlay dans les vues endview et 3D dir
 2. Utiliser un facteur global multiplie sur l'alpha de la palette pour garder les alphas par label tout en offrant un controle absolu; valeur par defaut 0.4 pour conserver le rendu precedent.
 
 ---
+### **2026-01-26** — Seuil ROI box sans percentiles (normalisation slice complete)
+
+**Tags :** `#services/annotation_service.py`, `#roi`, `#threshold`, `#box`, `#mvc`, `#numpy`, `#branch:annotation`
+
+**Actions effectuees :**
+- Retire le clipping percentile (1/99) dans `build_thresholded_mask` pour la ROI box.
+- Aligne le seuillage box sur la normalisation de la slice complete [0-255], et applique le threshold uniquement dans la box.
+
+**Contexte :**
+Le threshold devait etre applique de facon fidele aux pixels selectionnes, sans lissage/percentile local de la zone ROI.
+
+**Decisions techniques :**
+1. Utiliser `_normalize_slice_to_uint8` comme grow/line pour un seuil global cohérent.
+2. Conserver un fallback simple (masque box brut) si la normalisation echoue.
+
+---
