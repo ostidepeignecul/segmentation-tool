@@ -2582,9 +2582,6 @@ Le besoin est de pouvoir effacer uniquement un label specifique avec le label 0,
 1. Utiliser un blocked mask dedie au label 0 pour ne laisser passer que le label cible (None = aucun filtre).
 2. Passer la cible via Parametres pour rester coherents avec les autres reglages (colormap, apply-volume).
 
-**Tests :**
-- Non executes (commande `python` absente).
-
 ---
 ### **2025-02-14** — Prefixe/suffixe pour split flaw/noflaw
 
@@ -2601,7 +2598,21 @@ Besoin de personnaliser le nom des images exportees pour le dataset, tout en con
 1. Appliquer prefixe/suffixe uniquement aux sorties flaw/noflaw + gtmask pour conserver la correspondance avec les fichiers complete.
 2. Utiliser QInputDialog pour une saisie simple et garder des valeurs vides par defaut.
 
-**Tests :**
-- Non executes (UI).
+---
+### **2026-01-26** — Controle opacite overlay endview/3D
+
+**Tags :** `#views/overlay_settings_view.py`, `#views/endview_view.py`, `#views/volume_view.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#overlay`, `#opacity`, `#ui`, `#3d`, `#mvc`, `#branch:annotation`
+
+**Actions effectuees :**
+- Ajoute un slider d'opacite (0-100%) dans OverlaySettingsView avec signal et synchro UI.
+- Stocke l'opacite globale dans ViewStateModel et la propage via AnnotationController/MasterController (init + switch session).
+- Applique l'opacite aux overlays Endview (QGraphicsPixmapItem) et 3D (LUT alpha + overlay slice).
+
+**Contexte :**
+Besoin de controler l'opacite des labels overlay dans les vues endview et 3D directement depuis les parametres overlay.
+
+**Decisions techniques :**
+1. Centraliser l'opacite dans ViewStateModel et la reappliquer a l'ouverture des parametres et aux switches de session.
+2. Utiliser un facteur global multiplie sur l'alpha de la palette pour garder les alphas par label tout en offrant un controle absolu; valeur par defaut 0.4 pour conserver le rendu precedent.
 
 ---

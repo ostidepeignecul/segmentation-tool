@@ -7,43 +7,9 @@
 ## 🎯 Principes Fondamentaux
 
 ### 1. **Memory-First Development**
-L'agent doit **toujours** consulter la mémoire avant toute action, selon une **stratégie hybride ByteRover + MEMORY.md** :
+L'agent doit **toujours** consulter `MEMORY.md` avant toute action, via une stratégie en niveaux :
 
-#### 📖 Stratégie de Lecture Hybride (ByteRover → MEMORY.md)
-
-**🔹 PRIORITÉ 1 : ByteRover (Toujours en premier)**
-
-L'agent doit **TOUJOURS** commencer par interroger ByteRover avec `byterover-retrieve-knowledge` :
-
-```python
-# Exemple de requête ByteRover
-byterover-retrieve-knowledge(
-    query="Comment fonctionne l'annotation des polygones dans mask_editor?",
-    limit=5
-)
-```
-
-**Niveau 1 - Recherche Ciblée ByteRover (par défaut)** :
-- Formuler une **question précise** liée à la tâche (ex: "Où est géré le threshold dans mask_editor?")
-- Utiliser **tags spécifiques** si connus (`#annotation_controller.py`, `#threshold`, `#mvc`)
-- Limiter à **3-5 résultats** les plus pertinents
-- Identifier rapidement les patterns et décisions récentes
-
-**Niveau 2 - Recherche Contextuelle ByteRover** :
-- Élargir la requête aux **concepts architecturaux** (`#architecture`, `#mvc`, `#3d-visualization`)
-- Chercher les **entrées des 30 derniers jours** avec queries temporelles
-- Combiner avec `git log` pour voir l'historique des fichiers
-- Augmenter limite à **5-10 résultats** si nécessaire
-
-**Niveau 3 - Recherche Exhaustive ByteRover** :
-- Requêtes multiples sur différents aspects du projet
-- Recherche par **tous les tags majeurs** (`#performance`, `#overlay`, `#nde_loader`)
-- Limite étendue à **10+ résultats**
-- Utilisé pour modifications architecturales majeures
-
-**🔹 FALLBACK : MEMORY.md (Si ByteRover indisponible)**
-
-**SI et SEULEMENT SI** ByteRover ne répond pas ou n'est pas connecté, utiliser `MEMORY.md` :
+#### 📖 Stratégie de Lecture (MEMORY.md uniquement)
 
 **Niveau 1 - Lecture Ciblée** :
 - Lire les **50-100 premières lignes** de `MEMORY.md` (en-tête + entrées récentes)
@@ -51,22 +17,22 @@ byterover-retrieve-knowledge(
 - Identifier rapidement le contexte des fichiers concernés
 
 **Niveau 2 - Lecture Contextuelle** :
-- Lire sections liées aux **tags architecturaux** (`#architecture`, `#mvc`)
-- Consulter entrées des **30 derniers jours**
-- Vérifier `git log` pour historique fichiers
-- Lire sections spécifiques trouvées au niveau 1
+- Lire les sections liées aux **tags architecturaux** (`#architecture`, `#mvc`)
+- Consulter les entrées des **30 derniers jours**
+- Vérifier `git log` pour l'historique des fichiers
+- Lire les sections spécifiques trouvées au niveau 1
 
 **Niveau 3 - Lecture Complète** :
 - Lire `MEMORY.md` **en entier** si :
-  - Modifications architecturales majeures
-  - Aucun contexte pertinent trouvé aux niveaux 1-2
-  - Demande explicite de l'utilisateur
+   - Modifications architecturales majeures
+   - Aucun contexte pertinent trouvé aux niveaux 1-2
+   - Demande explicite de l'utilisateur
 
 **Objectifs communs** :
 - Comprendre le contexte historique du projet
 - Identifier les patterns et décisions passées
 - Éviter de répéter des erreurs
-- Maintenir cohérence entre ByteRover et MEMORY.md
+- Maintenir la cohérence avec `MEMORY.md`
 
 ### 2. **Plan Before Action**
 **OBLIGATOIRE** : Avant toute modification significative :
@@ -106,21 +72,19 @@ git show --stat
 git log --name-only --pretty=format: -n 5 | sort -u
 ```
 
-**Workflow Git + ByteRover + MEMORY.md :**
+**Workflow Git + MEMORY.md :**
 1. Identifier les fichiers à modifier dans la tâche
 2. Vérifier `git log` pour ces fichiers
-3. Interroger **ByteRover** avec query ciblée sur ces fichiers
-4. Si ByteRover indisponible → Comparer avec entrées `MEMORY.md` correspondantes
-5. Si divergence → lire sections complètes (ByteRover ou MEMORY.md)
+3. Consulter les entrées `MEMORY.md` correspondantes
+4. Si divergence ou doute → lire les sections complètes de `MEMORY.md`
 
-**Pourquoi Git + ByteRover + MEMORY.md ?**
+**Pourquoi Git + MEMORY.md ?**
 - Git : Historique factuel des commits
-- ByteRover : Recherche sémantique intelligente, contexte récent accessible rapidement
-- MEMORY.md : Backup local, lecture séquentielle complète si besoin
+- MEMORY.md : Contexte local chronologique et décisions passées
 - Ensemble : Vision complète et rapide de l'évolution du code
 
-### 4. **Controlled Documentation (Double Storage)**
-**RÈGLE CRITIQUE** : **JAMAIS** documenter dans ByteRover ou MEMORY.md sans l'ordre **EXPLICITE** de l'utilisateur.
+### 4. **Documentation Contrôlée (MEMORY.md uniquement)**
+**RÈGLE CRITIQUE** : **JAMAIS** documenter dans `MEMORY.md` sans l'ordre **EXPLICITE** de l'utilisateur.
 
 **Quand documenter :**
 - **UNIQUEMENT** : Lorsque l'utilisateur le demande explicitement (ex: "store ceci", "documente ça").
@@ -132,51 +96,7 @@ git log --name-only --pretty=format: -n 5 | sort -u
 - Modifications temporaires ou expérimentales
 - Tests en cours de développement
 
-**🔹 STRATÉGIE DE DOUBLE STORAGE (ByteRover + MEMORY.md)**
-
-**TOUJOURS** documenter dans les **DEUX** systèmes en **ordre chronologique** :
-
-**1. ByteRover (En premier)** :
-```python
-byterover-store-knowledge(
-    messages="""
-    # YYYY-MM-DD — Titre de la modification
-    
-    **Tags:** `#fichier.py`, `#concept`, `#technologie`
-    
-    **Actions effectuées:**
-    - Action 1 : Description précise
-    - Action 2 : Description précise
-    
-    **Contexte:**
-    Explication technique détaillée...
-    
-    **Décisions techniques:**
-    1. Décision 1 et justification
-    2. Décision 2 et justification
-    """
-)
-```
-
-**2. MEMORY.md (Immédiatement après)** :
-```markdown
-### **YYYY-MM-DD** — [Titre identique]
-**Tags :** `#fichier.py`, `#concept`, `#technologie`
-
-**Actions effectuées :**
-- Action 1 : Description précise [IDENTIQUE à ByteRover]
-- Action 2 : Description précise [IDENTIQUE à ByteRover]
-
-**Contexte :**
-[MÊME contenu que ByteRover]
-
-**Décisions techniques :**
-[MÊME contenu que ByteRover]
-
----
-```
-
-**🔹 ORDRE CHRONOLOGIQUE DANS MEMORY.MD :**
+**ORDRE CHRONOLOGIQUE DANS MEMORY.MD :**
 - **IMPORTANT** : Les entrées sont organisées du **plus vieux au plus récent** (ordre chronologique croissant)
 - **🚨 CRITIQUE** : **TOUJOURS ajouter la nouvelle entrée À LA FIN du fichier MEMORY.md**
 - **🚨 CRITIQUE** : **JAMAIS ajouter une entrée au début, au milieu, ou après l'en-tête**
@@ -188,9 +108,8 @@ byterover-store-knowledge(
   4. Vérifier que la nouvelle entrée est bien à la fin du fichier
 - **Format** : Date au format ISO (YYYY-MM-DD) pour faciliter le tri
 - **Raison** : Simplifie l'ajout de nouvelles entrées (pas besoin de chercher où les insérer, on ajoute toujours à la fin)
-- **ByteRover** : Gère automatiquement l'ordre chronologique, pas besoin d'intervention
 
-**Format de documentation automatique :**
+**Format de documentation automatique (MEMORY.md) :**
 ```markdown
 # UNIQUEMENT si l'utilisateur demande explicitement de documenter :
 
@@ -201,23 +120,16 @@ byterover-store-knowledge(
    - Actions effectuées détaillées
    - Contexte et décisions techniques
 
-2. Stocker dans ByteRover (ordre chronologique automatique)
-3. **🚨 CRITIQUE** : Ajouter à la fin de MEMORY.md (après la dernière entrée existante)
+2. **🚨 CRITIQUE** : Ajouter à la fin de MEMORY.md (après la dernière entrée existante)
    - **JAMAIS** ajouter au début ou au milieu du fichier
    - **TOUJOURS** lire la fin du fichier pour trouver la dernière entrée
    - **TOUJOURS** ajouter après la dernière ligne du fichier
 ```
 
 **🚨 RÈGLES STRICTES :**
-- **TOUJOURS** documenter dans les **DEUX** systèmes (ByteRover ET MEMORY.md)
+- **TOUJOURS** documenter dans `MEMORY.md` uniquement
 - **TOUJOURS** utiliser la **date du jour** au format ISO (YYYY-MM-DD)
-- **TOUJOURS** maintenir contenu **identique** entre les deux systèmes
-- **TOUJOURS** respecter ordre chronologique :
-  - **ByteRover** : Ordre chronologique géré automatiquement par le système
-  - **MEMORY.md** : Ordre chronologique **croissant** (plus vieux → plus récent)
-  - **🚨 CRITIQUE MEMORY.md** : **TOUJOURS ajouter à la fin du fichier**
-  - **🚨 CRITIQUE MEMORY.md** : **JAMAIS ajouter au début, au milieu, ou après l'en-tête**
-  - **🚨 CRITIQUE MEMORY.md** : Lire la fin du fichier pour trouver la dernière entrée, puis ajouter après
+- **TOUJOURS** respecter l'ordre chronologique **croissant** (plus vieux → plus récent)
 - **TOUJOURS** documenter immédiatement après validation de la tâche complète
 
 ---
@@ -226,26 +138,21 @@ byterover-store-knowledge(
 
 Avant de commencer **toute tâche**, l'agent doit vérifier :
 
-- [ ] **ByteRover interrogé en premier (PRIORITÉ 1) :**
-  - [ ] Niveau 1 (ciblé) : Query précise avec 3-5 résultats
-  - [ ] Niveau 2 (contextuel) : Query élargie + tags architecturaux
-  - [ ] Niveau 3 (exhaustif) : Queries multiples avec 10+ résultats
-- [ ] **Si ByteRover indisponible → Fallback MEMORY.md :**
-  - [ ] Niveau 1 (ciblé) : En-tête + tags pertinents via `grep`
-  - [ ] Niveau 2 (contextuel) : + sections architecturales + `git log`
-  - [ ] Niveau 3 (complet) : Lecture intégrale si nécessaire
+- [ ] **MEMORY.md consulté (choisir le niveau adapté) :**
+   - [ ] Niveau 1 (ciblé) : En-tête + tags pertinents via `grep`
+   - [ ] Niveau 2 (contextuel) : + sections architecturales + `git log`
+   - [ ] Niveau 3 (complet) : Lecture intégrale si nécessaire
 - [ ] `AGENTS.md` a été consulté (ce fichier)
 - [ ] `git log` vérifié pour les fichiers concernés (si applicable)
 - [ ] L'architecture MVC du projet est comprise
 - [ ] Les fichiers concernés par la tâche sont identifiés
 - [ ] **Un plan détaillé a été créé et présenté à l'utilisateur**
 - [ ] **L'approbation de l'utilisateur a été reçue**
-- [ ] La politique de double storage (ByteRover + MEMORY.md) est respectée
-  - [ ] **Pas de documentation automatique (Attendre demande explicite)**
-  - [ ] Date du jour (YYYY-MM-DD) prête
-  - [ ] Contenu identique pour ByteRover et MEMORY.md
-  - [ ] **🚨 CRITIQUE** : Plan d'ajout à la fin de MEMORY.md (après la dernière entrée)
-  - [ ] **🚨 CRITIQUE** : Vérifier que l'entrée sera ajoutée à la fin, JAMAIS au début/milieu
+- [ ] Politique de documentation MEMORY.md respectée
+   - [ ] **Pas de documentation automatique (Attendre demande explicite)**
+   - [ ] Date du jour (YYYY-MM-DD) prête
+   - [ ] **🚨 CRITIQUE** : Plan d'ajout à la fin de MEMORY.md (après la dernière entrée)
+   - [ ] **🚨 CRITIQUE** : Vérifier que l'entrée sera ajoutée à la fin, JAMAIS au début/milieu
 - [ ] Aucun fichier temporaire ne subsiste de sessions précédentes
 - [ ] Aucun script de test ne reste dans le dépôt
 
@@ -407,7 +314,7 @@ Utiliser `#` suivi du nom du fichier ou concept :
 2. **Pertinent** : Ajouter les concepts/technologies impliqués
 3. **Consistant** : Utiliser les mêmes tags pour les mêmes concepts
 4. **Recherchable** : Faciliter la recherche dans `MEMORY.md`
-5. **Obligatoire** : Pour chaque nouvelle entrée de mémoire (ByteRover + `MEMORY.md`), ajouter un tag de branche `#branch:<nom_de_branche_git>` dans la liste des tags
+5. **Obligatoire** : Pour chaque nouvelle entrée dans `MEMORY.md`, ajouter un tag de branche `#branch:<nom_de_branche_git>` dans la liste des tags
 
 ---
 
@@ -418,13 +325,10 @@ Utiliser `#` suivi du nom du fichier ou concept :
 ┌─────────────────────────────────────────────┐
 │ 1. Lire AGENTS.md (ce fichier)              │
 │ 2. Identifier la tâche                      │
-│ 3. 🔹 PRIORITÉ : Interroger ByteRover       │
-│    - Query ciblée (niveau 1/2/3)            │
-│ 4. Si ByteRover KO → Fallback MEMORY.md     │
-│    - Lecture selon niveau (1/2/3)           │
-│ 5. Vérifier git log si pertinent            │
-│ 6. Comprendre l'architecture                │
-│ 7. Vérifier s'il reste des scripts          │
+│ 3. Consulter MEMORY.md (niveau adapté)      │
+│ 4. Vérifier git log si pertinent            │
+│ 5. Comprendre l'architecture                │
+│ 6. Vérifier s'il reste des scripts          │
 └─────────────────────────────────────────────┘
 ```
 
@@ -465,20 +369,15 @@ Utiliser `#` suivi du nom du fichier ou concept :
 ```
 ┌──────────────────────────────────────────────┐
 │ 1. 🔹 ATTENTE : Attendre demande "Store"    │
-│ 2. 🔹 ÉTAPE 1 : Store dans ByteRover        │
-│    - byterover-store-knowledge(...)         │
-│    - Utiliser date du jour (YYYY-MM-DD)     │
-│    - Ordre chronologique automatique         │
-│ 3. 🔹 ÉTAPE 2 : Ajouter dans MEMORY.md      │
-│    - Contenu IDENTIQUE à ByteRover          │
+│ 2. 🔹 ÉTAPE UNIQUE : Ajouter dans MEMORY.md │
 │    - Utiliser date du jour (YYYY-MM-DD)     │
 │    - 🚨 CRITIQUE : Ajouter À LA FIN du fichier│
 │    - 🚨 CRITIQUE : Lire la fin du fichier    │
 │    - 🚨 CRITIQUE : Après la dernière entrée │
 │    - 🚨 CRITIQUE : JAMAIS au début/milieu    │
 │    - Ordre : plus vieux → plus récent       │
-│ 4. Vérifier date + tags identiques          │
-│ 5. Confirmer ordre chronologique croissant  │
+│ 3. Vérifier date + tags                     │
+│ 4. Confirmer ordre chronologique croissant  │
 └──────────────────────────────────────────────┘
 ```
 
@@ -518,6 +417,15 @@ Avant d'ajouter une nouvelle dépendance :
 
 ## 🧪 Testing et Validation
 
+### Politique de Tests
+
+**🚨 RÈGLE CRITIQUE : Tous les tests sont effectués MANUELLEMENT**
+
+- **JAMAIS** inclure de section "Tests :" dans les entrées MEMORY.md
+- **JAMAIS** documenter les résultats de tests dans MEMORY.md
+- Les tests sont effectués par l'utilisateur après chaque modification
+- L'agent ne doit **JAMAIS** assumer ou documenter des résultats de tests
+
 ### Avant de Modifier
 
 - Lire les tests existants (si présents)
@@ -536,43 +444,11 @@ Avant d'ajouter une nouvelle dépendance :
 - Tester les fonctionnalités impactées
 - Vérifier les logs (app.log, nde_debug_log.txt)
 - **Nettoyer les fichiers de test temporaires**
+- **Ne PAS documenter les résultats de tests**
 
 ---
 
-## 📝 Template d'Entrée (ByteRover + MEMORY.md)
-
-**🔹 TEMPLATE BYTEROVER :**
-
-```python
-byterover-store-knowledge(
-    messages="""
-# YYYY-MM-DD — Titre concis de la modification
-
-**Tags:** `#fichier1.py`, `#concept`, `#technologie`
-
-**Actions effectuées:**
-- Action 1 : Description précise avec détails techniques
-- Action 2 : Description précise avec détails techniques
-
-**Contexte:**
-Explication du pourquoi de ces modifications, lien avec l'architecture,
-décisions techniques prises. Inclure code snippets si pertinent.
-
-**Décisions techniques:**
-1. Décision 1 et justification détaillée
-2. Décision 2 et justification détaillée
-
-**Implémentation (si applicable):**
-```python
-# Exemple de code
-def example():
-    pass
-```
-"""
-)
-```
-
-**🔹 TEMPLATE MEMORY.MD (IDENTIQUE) :**
+## 📝 Template d'Entrée (MEMORY.md)
 
 ```markdown
 ### **YYYY-MM-DD** — Titre concis de la modification
@@ -601,7 +477,11 @@ def example():
 ---
 ```
 
-**🚨 RÈGLE : Contenu DOIT être identique entre ByteRover et MEMORY.md**
+**🚨 RÈGLES CRITIQUES :**
+- **Entrée ajoutée uniquement dans MEMORY.md**
+- **JAMAIS inclure de section "Tests :" dans les entrées**
+- **Les tests sont effectués manuellement par l'utilisateur**
+- **Ne documenter que les actions, le contexte et les décisions techniques**
 
 ---
 
@@ -640,23 +520,22 @@ def example():
 3. 🚨 **JAMAIS documenter sans demande explicite**
    - **INTERDIT** : Documenter automatiquement
    - **OBLIGATOIRE** : Attendre l'ordre explicite de l'utilisateur
-   - **TOUJOURS** stocker dans ByteRover ET MEMORY.md (les deux systèmes)
+   - **TOUJOURS** stocker dans MEMORY.md uniquement
    - **TOUJOURS** utiliser la date du jour (YYYY-MM-DD)
    - **TOUJOURS** ajouter à la fin de MEMORY.md (après la dernière entrée, ordre chronologique croissant)
-   - **TOUJOURS** maintenir contenu identique entre les deux systèmes
 
 ### Règles Importantes
 
-4. ✅ **Toujours consulter ByteRover EN PREMIER (puis MEMORY.md si KO)**
+4. ✅ **Toujours consulter MEMORY.md en premier**
 5. ✅ **Vérifier `git log` pour le contexte des fichiers modifiés**
 6. ✅ **Respecter l'architecture MVC strictement**
 7. ✅ **Taguer tous les fichiers modifiés**
 8. ✅ **Nettoyer tous les fichiers temporaires**
-9. ✅ **Suivre la politique de double storage (ByteRover + MEMORY.md)**
+9. ✅ **Suivre la politique de documentation MEMORY.md**
 10. ✅ **Tester avant de valider**
 
 ---
 
 *Ce fichier est un guide vivant. Il doit être mis à jour si de nouvelles règles ou patterns émergent.*
 
-*Dernière mise à jour : 2025-01-27 (Restructuration MEMORY.md : ordre chronologique croissant, ajout à la fin du fichier)*
+*Dernière mise à jour : 2026-01-26 (Documentation MEMORY.md uniquement)*

@@ -69,8 +69,9 @@ class EndviewView(QFrame):
 
         self._image_item = QGraphicsPixmapItem()
         self._scene.addItem(self._image_item)
+        self._overlay_opacity: float = 1.0
         self._overlay_item = QGraphicsPixmapItem()
-        self._overlay_item.setOpacity(0.4)
+        self._overlay_item.setOpacity(self._overlay_opacity)
         self._scene.addItem(self._overlay_item)
 
         pen = QPen(Qt.GlobalColor.red)
@@ -142,6 +143,15 @@ class EndviewView(QFrame):
         self._overlay_palette = dict(overlay.palette)
         self._visible_labels = set(visible_labels) if visible_labels is not None else None
         self._refresh_overlay_pixmap()
+
+    def set_overlay_opacity(self, opacity: float) -> None:
+        """Set global overlay opacity (0.0 - 1.0)."""
+        try:
+            value = float(opacity)
+        except (TypeError, ValueError):
+            value = 1.0
+        self._overlay_opacity = max(0.0, min(1.0, value))
+        self._overlay_item.setOpacity(self._overlay_opacity)
 
     def update_image(self) -> None:
         """Force re-rendering the base slice."""

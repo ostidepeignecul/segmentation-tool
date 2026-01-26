@@ -102,6 +102,7 @@ class VolumeView(QFrame):
         self._mask_volume: Optional[np.ndarray] = None # Single uint8 mask
         self._overlay_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self._overlay_colormap: Optional[Colormap] = None
+        self._overlay_opacity: float = 1.0
         self._label_visuals: Dict[int, scene.visuals.Volume] = {}
         self._uploaded_volumes: Dict[int, np.ndarray] = {}
         self._visible_labels: Optional[set[int]] = None
@@ -236,6 +237,18 @@ class VolumeView(QFrame):
             self._add_slice_overlay()
         self._update_overlay_image()
 
+    def set_overlay_opacity(self, opacity: float) -> None:
+        """Set global overlay opacity (0.0 - 1.0)."""
+        try:
+            value = float(opacity)
+        except (TypeError, ValueError):
+            value = 1.0
+        self._overlay_opacity = max(0.0, min(1.0, value))
+        if self._overlay_volume_visual is not None:
+            self._update_overlay_colormap()
+            self._overlay_volume_visual.cmap = self._overlay_colormap
+        self._update_overlay_image()
+
     def _clear_overlay_visuals(self) -> None:
         """Remove overlay visuals and reset related state."""
         self._overlay_timer.stop()
@@ -325,7 +338,8 @@ class VolumeView(QFrame):
             if c_bgra:
                 b, g, r, a = c_bgra
                 # Normalize 0..1
-                colors[label] = [r/255.0, g/255.0, b/255.0, a/255.0]
+                alpha = (a / 255.0) * self._overlay_opacity
+                colors[label] = [r/255.0, g/255.0, b/255.0, alpha]
 
         # Use 'from_array' directly? No, Colormap takes list of colors and controls.
         # But for exact matching we want controls at 0, 1/255, etc.
@@ -529,7 +543,9 @@ class VolumeView(QFrame):
                  continue
             c = self._overlay_palette.get(label)
             if c:
-                lut[label] = [c[2], c[1], c[0], c[3]] # BGRA -> RGBA?
+                scaled_alpha = int(round(c[3] * self._overlay_opacity))
+                scaled_alpha = max(0, min(255, scaled_alpha))
+                lut[label] = [c[2], c[1], c[0], scaled_alpha] # BGRA -> RGBA?
                 # Palette is BGRA. VisPy Image might want RGBA or BGRA?
                 # Usually VisPy expects RGBA.
                 # EndviewView code used: r, g, b, a logic.

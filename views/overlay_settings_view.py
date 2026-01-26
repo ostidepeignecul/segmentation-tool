@@ -9,8 +9,10 @@ from PyQt6.QtWidgets import (
     QColorDialog,
     QDialog,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QScrollArea,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -25,6 +27,7 @@ class OverlaySettingsView(QDialog):
     label_color_changed = pyqtSignal(int, QColor)
     label_added = pyqtSignal(int, QColor)
     label_deleted = pyqtSignal(int)
+    overlay_opacity_changed = pyqtSignal(float)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -44,6 +47,20 @@ class OverlaySettingsView(QDialog):
         self._list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._scroll.setWidget(self._container)
         layout.addWidget(self._scroll, 1)
+
+        opacity_layout = QHBoxLayout()
+        self._opacity_label = QLabel("Opacité overlay", self)
+        opacity_layout.addWidget(self._opacity_label, 0)
+        self._opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._opacity_slider.setRange(0, 100)
+        self._opacity_slider.setValue(100)
+        self._opacity_slider.valueChanged.connect(self._on_opacity_changed)
+        opacity_layout.addWidget(self._opacity_slider, 1)
+        self._opacity_value = QLabel("100%", self)
+        self._opacity_value.setFixedWidth(48)
+        self._opacity_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        opacity_layout.addWidget(self._opacity_value, 0)
+        layout.addLayout(opacity_layout)
 
         buttons_layout = QHBoxLayout()
         self._add_zero_button = QPushButton("Ajouter label 0", self)
@@ -87,6 +104,15 @@ class OverlaySettingsView(QDialog):
             self.ensure_label(label_id, color, visible=visible)
             seen.add(int(label_id))
 
+    def set_overlay_opacity(self, value: float) -> None:
+        """Set the overlay opacity slider (0.0 - 1.0)."""
+        opacity = max(0.0, min(1.0, float(value)))
+        percent = int(round(opacity * 100.0))
+        self._opacity_slider.blockSignals(True)
+        self._opacity_slider.setValue(percent)
+        self._opacity_slider.blockSignals(False)
+        self._update_opacity_label(percent)
+
     def _on_label_deleted(self, label_id: int) -> None:
         """Remove row then propagate deletion event."""
         lbl = int(label_id)
@@ -119,6 +145,10 @@ class OverlaySettingsView(QDialog):
         self.ensure_label(new_id, color, visible=True)
         self.label_added.emit(new_id, color)
 
+    def _on_opacity_changed(self, value: int) -> None:
+        self._update_opacity_label(value)
+        self.overlay_opacity_changed.emit(float(value) / 100.0)
+
     def _on_add_zero_label(self) -> None:
         if 0 in self._labels:
             return
@@ -146,6 +176,9 @@ class OverlaySettingsView(QDialog):
         """Generate a distinct color using a golden-angle hue wheel."""
         hue = int((index * 137.508) % 360)
         return QColor.fromHsv(hue, 255, 255)
+
+    def _update_opacity_label(self, value: int) -> None:
+        self._opacity_value.setText(f"{int(value)}%")
 
 
 class _LabelRow(QWidget):

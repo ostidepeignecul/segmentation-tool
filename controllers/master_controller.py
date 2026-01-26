@@ -174,6 +174,7 @@ class MasterController:
         self._connect_actions()
         self._connect_signals()
         self._register_shortcuts()
+        self.annotation_controller.apply_overlay_opacity()
         self._sync_tools_labels()
         self._update_nde_label()
         self._update_endview_label()
@@ -309,6 +310,9 @@ class MasterController:
         )
         self.overlay_settings_view.label_color_changed.connect(
             self.annotation_controller.on_label_color_changed
+        )
+        self.overlay_settings_view.overlay_opacity_changed.connect(
+            self.annotation_controller.on_overlay_opacity_changed
         )
         self.overlay_settings_view.label_added.connect(self._on_label_added)
         self.overlay_settings_view.label_deleted.connect(self._on_label_deleted)
@@ -1023,6 +1027,7 @@ class MasterController:
 
         self._sync_tools_labels()
         self.annotation_controller.sync_overlay_settings()
+        self.annotation_controller.apply_overlay_opacity()
         # Rafraîchir le volume puis réappliquer l'overlay pour forcer le push 3D
         self._refresh_views()
 

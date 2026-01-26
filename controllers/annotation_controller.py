@@ -114,6 +114,11 @@ class AnnotationController:
         self.refresh_overlay(defer_volume=True, rebuild=False)
         self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
 
+    def on_overlay_opacity_changed(self, opacity: float) -> None:
+        """Handle overlay opacity changes from the settings dialog."""
+        self.view_state_model.set_overlay_alpha(opacity)
+        self.apply_overlay_opacity()
+
     def on_overlay_toggled(self, enabled: bool) -> None:
         """Gère le toggle de visibilité de l'overlay."""
         self.view_state_model.toggle_overlay(enabled)
@@ -200,6 +205,12 @@ class AnnotationController:
             self.overlay_settings_view.clear_labels()
         self.temp_mask_model.clear()
         self.roi_model.clear()
+
+    def apply_overlay_opacity(self) -> None:
+        """Apply the current overlay opacity to 2D and 3D views."""
+        alpha = float(self.view_state_model.overlay_alpha)
+        self.annotation_view.set_overlay_opacity(alpha)
+        self.volume_view.set_overlay_opacity(alpha)
 
     # ------------------------------------------------------------------ #
     # Interaction handlers (stubs)
@@ -870,6 +881,7 @@ class AnnotationController:
             visible = visibility.get(label_id, True)
             entries.append((label_id, qcolor, visible))
         self.overlay_settings_view.set_labels(entries)
+        self.overlay_settings_view.set_overlay_opacity(self.view_state_model.overlay_alpha)
 
     def _resolve_volume_dimensions(self) -> tuple[Optional[int], Optional[tuple[int, int]]]:
         """Return (depth, (H, W)) from annotation/temp models or underlying volume."""

@@ -11,7 +11,7 @@ class ViewStateModel:
     def __init__(self) -> None:
 
         # --- Overlay & Display ---
-        self.overlay_alpha: float = 1.0
+        self.overlay_alpha: float = 0.4
         self.colormap: Optional[str] = None
         self.endview_colormap: str = "Gris"
         self.cscan_colormap: str = "Gris"
@@ -156,6 +156,14 @@ class ViewStateModel:
     # ------------------------------------------------------------------ #
     def toggle_overlay(self, visible: bool) -> None:
         self.show_overlay = bool(visible)
+
+    def set_overlay_alpha(self, value: float) -> None:
+        """Set global overlay opacity (0.0 - 1.0)."""
+        try:
+            alpha = float(value)
+        except (TypeError, ValueError):
+            alpha = 1.0
+        self.overlay_alpha = max(0.0, min(1.0, alpha))
 
     def toggle_volume(self, visible: bool) -> None:
         self.show_volume = bool(visible)
