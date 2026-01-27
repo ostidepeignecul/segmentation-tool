@@ -324,6 +324,9 @@ class MasterController:
         self.nde_settings_view.erase_label_target_changed.connect(
             self._on_erase_label_target_changed
         )
+        self.nde_settings_view.roi_thin_line_width_changed.connect(
+            self._on_roi_thin_line_width_changed
+        )
 
     def _register_shortcuts(self) -> None:
         """Global keyboard shortcuts (active anywhere in the window)."""
@@ -681,6 +684,9 @@ class MasterController:
         )
         self._sync_apply_volume_range_view()
         self._sync_erase_label_choices()
+        self.nde_settings_view.set_roi_thin_line_max_width(
+            self.view_state_model.roi_thin_line_max_width
+        )
         self.nde_settings_view.show()
         self.nde_settings_view.raise_()
         self.nde_settings_view.activateWindow()
@@ -736,6 +742,13 @@ class MasterController:
             self.view_state_model.set_label0_erase_target(int(label_id))
         except Exception:
             self.view_state_model.set_label0_erase_target(None)
+
+    def _on_roi_thin_line_width_changed(self, value: int) -> None:
+        """Handle changes to thin-line pruning width for grow/line ROIs."""
+        try:
+            self.view_state_model.set_roi_thin_line_max_width(int(value))
+        except Exception:
+            self.view_state_model.set_roi_thin_line_max_width(0)
 
     def _get_colormap_lut(self, name: str) -> Optional[np.ndarray]:
         """Return LUT (256x3 float) for known colormap names."""

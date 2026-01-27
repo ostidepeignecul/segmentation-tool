@@ -27,6 +27,7 @@ class ViewStateModel:
         self.roi_persistence: bool = False
         self.active_label: Optional[int] = None
         self.label0_erase_target: Optional[int] = None
+        self.roi_thin_line_max_width: int = 2
         self.apply_volume_start: int = 0
         self.apply_volume_end: int = 0
         self.restriction_rect: Optional[Tuple[int, int, int, int]] = None
@@ -118,6 +119,16 @@ class ViewStateModel:
             self.label0_erase_target = None
         else:
             self.label0_erase_target = int(label_id)
+
+    def set_roi_thin_line_max_width(self, value: int) -> None:
+        """Set max width (px) for thin-line pruning in grow/line ROIs (0 disables)."""
+        try:
+            width = int(value)
+        except Exception:
+            return
+        if width < 0:
+            width = 0
+        self.roi_thin_line_max_width = width
 
     def set_restriction_rect(self, rect: Optional[Tuple[int, int, int, int]]) -> None:
         """Set the global restriction rectangle (x1, y1, x2, y2) or clear it."""

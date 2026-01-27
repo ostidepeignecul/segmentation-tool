@@ -2632,3 +2632,22 @@ Le threshold devait etre applique de facon fidele aux pixels selectionnes, sans 
 2. Conserver un fallback simple (masque box brut) si la normalisation echoue.
 
 ---
+
+### **2026-01-27** — Pruning lignes fines pour ROI + reglage UI
+
+**Tags :** `#services/annotation_service.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#views/nde_settings_view.py`, `#roi`, `#opencv`, `#ui`, `#mvc`, `#branch:annotation`
+
+**Actions effectuees :**
+- Ajoute un parametre global `roi_thin_line_max_width` dans `ViewStateModel` et sa mise a jour via `MasterController` depuis les parametres NDE.
+- Expose un `QSpinBox` dans `NdeSettingsView` pour regler la largeur max (px) et emet un signal `roi_thin_line_width_changed` synchronise a l’ouverture.
+- Propage `thin_line_max_width` dans les flows grow/line/volume via `AnnotationController` jusqu’au service.
+- Integre `_prune_thin_lines` dans `AnnotationService` (morpho open via OpenCV) et remplace le labeling SciPy par `cv2.connectedComponents` pour accelerer la segmentation.
+
+**Contexte :**
+Besoin de filtrer automatiquement les traits trop fins lors des ROI grow/line pour eviter la propagation sur des artefacts, tout en gardant un reglage simple dans les parametres.
+
+**Decisions techniques :**
+1. Utiliser une ouverture morphologique horizontale (kernel largeur = max_width+1) pour supprimer les lignes trop fines sans casser les regions larges.
+2. Basculer sur `cv2.connectedComponents` (connectivite 4) pour maintenir le comportement de labeling tout en reduisant le cout de calcul.
+
+---

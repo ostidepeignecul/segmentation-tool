@@ -1,13 +1,13 @@
-"""Service métier pour les opérations d'annotation/ROI (stubs)."""
+
 
 from __future__ import annotations
 
 from collections import deque
 from typing import Any, Callable, Optional, Sequence, Tuple
 
+import cv2
 import numpy as np
 from skimage.morphology import flood
-from scipy.ndimage import label as scipy_label
 
 from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
@@ -186,12 +186,45 @@ class AnnotationService:
         norm = (data - dmin) / (dmax - dmin) * 255.0
         return norm.astype(np.uint8)
 
+    def _prune_thin_lines(self, mask: np.ndarray, *, max_width: int = 2) -> np.ndarray:
+        """Remove pixels thinner than or equal to max_width in horizontal or vertical direction."""
+        try:
+            valid = np.asarray(mask, dtype=bool)
+        except Exception:
+            return mask
+        if valid.ndim != 2 or valid.size == 0:
+            return mask
+        try:
+            max_w = int(max_width)
+        except Exception:
+            return valid
+        if max_w <= 0:
+            return valid
+        min_width = max_w + 1
+        
+        # Optimization: Use cv2 for faster morphological operations
+        # Convert to uint8 for cv2
+        valid_uint8 = valid.astype(np.uint8)
+        
+        try:
+            h_struct = cv2.getStructuringElement(cv2.MORPH_RECT, (min_width, 1))
+            # Only apply horizontal opening (remove features with insufficient horizontal width)
+            # This effectively keeps horizontal lines (even if thin vertically) 
+            # but prunes vertical lines if they are too thin horizontally.
+            keep_h = cv2.morphologyEx(valid_uint8, cv2.MORPH_OPEN, h_struct)
+            
+            result = (keep_h > 0)
+            return result
+        except Exception:
+            return valid
+
     def build_grow_mask(
         self,
         shape: Tuple[int, int],
         seed: Tuple[int, int],
         slice_data: np.ndarray,
         threshold: Optional[float],
+        thin_line_max_width: Optional[int] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
@@ -227,6 +260,11 @@ class AnnotationService:
             valid_mask &= restriction.astype(bool)
         if blocked is not None:
             valid_mask &= ~blocked.astype(bool)
+
+        prune_width = 0 if thin_line_max_width is None else thin_line_max_width
+        valid_mask = self._prune_thin_lines(valid_mask, max_width=prune_width)
+        if not np.any(valid_mask):
+            return None
 
         if not valid_mask[y, x]:
             return None
@@ -309,6 +347,7 @@ class AnnotationService:
         seeds: Sequence[Tuple[int, int]],
         slice_data: np.ndarray,
         threshold: Optional[float],
+        thin_line_max_width: Optional[int] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
@@ -337,11 +376,16 @@ class AnnotationService:
         if blocked is not None:
             valid_mask &= ~blocked.astype(bool)
         
+        prune_width = 0 if thin_line_max_width is None else thin_line_max_width
+        valid_mask = self._prune_thin_lines(valid_mask, max_width=prune_width)
         if not np.any(valid_mask):
             return None
 
-        labeled_array, num_features = scipy_label(valid_mask, structure=[[0,1,0],[1,1,1],[0,1,0]])
-        if num_features == 0:
+        # Optimization: Use cv2.connectedComponents for faster labeling
+        # Connectivity 4 matches scipy's default structure=[[0,1,0],[1,1,1],[0,1,0]]
+        num_features, labeled_array = cv2.connectedComponents(valid_mask.astype(np.uint8), connectivity=4)
+        
+        if num_features <= 1: # 0 is background, so <= 1 means no components
             return None
 
         seed_indices = tuple(np.array(seeds).T[::-1])
@@ -373,6 +417,7 @@ class AnnotationService:
         slice_data: np.ndarray,
         label: int,
         threshold: Optional[float],
+        thin_line_max_width: Optional[int] = None,
         persistent: bool,
         roi_model: RoiModel,
         temp_mask_model: TempMaskModel,
@@ -388,6 +433,7 @@ class AnnotationService:
             point,
             slice_data,
             threshold,
+            thin_line_max_width=thin_line_max_width,
             restriction_mask=restriction_mask,
             blocked_mask=blocked_mask,
         )
@@ -420,6 +466,7 @@ class AnnotationService:
         slice_data: np.ndarray,
         label: int,
         threshold: Optional[float],
+        thin_line_max_width: Optional[int] = None,
         persistent: bool,
         roi_model: RoiModel,
         temp_mask_model: TempMaskModel,
@@ -439,6 +486,7 @@ class AnnotationService:
             seeds,
             slice_data,
             threshold,
+            thin_line_max_width=thin_line_max_width,
             restriction_mask=restriction_mask,
             blocked_mask=blocked_mask,
         )
@@ -472,6 +520,7 @@ class AnnotationService:
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         clear_slice: bool = True,
         slice_data: Optional[np.ndarray] = None,
+        thin_line_max_width: Optional[int] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
         blocked_mask_for_label: Optional[Callable[[int], Optional[np.ndarray]]] = None,
@@ -542,6 +591,7 @@ class AnnotationService:
                 seed,
                 slice_data,
                 getattr(roi, "threshold", None),
+                thin_line_max_width=thin_line_max_width,
                 restriction_mask=restriction,
                 blocked_mask=blocked,
             )
@@ -572,6 +622,7 @@ class AnnotationService:
                 seeds,
                 slice_data,
                 getattr(roi, "threshold", None),
+                thin_line_max_width=thin_line_max_width,
                 restriction_mask=restriction,
                 blocked_mask=blocked,
             )
@@ -653,6 +704,7 @@ class AnnotationService:
         temp_mask_model: TempMaskModel,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         slice_data_provider: Callable[[int], Optional[np.ndarray]],
+        thin_line_max_width: Optional[int] = None,
         start_idx: Optional[int] = None,
         end_idx: Optional[int] = None,
         restriction_mask: Optional[np.ndarray] = None,
@@ -699,6 +751,7 @@ class AnnotationService:
                 palette=palette,
                 clear_slice=True,
                 slice_data=slice_data,
+                thin_line_max_width=thin_line_max_width,
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 blocked_mask_for_label=blocked_mask_for_label,
@@ -868,6 +921,7 @@ class AnnotationService:
         temp_mask_model: TempMaskModel,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         slice_data_provider: Callable[[int], Optional[np.ndarray]],
+        thin_line_max_width: Optional[int] = None,
         start_idx: Optional[int] = None,
         end_idx: Optional[int] = None,
         restriction_mask: Optional[np.ndarray] = None,
@@ -909,6 +963,7 @@ class AnnotationService:
                 slice_data=slice_data,
                 label=label,
                 threshold=threshold,
+                thin_line_max_width=thin_line_max_width,
                 persistent=False,
                 roi_model=roi_model,
                 temp_mask_model=temp_mask_model,
@@ -942,6 +997,7 @@ class AnnotationService:
         temp_mask_model: TempMaskModel,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         slice_data_provider: Callable[[int], Optional[np.ndarray]],
+        thin_line_max_width: Optional[int] = None,
         start_idx: Optional[int] = None,
         end_idx: Optional[int] = None,
         restriction_mask: Optional[np.ndarray] = None,
@@ -982,6 +1038,7 @@ class AnnotationService:
                 slice_data=slice_data,
                 label=label,
                 threshold=threshold,
+                thin_line_max_width=thin_line_max_width,
                 persistent=False,
                 roi_model=roi_model,
                 temp_mask_model=temp_mask_model,

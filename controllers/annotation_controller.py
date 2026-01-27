@@ -298,6 +298,7 @@ class AnnotationController:
                 temp_mask_model=self.temp_mask_model,
                 palette=self.annotation_model.get_label_palette(),
                 slice_data_provider=self._slice_data,
+                thin_line_max_width=self.view_state_model.roi_thin_line_max_width,
                 start_idx=start_idx,
                 end_idx=end_idx,
                 restriction_mask=restriction_mask,
@@ -344,6 +345,7 @@ class AnnotationController:
         point = (int(pos[0]), int(pos[1]))
         label = self.view_state_model.active_label
         threshold = self.view_state_model.threshold if self.view_state_model.threshold is not None else 0
+        thin_line_width = self.view_state_model.roi_thin_line_max_width
 
         try:
             slice_idx = int(self.view_state_model.current_slice)
@@ -394,6 +396,7 @@ class AnnotationController:
                 temp_mask_model=self.temp_mask_model,
                 palette=self.annotation_model.get_label_palette(),
                 slice_data_provider=self._slice_data,
+                thin_line_max_width=thin_line_width,
                 start_idx=start_idx,
                 end_idx=end_idx,
                 restriction_mask=restriction_mask,
@@ -407,6 +410,7 @@ class AnnotationController:
                 slice_data=slice_data,
                 label=label,
                 threshold=threshold,
+                thin_line_max_width=thin_line_width,
                 persistent=self.view_state_model.roi_persistence,
                 roi_model=self.roi_model,
                 temp_mask_model=self.temp_mask_model,
@@ -440,6 +444,7 @@ class AnnotationController:
 
         label = self.view_state_model.active_label
         threshold = self.view_state_model.threshold if self.view_state_model.threshold is not None else 0
+        thin_line_width = self.view_state_model.roi_thin_line_max_width
 
         try:
             slice_idx = int(self.view_state_model.current_slice)
@@ -489,6 +494,7 @@ class AnnotationController:
                 temp_mask_model=self.temp_mask_model,
                 palette=palette,
                 slice_data_provider=self._slice_data,
+                thin_line_max_width=thin_line_width,
                 start_idx=start_idx,
                 end_idx=end_idx,
                 restriction_mask=restriction_mask,
@@ -502,6 +508,7 @@ class AnnotationController:
                 slice_data=slice_data,
                 label=label,
                 threshold=threshold,
+                thin_line_max_width=thin_line_width,
                 persistent=self.view_state_model.roi_persistence,
                 roi_model=self.roi_model,
                 temp_mask_model=self.temp_mask_model,
@@ -732,6 +739,7 @@ class AnnotationController:
                 temp_mask_model=self.temp_mask_model,
                 palette=self.annotation_model.get_label_palette(),
                 slice_data_provider=self._slice_data,
+                thin_line_max_width=self.view_state_model.roi_thin_line_max_width,
                 start_idx=start_idx,
                 end_idx=end_idx,
                 restriction_mask=restriction_mask,
@@ -1171,6 +1179,7 @@ class AnnotationController:
             palette=self.annotation_model.get_label_palette(),
             clear_slice=True,
             slice_data=self._slice_data(slice_idx),
+            thin_line_max_width=self.view_state_model.roi_thin_line_max_width,
             restriction_mask=self._restriction_mask(mask_shape),
             blocked_mask=blocked_mask,
             blocked_mask_for_label=blocked_mask_for_label,

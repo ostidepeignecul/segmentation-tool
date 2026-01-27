@@ -24,6 +24,7 @@ class NdeSettingsView(QDialog):
     cscan_colormap_changed = pyqtSignal(str)
     apply_volume_range_changed = pyqtSignal(int, int)
     erase_label_target_changed = pyqtSignal(object)
+    roi_thin_line_width_changed = pyqtSignal(int)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -53,6 +54,12 @@ class NdeSettingsView(QDialog):
 
         self._erase_label_combo = QComboBox(self)
         form.addRow(QLabel("Effacement label 0"), self._erase_label_combo)
+
+        self._roi_thin_line_width = QSpinBox(self)
+        self._roi_thin_line_width.setMinimum(0)
+        self._roi_thin_line_width.setMaximum(20)
+        self._roi_thin_line_width.setValue(2)
+        form.addRow(QLabel("Bloquer lignes <= (px)"), self._roi_thin_line_width)
 
         layout.addLayout(form)
 
@@ -107,6 +114,18 @@ class NdeSettingsView(QDialog):
         self._set_current_data(self._erase_label_combo, current)
         self._erase_label_combo.blockSignals(False)
 
+    def set_roi_thin_line_max_width(self, value: int) -> None:
+        """Update the thin-line pruning width without emitting signals."""
+        try:
+            width = int(value)
+        except Exception:
+            width = 0
+        if width < 0:
+            width = 0
+        self._roi_thin_line_width.blockSignals(True)
+        self._roi_thin_line_width.setValue(width)
+        self._roi_thin_line_width.blockSignals(False)
+
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -123,6 +142,7 @@ class NdeSettingsView(QDialog):
         self._apply_volume_start.valueChanged.connect(self._on_apply_volume_start_changed)
         self._apply_volume_end.valueChanged.connect(self._on_apply_volume_end_changed)
         self._erase_label_combo.currentIndexChanged.connect(self._on_erase_label_target_changed)
+        self._roi_thin_line_width.valueChanged.connect(self._on_roi_thin_line_width_changed)
 
     def _emit_apply_volume_range(self) -> None:
         self.apply_volume_range_changed.emit(
@@ -153,6 +173,12 @@ class NdeSettingsView(QDialog):
             self.erase_label_target_changed.emit(int(value))
         except Exception:
             self.erase_label_target_changed.emit(None)
+
+    def _on_roi_thin_line_width_changed(self, value: int) -> None:
+        try:
+            self.roi_thin_line_width_changed.emit(int(value))
+        except Exception:
+            self.roi_thin_line_width_changed.emit(0)
 
     @staticmethod
     def _set_current(combo: QComboBox, value: str) -> None:
