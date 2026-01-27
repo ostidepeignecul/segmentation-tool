@@ -2651,3 +2651,20 @@ Besoin de filtrer automatiquement les traits trop fins lors des ROI grow/line po
 2. Basculer sur `cv2.connectedComponents` (connectivite 4) pour maintenir le comportement de labeling tout en reduisant le cout de calcul.
 
 ---
+### **2026-01-27** — Percentiles conditionnels pour seuil ROI box
+
+**Tags :** `#services/annotation_service.py`, `#controllers/annotation_controller.py`, `#roi`, `#threshold`, `#box`, `#percentiles`, `#mvc`, `#branch:annotation`
+
+**Actions effectuees :**
+- Reintroduit le clipping percentile (1/99) pour la ROI box via un flag `use_box_percentiles` dans `build_thresholded_mask`.
+- Propage le flag dans `apply_box_roi`, `apply_box_roi_to_range`, `rebuild_temp_masks_for_slice` et `rebuild_volume_preview_from_rois` pour couvrir preview slice + volume.
+- Lie l'option a `view_state_model.threshold_auto` (checkbox "Box percentiles") dans `AnnotationController`.
+
+**Contexte :**
+Le percentile de la ROI box avait ete retire. Il est maintenant reintroduit uniquement quand l'utilisateur coche "Box percentiles", afin de conserver le comportement global par defaut.
+
+**Decisions techniques :**
+1. Garder la normalisation slice complete quand l'option est decochee pour ne pas modifier le seuillage existant.
+2. Limiter l'option aux ROIs box (grow/line inchanges) et reutiliser `threshold_auto` pour eviter un nouvel etat UI.
+
+---

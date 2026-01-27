@@ -524,6 +524,7 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
         blocked_mask_for_label: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        use_box_percentiles: bool = False,
     ) -> list[Tuple[int, int, int, int]]:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
@@ -563,7 +564,12 @@ class AnnotationService:
             mask_to_apply = box_mask
             roi_threshold = getattr(roi, "threshold", None)
             if slice_data is not None and roi_threshold is not None:
-                mask_to_apply = self.build_thresholded_mask(box_mask, slice_data, roi_threshold)
+                mask_to_apply = self.build_thresholded_mask(
+                    box_mask,
+                    slice_data,
+                    roi_threshold,
+                    use_box_percentiles=use_box_percentiles,
+                )
             blocked = resolve_blocked(label)
             if blocked is not None:
                 mask_to_apply = np.where(blocked, 0, mask_to_apply)
@@ -712,6 +718,7 @@ class AnnotationService:
         blocked_mask_for_label_provider: Optional[
             Callable[[int, int], Optional[np.ndarray]]
         ] = None,
+        use_box_percentiles: bool = False,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -755,6 +762,7 @@ class AnnotationService:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 blocked_mask_for_label=blocked_mask_for_label,
+                use_box_percentiles=use_box_percentiles,
             )
 
     def build_thresholded_mask(
@@ -762,13 +770,59 @@ class AnnotationService:
         box_mask: np.ndarray,
         slice_data: np.ndarray,
         threshold: Optional[float],
+        *,
+        use_box_percentiles: bool = False,
     ) -> np.ndarray:
         """
         Apply a threshold inside the box mask to select pixels for the temp mask.
-        Threshold is evaluated on the full slice normalized to [0, 255].
+        Threshold is evaluated on the full slice normalized to [0, 255],
+        or on ROI percentiles when use_box_percentiles=True.
         """
         if threshold is None:
             return box_mask
+        if use_box_percentiles:
+            try:
+                data = np.asarray(slice_data, dtype=np.float32)
+            except Exception:
+                return box_mask
+            if data.ndim == 3 and data.shape[2] in (3, 4):
+                data = data[..., 0]
+            mask = np.zeros_like(box_mask, dtype=np.uint8)
+            inside = box_mask > 0
+            if not np.any(inside):
+                return mask
+            data_inside = data[inside]
+            if data_inside.size == 0:
+                return mask
+            finite = np.isfinite(data_inside)
+            if not np.all(finite):
+                data_inside = data_inside[finite]
+                if data_inside.size == 0:
+                    return mask
+            dmin = float(data_inside.min())
+            dmax = float(data_inside.max())
+            lo, hi = dmin, dmax
+            try:
+                lo_p, hi_p = np.percentile(data_inside, (1.0, 99.0))
+                if np.isfinite(lo_p) and np.isfinite(hi_p) and hi_p > lo_p:
+                    lo, hi = float(lo_p), float(hi_p)
+            except Exception:
+                pass
+            if hi <= lo:
+                if dmax <= dmin:
+                    norm = np.zeros_like(data_inside, dtype=np.float32)
+                else:
+                    lo, hi = dmin, dmax
+                    clipped = np.clip(data_inside, lo, hi)
+                    norm = (clipped - lo) / (hi - lo) * 255.0
+            else:
+                clipped = np.clip(data_inside, lo, hi)
+                norm = (clipped - lo) / (hi - lo) * 255.0
+            thr = float(threshold)
+            mask_inside = (norm >= thr).astype(np.uint8)
+            mask[inside] = mask_inside
+            return mask
+
         mask = np.zeros_like(box_mask, dtype=np.uint8)
         inside = box_mask > 0
         if not np.any(inside):
@@ -799,6 +853,7 @@ class AnnotationService:
         slice_data: Optional[np.ndarray] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
+        use_box_percentiles: bool = False,
     ) -> Optional[np.ndarray]:
         """
         Normalize a box, build its mask, store ROI metadata and apply mask to temp model.
@@ -834,7 +889,12 @@ class AnnotationService:
         temp_mask_model.ensure_label(label, color, visible=True)
         mask_to_apply = box_mask
         if slice_data is not None and threshold is not None:
-            mask_to_apply = self.build_thresholded_mask(box_mask, slice_data, threshold)
+            mask_to_apply = self.build_thresholded_mask(
+                box_mask,
+                slice_data,
+                threshold,
+                use_box_percentiles=use_box_percentiles,
+            )
         if blocked_mask is not None:
             blocked = np.asarray(blocked_mask, dtype=bool)
             if blocked.shape == mask_to_apply.shape:
@@ -1075,6 +1135,7 @@ class AnnotationService:
         slice_data_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        use_box_percentiles: bool = False,
     ) -> None:
         """Apply a box ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -1097,4 +1158,5 @@ class AnnotationService:
                 slice_data=slice_data,
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
+                use_box_percentiles=use_box_percentiles,
             )

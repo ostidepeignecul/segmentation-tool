@@ -271,7 +271,7 @@ class Ui_MainWindow(object):
         self.radioButton_4.setText(_translate("MainWindow", "Paint"))
         self.label_6.setText(_translate("MainWindow", "Paint zise : "))
         self.checkBox.setText(_translate("MainWindow", "Appliquer au volume"))
-        self.checkBox_2.setText(_translate("MainWindow", "Threshold automatique"))
+        self.checkBox_2.setText(_translate("MainWindow", "Box percentiles"))
         self.checkBox_3.setText(_translate("MainWindow", "Persistance de ROI"))
         self.pushButton_7.setText(_translate("MainWindow", "Appliquer ROI"))
         self.pushButton_2.setText(_translate("MainWindow", "Recalculer ROI"))

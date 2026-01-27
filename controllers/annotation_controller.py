@@ -304,6 +304,7 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
                 blocked_mask_for_label_provider=blocked_mask_for_label_provider,
+                use_box_percentiles=self.view_state_model.threshold_auto,
             )
             self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
         else:
@@ -592,6 +593,7 @@ class AnnotationController:
                 slice_data_provider=self._slice_data,
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
+                use_box_percentiles=self.view_state_model.threshold_auto,
             )
         else:
             self.annotation_service.apply_box_roi(
@@ -607,6 +609,7 @@ class AnnotationController:
                 slice_data=self._slice_data(slice_idx),
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
+                use_box_percentiles=self.view_state_model.threshold_auto,
             )
         self.refresh_roi_overlay_for_slice(slice_idx)
 
@@ -745,6 +748,7 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
                 blocked_mask_for_label_provider=blocked_mask_for_label_provider,
+                use_box_percentiles=self.view_state_model.threshold_auto,
             )
             if prev_temp is not None and prev_cov is not None:
                 new_temp = self.temp_mask_model.get_mask_volume()
@@ -1183,6 +1187,7 @@ class AnnotationController:
             restriction_mask=self._restriction_mask(mask_shape),
             blocked_mask=blocked_mask,
             blocked_mask_for_label=blocked_mask_for_label,
+            use_box_percentiles=self.view_state_model.threshold_auto,
         )
 
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)

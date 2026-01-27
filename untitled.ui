@@ -298,7 +298,7 @@
         <item>
          <widget class="QCheckBox" name="checkBox_2">
           <property name="text">
-           <string>Threshold automatique</string>
+           <string>Box percentiles</string>
           </property>
          </widget>
         </item>
