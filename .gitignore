@@ -10,3 +10,4 @@
 __pycache__/
 *.pyc
 ascan_debug_log.txt
+.brv

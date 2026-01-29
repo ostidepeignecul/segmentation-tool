@@ -729,7 +729,7 @@ class MasterController:
         if volume is None:
             return
         start_idx, end_idx = self.view_state_model.set_apply_volume_range(
-            start, end, include_current=True
+            start, end, include_current=False
         )
         self.nde_settings_view.set_apply_volume_range(start_idx, end_idx)
 

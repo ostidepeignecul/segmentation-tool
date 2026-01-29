@@ -49,6 +49,7 @@ class NdeSettingsView(QDialog):
             box.setMinimum(0)
             box.setMaximum(0)
             box.setValue(0)
+            box.setKeyboardTracking(False)
         form.addRow(QLabel("Appliquer au volume (de)"), self._apply_volume_start)
         form.addRow(QLabel("Appliquer au volume (à)"), self._apply_volume_end)
 
