@@ -66,6 +66,10 @@ class EndviewView(QFrame):
         self._view.setMouseTracking(True)
         self._panning: bool = False
         self._pan_last = QPointF()
+        self._default_view_min_size = self._view.minimumSize()
+        self._default_view_max_size = self._view.maximumSize()
+        self._default_self_min_size = self.minimumSize()
+        self._default_self_max_size = self.maximumSize()
 
         self._image_item = QGraphicsPixmapItem()
         self._scene.addItem(self._image_item)
@@ -246,10 +250,19 @@ class EndviewView(QFrame):
             return False
         delta = event.position() - self._pan_last
         self._pan_last = event.position()
+        transform = self._view.transform()
+        scale_x = transform.m11()
+        scale_y = transform.m22()
+        if abs(scale_x) < 1e-6:
+            scale_x = 1.0
+        if abs(scale_y) < 1e-6:
+            scale_y = 1.0
+        delta_x = delta.x() / scale_x
+        delta_y = delta.y() / scale_y
         hbar = self._view.horizontalScrollBar()
         vbar = self._view.verticalScrollBar()
-        hbar.setValue(hbar.value() - int(delta.x()))
-        vbar.setValue(vbar.value() - int(delta.y()))
+        hbar.setValue(hbar.value() - int(round(delta_x)))
+        vbar.setValue(vbar.value() - int(round(delta_y)))
         event.accept()
         return True
 
@@ -457,10 +470,32 @@ class EndviewView(QFrame):
         width = max(1, int(width))
         height = max(1, int(height))
         self._display_size = (width, height)
-        self._view.setFixedSize(width, height)
-        self.setMinimumSize(width, height)
+        # Only change the visual scale; do not resize the container widget.
+        self._view.setMinimumSize(self._default_view_min_size)
+        self._view.setMaximumSize(self._default_view_max_size)
+        self.setMinimumSize(self._default_self_min_size)
+        self.setMaximumSize(self._default_self_max_size)
         self.updateGeometry()
         self._apply_display_scale()
+
+    def reset_display_size(self) -> None:
+        """Reset display size, zoom, and pan to defaults."""
+        self._display_size = None
+        self._zoom_factor = 1.0
+        self._panning = False
+        self._view.setMinimumSize(self._default_view_min_size)
+        self._view.setMaximumSize(self._default_view_max_size)
+        self.setMinimumSize(self._default_self_min_size)
+        self.setMaximumSize(self._default_self_max_size)
+        self.updateGeometry()
+        self._view.resetTransform()
+        if not self._scene.sceneRect().isEmpty():
+            self._view.centerOn(self._scene.sceneRect().center())
+        if hasattr(self, "_apply_tool_cursor"):
+            try:
+                self._apply_tool_cursor()
+            except Exception:
+                pass
 
     def _apply_display_scale(self) -> None:
         """Apply a transform so the scene fills the requested display size (can deform)."""

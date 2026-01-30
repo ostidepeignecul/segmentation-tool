@@ -24,6 +24,7 @@ class EndviewResizeDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Redimensionner l'endview")
         self.setModal(True)
+        self._reset_requested = False
 
         width, height = current_size
 
@@ -44,6 +45,8 @@ class EndviewResizeDialog(QDialog):
         form.addRow(QLabel("Hauteur (px)"), self._height_spin)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        reset_button = buttons.addButton("Par défaut", QDialogButtonBox.ButtonRole.ResetRole)
+        reset_button.clicked.connect(self._on_reset_clicked)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
@@ -62,6 +65,10 @@ class EndviewResizeDialog(QDialog):
         """Return the chosen (width, height)."""
         return int(self._width_spin.value()), int(self._height_spin.value())
 
+    def wants_reset(self) -> bool:
+        """Return True if the user requested a reset."""
+        return self._reset_requested
+
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -72,3 +79,7 @@ class EndviewResizeDialog(QDialog):
     def _on_width_changed(self, value: int) -> None:
         if self._lock_square.isChecked():
             self._height_spin.setValue(int(value))
+
+    def _on_reset_clicked(self) -> None:
+        self._reset_requested = True
+        self.accept()

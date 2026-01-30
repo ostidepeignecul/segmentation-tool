@@ -2668,3 +2668,20 @@ Le percentile de la ROI box avait ete retire. Il est maintenant reintroduit uniq
 2. Limiter l'option aux ROIs box (grow/line inchanges) et reutiliser `threshold_auto` pour eviter un nouvel etat UI.
 
 ---
+### **2026-01-30** — Endview resize reset + pan scaling
+
+**Tags :** `#controllers/master_controller.py`, `#views/endview_resize_dialog.py`, `#views/endview_view.py`, `#ui`, `#endview`, `#zoom`, `#pan`
+
+**Actions effectuees :**
+- Ajoute un bouton "Par defaut" dans le dialogue de resize et expose `wants_reset`.
+- MasterController applique un reset de taille d'affichage quand demande, sinon applique la taille choisie.
+- EndviewView memorise les tailles min/max par defaut, corrige le pan en fonction du zoom, et ajoute `reset_display_size` pour restaurer taille/zoom/pan.
+
+**Contexte :**
+Besoin d'un retour a la taille/zoom par defaut sans forcer le resize du widget, et d'un panning coherent quand le zoom est actif.
+
+**Decisions techniques :**
+1. Piloter le reset via le dialogue et une methode `reset_display_size` cote vue.
+2. Eviter de fixer la taille du widget et ajuster le pan en utilisant l'echelle de transformation.
+
+---

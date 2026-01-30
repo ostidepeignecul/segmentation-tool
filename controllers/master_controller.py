@@ -353,8 +353,11 @@ class MasterController:
         dialog = EndviewResizeDialog(current_size, parent=self.main_window)
         result = dialog.exec()
         if result == QDialog.DialogCode.Accepted:
-            width, height = dialog.get_size()
-            self.annotation_view.set_display_size(width, height)
+            if dialog.wants_reset():
+                self.annotation_view.reset_display_size()
+            else:
+                width, height = dialog.get_size()
+                self.annotation_view.set_display_size(width, height)
 
     def _on_toggle_tools_panel(self, checked: bool) -> None:
         """Show/hide the tools dock when the menu action is toggled."""
