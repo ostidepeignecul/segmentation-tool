@@ -56,7 +56,7 @@ class EndviewView(QFrame):
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
         self._view.setDragMode(QGraphicsView.DragMode.NoDrag)
-        self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.viewport().installEventFilter(self)
@@ -66,6 +66,7 @@ class EndviewView(QFrame):
         self._view.setMouseTracking(True)
         self._panning: bool = False
         self._pan_last = QPointF()
+        self._pan_center_scene: Optional[QPointF] = None
         self._default_view_min_size = self._view.minimumSize()
         self._default_view_max_size = self._view.maximumSize()
         self._default_self_min_size = self.minimumSize()
@@ -193,7 +194,7 @@ class EndviewView(QFrame):
                     return False
                 zoom_in = event.angleDelta().y() > 0
                 factor = 1.15 if zoom_in else 1 / 1.15
-                self._apply_zoom(factor)
+                self._apply_zoom(factor, event.position())
                 event.accept()
                 return True
         return super().eventFilter(obj, event)
@@ -203,7 +204,8 @@ class EndviewView(QFrame):
             return
         zoom_in = event.angleDelta().y() > 0
         factor = 1.15 if zoom_in else 1 / 1.15
-        self._apply_zoom(factor)
+        anchor = self._view.viewport().mapFrom(self, event.position().toPoint())
+        self._apply_zoom(factor, QPointF(anchor))
         event.accept()
 
     def _handle_mouse_press(self, event: QMouseEvent) -> bool:
@@ -241,6 +243,7 @@ class EndviewView(QFrame):
         self._view.setFocus(Qt.FocusReason.MouseFocusReason)
         self._panning = True
         self._pan_last = event.position()
+        self._ensure_pan_center()
         self._view.setCursor(Qt.CursorShape.ClosedHandCursor)
         event.accept()
         return True
@@ -250,19 +253,19 @@ class EndviewView(QFrame):
             return False
         delta = event.position() - self._pan_last
         self._pan_last = event.position()
-        transform = self._view.transform()
-        scale_x = transform.m11()
-        scale_y = transform.m22()
+        self._ensure_pan_center()
+        scale_x, scale_y = self._current_scale()
         if abs(scale_x) < 1e-6:
             scale_x = 1.0
         if abs(scale_y) < 1e-6:
             scale_y = 1.0
         delta_x = delta.x() / scale_x
         delta_y = delta.y() / scale_y
-        hbar = self._view.horizontalScrollBar()
-        vbar = self._view.verticalScrollBar()
-        hbar.setValue(hbar.value() - int(round(delta_x)))
-        vbar.setValue(vbar.value() - int(round(delta_y)))
+        self._pan_center_scene = QPointF(
+            self._pan_center_scene.x() - delta_x,
+            self._pan_center_scene.y() - delta_y,
+        )
+        self._apply_view_transform()
         event.accept()
         return True
 
@@ -287,7 +290,11 @@ class EndviewView(QFrame):
         pixmap = self._array_to_pixmap(slice_data)
         self._pixmaps.base = pixmap
         self._image_item.setPixmap(pixmap)
-        self._scene.setSceneRect(self._image_item.boundingRect())
+        if self._pan_center_scene is None:
+            rect = self._image_item.boundingRect()
+            if not rect.isEmpty():
+                self._pan_center_scene = rect.center()
+        self._update_scene_padding()
         self._apply_display_scale()
         self._refresh_overlay_pixmap()
 
@@ -483,14 +490,17 @@ class EndviewView(QFrame):
         self._display_size = None
         self._zoom_factor = 1.0
         self._panning = False
+        self._pan_center_scene = None
         self._view.setMinimumSize(self._default_view_min_size)
         self._view.setMaximumSize(self._default_view_max_size)
         self.setMinimumSize(self._default_self_min_size)
         self.setMaximumSize(self._default_self_max_size)
         self.updateGeometry()
-        self._view.resetTransform()
         if not self._scene.sceneRect().isEmpty():
-            self._view.centerOn(self._scene.sceneRect().center())
+            self._pan_center_scene = self._scene.sceneRect().center()
+            self._apply_view_transform()
+        else:
+            self._view.resetTransform()
         if hasattr(self, "_apply_tool_cursor"):
             try:
                 self._apply_tool_cursor()
@@ -504,21 +514,93 @@ class EndviewView(QFrame):
         rect = self._scene.sceneRect()
         if rect.isEmpty():
             return
+        self._apply_view_transform()
+        self._update_scene_padding()
+
+    def _apply_zoom(self, factor: float, anchor_pos: Optional[QPointF] = None) -> None:
+        """Scale view while tracking user zoom so resize keeps proportion."""
+        if factor == 0:
+            return
+        self._ensure_pan_center()
+        if anchor_pos is None:
+            anchor_pos = self._viewport_center()
+        anchor_scene = self._view.mapToScene(anchor_pos.toPoint())
+        self._zoom_factor *= factor
+        scale_x, scale_y = self._current_scale()
+        if abs(scale_x) < 1e-6:
+            scale_x = 1.0
+        if abs(scale_y) < 1e-6:
+            scale_y = 1.0
+        view_center = self._viewport_center()
+        new_center_x = anchor_scene.x() - (anchor_pos.x() - view_center.x()) / scale_x
+        new_center_y = anchor_scene.y() - (anchor_pos.y() - view_center.y()) / scale_y
+        self._pan_center_scene = QPointF(new_center_x, new_center_y)
+        self._update_scene_padding()
+        self._apply_view_transform()
+
+    def _viewport_center(self) -> QPointF:
+        rect = self._view.viewport().rect()
+        return QPointF(rect.center())
+
+    def _display_scale(self) -> Tuple[float, float]:
+        if self._display_size is None:
+            return (1.0, 1.0)
+        rect = self._image_item.boundingRect()
+        if rect.isEmpty():
+            return (1.0, 1.0)
         base_w = max(1.0, rect.width())
         base_h = max(1.0, rect.height())
         target_w, target_h = self._display_size
-        scale_x = float(target_w) / base_w
-        scale_y = float(target_h) / base_h
-        center = self._view.mapToScene(self._view.viewport().rect().center())
-        self._view.resetTransform()
-        self._view.scale(scale_x * self._zoom_factor, scale_y * self._zoom_factor)
-        if center is not None:
-            self._view.centerOn(center)
+        return (float(target_w) / base_w, float(target_h) / base_h)
 
-    def _apply_zoom(self, factor: float) -> None:
-        """Scale view while tracking user zoom so resize keeps proportion."""
-        self._zoom_factor *= factor
-        self._view.scale(factor, factor)
+    def _current_scale(self) -> Tuple[float, float]:
+        scale_x, scale_y = self._display_scale()
+        scale_x *= self._zoom_factor
+        scale_y *= self._zoom_factor
+        return (scale_x, scale_y)
+
+    def _ensure_pan_center(self) -> QPointF:
+        if self._pan_center_scene is None:
+            rect = self._image_item.boundingRect()
+            if not rect.isEmpty():
+                self._pan_center_scene = rect.center()
+            else:
+                view_center = self._viewport_center()
+                self._pan_center_scene = self._view.mapToScene(view_center.toPoint())
+        return self._pan_center_scene
+
+    def _apply_view_transform(self) -> None:
+        scale_x, scale_y = self._current_scale()
+        if abs(scale_x) < 1e-6 or abs(scale_y) < 1e-6:
+            return
+        center_scene = self._ensure_pan_center()
+        self._view.resetTransform()
+        self._view.scale(scale_x, scale_y)
+        self._view.centerOn(center_scene)
+
+    def _update_scene_padding(self) -> None:
+        rect = self._image_item.boundingRect()
+        if rect.isEmpty():
+            return
+        view_size = self._view.viewport().size()
+        if view_size.isEmpty():
+            self._scene.setSceneRect(rect)
+            return
+        scale_x, scale_y = self._current_scale()
+        if abs(scale_x) < 1e-6 or abs(scale_y) < 1e-6:
+            self._scene.setSceneRect(rect)
+            return
+        pad_x = view_size.width() / scale_x
+        pad_y = view_size.height() / scale_y
+        padded = rect.adjusted(-pad_x, -pad_y, pad_x, pad_y)
+        self._scene.setSceneRect(padded)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if not self._scene.items():
+            return
+        self._apply_view_transform()
+        self._update_scene_padding()
 
     def _emit_slice_scroll(self, delta: int) -> None:
         if self._volume is None or delta == 0:

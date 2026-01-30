@@ -5,13 +5,16 @@
 ## 1. Memory-First Development (Priorité Absolue)
 Avant toute action, consulter la mémoire pour contexte et historique.
 
-### Contexte Obligatoire (Avant tout)
-1.  **Date du jour** : Connaître la date actuelle.
-2.  **Git Recent** : Analyser les diffs des 3 derniers commits (`git show HEAD~2..HEAD`).
-2.  **Git Staged Changes** : Analyser les diffs des commits staged (`git diff --cached`).
+### Contexte Variable
+1.  **Si prompt contient `query` (Avec `brv query`)** :
+    *   **Date du jour**.
+    *   **Git Recent** : Analyser les diffs des 3 derniers commits (`git show HEAD~2..HEAD`).
+2.  **Si prompt contient `curate` (Avec `brv curate`)** :
+    *   **Git Staged Changes** : Analyser les diffs des commits staged (`git diff --cached`).
 
 ### Stratégie Hybride
 1.  **Priorité 1 : ByteRover (`brv query`)**
+    *   **Fréquence** : Exécuter **UNIQUEMENT si le mot `query` est explicitement présent dans le prompt**.
     *   **Attente** : Patienter jusqu'à **200 secondes** pour la réponse.
     *   **Format Requis** : `"Question ou Sujets #tag1 #tag2"`
     *   *Exemple* : `brv query "Logique de redimensionnement #endview #resize"`
@@ -38,10 +41,10 @@ Avant toute action, consulter la mémoire pour contexte et historique.
 *   *Controllers*: `controllers/annotation_controller.py`, `controllers/volume_controller.py`
 
 ## 4. Documentation & Double Storage
-**RÈGLE :** Documenter **UNIQUEMENT sur demande explicite** de l'utilisateur.
+**RÈGLE :** Documenter **UNIQUEMENT si le mot `curate` est explicitement présent dans le prompt**.
 
-Si demandé ("Store this") :
-1.  **Récupérer Contexte** : Date du jour + Git Diff 3 derniers commits + Git Staged Changes (Ce qui est fait actuellement).
+Si le prompt contient le mot `curate` :
+1.  **Récupérer Contexte** : Date du jour + **Git Staged Changes** (`git diff --cached`).
 2.  **ByteRover** : `brv curate "CONTENU_COMPLET_DE_LA_MEMOIRE (Titre + Tags + Actions + Contexte)"`
     *   **Règle** : Tout le bloc texte doit être entre guillemets `" "`.
     *   **Attention** : Échapper les guillemets internes (`\"`).
@@ -75,7 +78,7 @@ Si demandé ("Store this") :
 
 ## 6. Checklist de Démarrage
 Avant de coder :
-- [ ] Contexte acquis (Date + Git Diff 3 derniers commits + Git Staged Changes).
+- [ ] Contexte acquis (Date + Git adapté à l'action).
 - [ ] Mémoire consultée (ByteRover ou MEMORY.md).
 - [ ] Architecture comprise.
 - [ ] Plan validé par l'utilisateur.

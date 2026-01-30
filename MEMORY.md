@@ -2700,3 +2700,21 @@ Le pinceau min devait produire 1 pixel, le size 2 devait redevenir 5 pixels, et 
 **Decisions techniques :**
 1. Decaler le rayon effectif (size-1) au niveau du controller pour conserver le slider min a 1 sans changer l'API du modele.
 2. Utiliser un curseur en croix fixe dans la vue pour dissocier l'affichage du curseur de la taille reelle du pinceau.
+
+---
+### **2026-01-30** — Endview zoom ancre et pan centré
+
+**Tags :** `#views/endview_view.py`, `#endview`, `#zoom`, `#pan`, `#qt`, `#ui`, `#branch:annotation`
+
+**Actions effectuées :**
+- Remplace l’ancrage de transformation par un rendu sans scrollbars et conserve un centre de pan en coordonnées scène.
+- Applique le zoom autour du curseur (molette vue + widget) en recalculant le centre cible et en mémorisant `_pan_center_scene`.
+- Ajoute une chaîne de transformation dédiée (scale d’affichage + zoom) et met à jour la padding de scène pour garder du pan disponible après resize.
+- Ajuste `reset_display_size` pour réinitialiser le centre de pan et restaurer l’état de transformation sans sauts.
+
+**Contexte :**
+Le zoom/pan devenait instable avec les scrollbars désactivées et perdait le centrage après resize ou reset. Il fallait conserver un centre logique tout en autorisant le zoom ancré sur le curseur.
+
+**Décisions techniques :**
+1. Centraliser l’état de pan via `_pan_center_scene` plutôt que les scrollbars, pour un comportement déterministe.
+2. Séparer l’échelle d’affichage (fit) du facteur de zoom, puis recalculer le centre et la sceneRect à chaque interaction.
