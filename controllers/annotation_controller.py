@@ -130,7 +130,8 @@ class AnnotationController:
         """Recalcule et pousse l'overlay vers les vues selon l'état actuel."""
         show_volume_overlay = self.view_state_model.show_overlay
         if not show_volume_overlay:
-            self.logger.info("Overlay hidden by toggle; clearing 3D view only.")
+            self.logger.info("Overlay hidden by toggle; clearing 2D/3D views.")
+            self.annotation_view.set_overlay(None)
             self.volume_view.set_overlay(None)
 
         mask_volume = self.annotation_model.get_mask_volume()
@@ -176,8 +177,8 @@ class AnnotationController:
             visible_count if visible_labels is not None else "all",
         )
 
-        self.annotation_view.set_overlay(overlay_data, visible_labels=visible_labels)
         if show_volume_overlay:
+            self.annotation_view.set_overlay(overlay_data, visible_labels=visible_labels)
             self.volume_view.set_overlay(
                 overlay_data,
                 visible_labels=visible_labels,

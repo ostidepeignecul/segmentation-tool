@@ -55,6 +55,7 @@ Si le prompt contient le mot `curate` :
     *   **FORMAT STRICT OBLIGATOIRE** :
 
     ```markdown
+    ---
     ### **YYYY-MM-DD** - Titre de la modification
     **Tags :** `#branch:<nom>`, `#fichier.py`, `#concept` 
 
@@ -68,6 +69,7 @@ Si le prompt contient le mot `curate` :
     **Décisions techniques :**
     1. Décision A (Justification)
     2. Décision B
+    
     ```
 
 ## 5. Propreté & Rigueur

@@ -2718,3 +2718,18 @@ Le zoom/pan devenait instable avec les scrollbars désactivées et perdait le ce
 **Décisions techniques :**
 1. Centraliser l’état de pan via `_pan_center_scene` plutôt que les scrollbars, pour un comportement déterministe.
 2. Séparer l’échelle d’affichage (fit) du facteur de zoom, puis recalculer le centre et la sceneRect à chaque interaction.
+
+---
+### **2026-01-30** - Toggle overlay applique sur Endview
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#overlay`, `#endview`, `#toggle`
+
+**Actions effectuees :**
+- Efface overlay 2D quand le toggle est desactive pour rester coherent avec la 3D.
+- Conditionne le push de overlay Endview a show_overlay pour eviter un affichage residuel.
+
+**Contexte :**
+Le toggle overlay masquait seulement la 3D et la Endview restait affichee.
+
+**Decisions techniques :**
+1. Nettoyer les deux vues quand show_overlay est faux pour eviter des overlays orphelins.
+2. Ne pousser overlay 2D que si show_overlay est actif.
