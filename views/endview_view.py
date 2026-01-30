@@ -80,6 +80,8 @@ class EndviewView(QFrame):
         self._scene.addItem(self._overlay_item)
 
         pen = QPen(Qt.GlobalColor.red)
+        pen.setWidth(1)
+        pen.setCosmetic(True)
         self._crosshair_h = QGraphicsLineItem()
         self._crosshair_v = QGraphicsLineItem()
         self._crosshair_h.setPen(pen)

@@ -2733,3 +2733,20 @@ Le toggle overlay masquait seulement la 3D et la Endview restait affichee.
 **Decisions techniques :**
 1. Nettoyer les deux vues quand show_overlay est faux pour eviter des overlays orphelins.
 2. Ne pousser overlay 2D que si show_overlay est actif.
+
+---
+### **2026-01-30** - Alignement des contours Endview/ROI
+**Tags :** `#branch:annotation`, `#views/annotation_view.py`, `#views/endview_view.py`, `#roi`, `#restriction`, `#crosshair`, `#ui`
+
+**Actions effectuées :**
+- Uniformise l'épaisseur des traits (1 px cosmetic) pour contour de restriction, ROI box/line et croix.
+- Ajuste les rectangles (restriction/ROI box) pour inclure le pixel de droite et du bas.
+- Aligne la ROI line sur le centre des pixels via un offset 0.5.
+
+**Contexte :**
+Le contour et les ROI n'étaient pas alignés sur la grille de pixels et l'épaisseur variait avec le zoom.
+
+**Décisions techniques :**
+1. Utiliser des pens « cosmetic » pour garder une épaisseur constante à 1 px.
+2. Étendre largeur/hauteur des rectangles de 1 px pour inclure le bord droit/bas.
+2. Décaler la ligne temporaire de 0.5 px pour coller aux centres de pixels.

@@ -38,16 +38,23 @@ class AnnotationView(EndviewView):
         self._roi_item.setZValue(5)
         self._scene.addItem(self._roi_item)
         self._temp_box_item = QGraphicsRectItem()
-        self._temp_box_item.setPen(QPen(Qt.GlobalColor.yellow))
+        temp_box_pen = QPen(Qt.GlobalColor.yellow)
+        temp_box_pen.setWidth(1)
+        temp_box_pen.setCosmetic(True)
+        self._temp_box_item.setPen(temp_box_pen)
         self._temp_box_item.setZValue(6)
         self._scene.addItem(self._temp_box_item)
         self._temp_line_item = QGraphicsPathItem()
-        self._temp_line_item.setPen(QPen(Qt.GlobalColor.yellow))
+        temp_line_pen = QPen(Qt.GlobalColor.yellow)
+        temp_line_pen.setWidth(1)
+        temp_line_pen.setCosmetic(True)
+        self._temp_line_item.setPen(temp_line_pen)
         self._temp_line_item.setZValue(6)
         self._scene.addItem(self._temp_line_item)
         self._restriction_item = QGraphicsRectItem()
         restriction_pen = QPen(Qt.GlobalColor.cyan)
-        restriction_pen.setWidth(2)
+        restriction_pen.setWidth(1)
+        restriction_pen.setCosmetic(True)
         restriction_pen.setStyle(Qt.PenStyle.DashLine)
         self._restriction_item.setPen(restriction_pen)
         self._restriction_item.setZValue(8)
@@ -55,10 +62,12 @@ class AnnotationView(EndviewView):
         self._scene.addItem(self._restriction_item)
         self._roi_box_items: list[QGraphicsRectItem] = []
         self._roi_pen = QPen(Qt.GlobalColor.white)
-        self._roi_pen.setWidth(2)
+        self._roi_pen.setWidth(1)
+        self._roi_pen.setCosmetic(True)
         self._roi_point_items: list[QGraphicsRectItem] = []
         self._roi_point_pen = QPen(Qt.GlobalColor.white)
-        self._roi_point_pen.setWidth(2)
+        self._roi_point_pen.setWidth(1)
+        self._roi_point_pen.setCosmetic(True)
         self._tool_mode: Optional[str] = None
         self._paint_cursor: Optional[QCursor] = None
         self._paint_cursor_radius: int = 8
@@ -85,7 +94,7 @@ class AnnotationView(EndviewView):
         x1, y1, x2, y2 = self._temp_box
         xmin, xmax = sorted((x1, x2))
         ymin, ymax = sorted((y1, y2))
-        self._temp_box_item.setRect(xmin, ymin, xmax - xmin, ymax - ymin)
+        self._temp_box_item.setRect(xmin, ymin, (xmax - xmin) + 1, (ymax - ymin) + 1)
 
     def set_temp_line(self, points: Sequence[Tuple[int, int]]) -> None:
         """Display a temporary freehand line in progress."""
@@ -93,9 +102,9 @@ class AnnotationView(EndviewView):
         path = QPainterPath()
         if self._temp_line_points:
             x0, y0 = self._temp_line_points[0]
-            path.moveTo(x0, y0)
+            path.moveTo(x0 + 0.5, y0 + 0.5)
             for x, y in self._temp_line_points[1:]:
-                path.lineTo(x, y)
+                path.lineTo(x + 0.5, y + 0.5)
         self._temp_line_item.setPath(path)
 
     def clear_temp_shapes(self) -> None:
@@ -125,7 +134,7 @@ class AnnotationView(EndviewView):
             ymax = max(0, min(height - 1, ymax))
             ymin = max(0, min(height - 1, ymin))
         self._restriction_rect = (xmin, ymin, xmax, ymax)
-        self._restriction_item.setRect(xmin, ymin, xmax - xmin, ymax - ymin)
+        self._restriction_item.setRect(xmin, ymin, (xmax - xmin) + 1, (ymax - ymin) + 1)
         self._restriction_item.setVisible(True)
 
     # ------------------------------------------------------------------ #
@@ -171,7 +180,7 @@ class AnnotationView(EndviewView):
             item = QGraphicsRectItem()
             item.setPen(self._roi_pen)
             item.setZValue(7)
-            item.setRect(xmin, ymin, xmax - xmin, ymax - ymin)
+            item.setRect(xmin, ymin, (xmax - xmin) + 1, (ymax - ymin) + 1)
             self._scene.addItem(item)
             self._roi_box_items.append(item)
 
