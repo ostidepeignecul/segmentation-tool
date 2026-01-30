@@ -649,7 +649,8 @@ class AnnotationController:
             self.temp_mask_model.initialize((depth, mask_shape[0], mask_shape[1]))
 
         radius = self.view_state_model.paint_radius or self.PAINT_RADIUS_DEFAULT
-        disk = self.annotation_service.build_disk_mask(mask_shape, (int(pos[0]), int(pos[1])), radius)
+        effective_radius = max(0, int(radius) - 1)
+        disk = self.annotation_service.build_disk_mask(mask_shape, (int(pos[0]), int(pos[1])), effective_radius)
         if disk is None:
             return
         if restriction_mask is not None:

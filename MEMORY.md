@@ -2685,3 +2685,18 @@ Besoin d'un retour a la taille/zoom par defaut sans forcer le resize du widget, 
 2. Eviter de fixer la taille du widget et ajuster le pan en utilisant l'echelle de transformation.
 
 ---
+
+### **2026-01-30** - Ajustement pinceau paint et curseur fixe
+**Tags :** `#branch:annotation`, `#annotation_service.py`, `#annotation_controller.py`, `#annotation_view.py`, `#paint`, `#brush`, `#cursor`
+
+**Actions effectu�es :**
+- Autorise un rayon effectif 0 dans build_disk_mask pour obtenir 1 pixel au centre.
+- Mappe la taille du slider vers un rayon effectif size-1 pour que size 2 donne 5 pixels et l'augmentation reste naturelle.
+- Remplace le curseur paint par une croix fixe 13x13 pour garder une visibilite constante.
+
+**Contexte :**
+Le pinceau min devait produire 1 pixel, le size 2 devait redevenir 5 pixels, et le curseur devait rester visible sans varier avec la taille.
+
+**Decisions techniques :**
+1. Decaler le rayon effectif (size-1) au niveau du controller pour conserver le slider min a 1 sans changer l'API du modele.
+2. Utiliser un curseur en croix fixe dans la vue pour dissocier l'affichage du curseur de la taille reelle du pinceau.

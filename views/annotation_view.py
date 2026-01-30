@@ -232,21 +232,26 @@ class AnnotationView(EndviewView):
             self._apply_tool_cursor()
 
     def _ensure_paint_cursor(self) -> QCursor:
-        """Build (or reuse) a hollow-circle cursor for the paint tool."""
+        """Build (or reuse) a fixed-size cross cursor for the paint tool."""
         if self._paint_cursor is not None:
             return self._paint_cursor
-        diameter = self._paint_cursor_radius * 2
-        size = diameter + 4
+        size = 13
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)
 
         painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        pen = QPen(Qt.GlobalColor.white)
-        pen.setWidth(2)
-        painter.setPen(pen)
-        offset = (size - diameter) // 2
-        painter.drawEllipse(offset, offset, diameter, diameter)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        center = size // 2
+        outline = QPen(Qt.GlobalColor.black)
+        outline.setWidth(3)
+        painter.setPen(outline)
+        painter.drawLine(0, center, size - 1, center)
+        painter.drawLine(center, 0, center, size - 1)
+        cross = QPen(Qt.GlobalColor.white)
+        cross.setWidth(1)
+        painter.setPen(cross)
+        painter.drawLine(0, center, size - 1, center)
+        painter.drawLine(center, 0, center, size - 1)
         painter.end()
 
         self._paint_cursor = QCursor(pixmap)

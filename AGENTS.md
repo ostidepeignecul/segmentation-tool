@@ -52,7 +52,7 @@ Si demandé ("Store this") :
     *   **FORMAT STRICT OBLIGATOIRE** :
 
     ```markdown
-    ### **YYYY-MM-DD** — Titre de la modification
+    ### **YYYY-MM-DD** - Titre de la modification
     **Tags :** `#branch:<nom>`, `#fichier.py`, `#concept` 
 
     **Actions effectuées :**

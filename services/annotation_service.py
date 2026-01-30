@@ -105,10 +105,10 @@ class AnnotationService:
             h, w = int(shape[0]), int(shape[1])
             cx = int(center[0])
             cy = int(center[1])
-            r = max(1, int(radius))
+            r = max(0, int(radius))
         except Exception:
             return None
-        if h <= 0 or w <= 0 or r <= 0:
+        if h <= 0 or w <= 0 or r < 0:
             return None
 
         cx = max(0, min(w - 1, cx))
@@ -121,6 +121,9 @@ class AnnotationService:
             return None
 
         mask = np.zeros((h, w), dtype=np.uint8)
+        if r == 0:
+            mask[cy, cx] = 1
+            return mask
         yy, xx = np.ogrid[ymin : ymax + 1, xmin : xmax + 1]
         disk = (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r
         mask[ymin : ymax + 1, xmin : xmax + 1][disk] = 1
