@@ -39,9 +39,11 @@ from services.endview_export import EndviewExportService
 from services.split_service import SplitFlawNoflawService
 from services.nde_loader import NdeLoader
 from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
+from services.corrosion_label_service import CorrosionLabelService
 from ui_mainwindow import Ui_MainWindow
 from views.annotation_view import AnnotationView
 from views.cscan_view_corrosion import CscanViewCorrosion
+from views.corrosion_settings_view import CorrosionSettingsView
 from views.nde_settings_view import NdeSettingsView
 from views.endview_resize_dialog import EndviewResizeDialog
 from views.overlay_settings_view import OverlaySettingsView
@@ -80,6 +82,7 @@ class MasterController:
         )
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
         self.nde_settings_view = NdeSettingsView(self.main_window)
+        self.corrosion_settings_view = CorrosionSettingsView(self.main_window)
         self._piece3d_window: Optional[QWidget] = None
         self._piece3d_view: Optional[Piece3DView] = None
         self._piece_toggle_btn: Optional[QPushButton] = None
@@ -198,6 +201,9 @@ class MasterController:
             self.ui.actionSplit_flaw_noflaw.triggered.connect(self._on_split_flaw_noflaw)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionParam_tres_2.triggered.connect(self.annotation_controller.open_overlay_settings)
+        if hasattr(self.ui, "actionParam_tres_3"):
+            self.ui.actionParam_tres_3.setText("Parametres corrosion")
+            self.ui.actionParam_tres_3.triggered.connect(self._on_open_corrosion_settings)
         self.ui.actionCorrosion_analyse.triggered.connect(self.cscan_controller.run_corrosion_analysis)
         if hasattr(self.ui, "actionnnunet"):
             self.ui.actionnnunet.triggered.connect(self._on_run_nnunet)
@@ -327,6 +333,8 @@ class MasterController:
         self.nde_settings_view.roi_thin_line_width_changed.connect(
             self._on_roi_thin_line_width_changed
         )
+        self.corrosion_settings_view.label_a_changed.connect(self._on_corrosion_label_a_changed)
+        self.corrosion_settings_view.label_b_changed.connect(self._on_corrosion_label_b_changed)
 
     def _register_shortcuts(self) -> None:
         """Global keyboard shortcuts (active anywhere in the window)."""
@@ -694,6 +702,13 @@ class MasterController:
         self.nde_settings_view.raise_()
         self.nde_settings_view.activateWindow()
 
+    def _on_open_corrosion_settings(self) -> None:
+        """Open the corrosion settings dialog."""
+        self._sync_corrosion_label_choices()
+        self.corrosion_settings_view.show()
+        self.corrosion_settings_view.raise_()
+        self.corrosion_settings_view.activateWindow()
+
     def _sync_apply_volume_range_view(self) -> None:
         """Sync apply-to-volume range bounds/values into the settings dialog."""
         volume = self._current_volume()
@@ -911,6 +926,7 @@ class MasterController:
         self.view_state_model.set_active_label(current)
         self.tools_panel.set_labels(labels, current=current)
         self._sync_erase_label_choices()
+        self._sync_corrosion_label_choices()
 
     def _sync_erase_label_choices(self) -> None:
         """Sync the label-0 erase target choices with the current label palette."""
@@ -921,6 +937,45 @@ class MasterController:
             current = None
             self.view_state_model.set_label0_erase_target(None)
         self.nde_settings_view.set_erase_label_choices(labels, current=current)
+
+    def _sync_corrosion_label_choices(self) -> None:
+        """Sync corrosion label choices with current labels and defaults."""
+        labels = self._get_corrosion_labels()
+        current_a = getattr(self.view_state_model, "corrosion_label_a", None)
+        current_b = getattr(self.view_state_model, "corrosion_label_b", None)
+        label_a, label_b = CorrosionLabelService.normalize_pair(
+            labels,
+            label_a=current_a,
+            label_b=current_b,
+        )
+        self.view_state_model.set_corrosion_label_pair(label_a, label_b)
+        self.corrosion_settings_view.set_label_choices(
+            labels,
+            current_a=label_a,
+            current_b=label_b,
+        )
+
+    def _get_corrosion_labels(self) -> list[int]:
+        palette = self.annotation_model.get_label_palette()
+        if not palette:
+            return []
+        return [int(lbl) for lbl in palette.keys() if int(lbl) > 0]
+
+    def _on_corrosion_label_a_changed(self, value: Optional[int]) -> None:
+        try:
+            label_a = int(value) if value is not None else None
+        except Exception:
+            label_a = None
+        self.view_state_model.set_corrosion_label_a(label_a)
+        self._sync_corrosion_label_choices()
+
+    def _on_corrosion_label_b_changed(self, value: Optional[int]) -> None:
+        try:
+            label_b = int(value) if value is not None else None
+        except Exception:
+            label_b = None
+        self.view_state_model.set_corrosion_label_b(label_b)
+        self._sync_corrosion_label_choices()
 
     def run(self) -> None:
         """Launch the main window."""

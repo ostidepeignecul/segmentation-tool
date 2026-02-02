@@ -103,6 +103,7 @@
     </property>
     <addaction name="actionCorrosion_analyse"/>
     <addaction name="actionAfficher_solide_3d"/>
+    <addaction name="actionParam_tres_3"/>
    </widget>
    <widget class="QMenu" name="menuInference">
     <property name="title">
@@ -489,6 +490,11 @@
   <action name="actionAfficher_solide_3d">
    <property name="text">
     <string>Afficher solide 3d</string>
+   </property>
+  </action>
+  <action name="actionParam_tres_3">
+   <property name="text">
+    <string>Paramètres</string>
    </property>
   </action>
  </widget>

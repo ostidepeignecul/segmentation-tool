@@ -51,6 +51,8 @@ class ViewStateModel:
         self.corrosion_overlay_volume: Optional[Any] = None
         self.corrosion_overlay_palette: Optional[dict] = None
         self.corrosion_overlay_label_ids: Optional[tuple[int, int]] = None
+        self.corrosion_label_a: Optional[int] = None
+        self.corrosion_label_b: Optional[int] = None
 
     # ------------------------------------------------------------------ #
     # Slice control
@@ -212,3 +214,23 @@ class ViewStateModel:
         self.corrosion_overlay_volume = None
         self.corrosion_overlay_palette = None
         self.corrosion_overlay_label_ids = None
+
+    def set_corrosion_label_a(self, label_id: Optional[int]) -> None:
+        if label_id is None:
+            self.corrosion_label_a = None
+        else:
+            self.corrosion_label_a = int(label_id)
+
+    def set_corrosion_label_b(self, label_id: Optional[int]) -> None:
+        if label_id is None:
+            self.corrosion_label_b = None
+        else:
+            self.corrosion_label_b = int(label_id)
+
+    def set_corrosion_label_pair(
+        self,
+        label_a: Optional[int],
+        label_b: Optional[int],
+    ) -> None:
+        self.set_corrosion_label_a(label_a)
+        self.set_corrosion_label_b(label_b)

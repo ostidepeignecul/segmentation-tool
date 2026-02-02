@@ -150,7 +150,7 @@ class CScanController:
         self._cached_volume_shape = None
 
     def run_corrosion_analysis(self) -> None:
-        """Execute corrosion analysis using exactly two visible labels."""
+        """Execute corrosion analysis using the selected label pair."""
         volume = self.get_volume()
         nde_model = self.get_nde_model()
         if volume is None or nde_model is None:
@@ -160,10 +160,14 @@ class CScanController:
 
         self.logger.info("Corrosion analysis: started")
         self.status_callback("Analyse corrosion en cours...", 2000)
+        label_a = getattr(self.view_state_model, "corrosion_label_a", None)
+        label_b = getattr(self.view_state_model, "corrosion_label_b", None)
         result = self.corrosion_workflow.run(
             nde_model=nde_model,
             annotation_model=self.annotation_model,
             volume=volume,
+            label_a=label_a,
+            label_b=label_b,
         )
         self.last_corrosion_result = result
 

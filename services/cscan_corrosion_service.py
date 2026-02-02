@@ -481,10 +481,13 @@ class CorrosionWorkflowService:
         nde_model: NdeModel,
         annotation_model: AnnotationModel,
         volume: np.ndarray,
+        *,
+        label_a: Optional[int] = None,
+        label_b: Optional[int] = None,
     ) -> CorrosionWorkflowResult:
         """
         - Valide la présence du volume NDE et des masques
-        - Vérifie le nombre de labels visibles (exactement 2: frontwall/backwall)
+        - Vérifie les labels sélectionnés (2 labels distincts)
         - Prépare les masques globaux et les résolutions (mm_per_pixel, sample_spacing, etc.)
         - Déduit un chemin d'output si nécessaire (à partir des metadata/filename)
         - Lance CScanCorrosionService.run_analysis() et compute_corrosion_projection()
@@ -505,17 +508,48 @@ class CorrosionWorkflowService:
                 message=f"Corrosion analysis aborted: mask depth {mask_volume.shape[0]} != volume depth {volume.shape[0]}",
             )
 
-        # Extraction des labels visibles (uniquement frontwall/backwall)
-        visible_labels = [
-            lbl for lbl, vis in (annotation_model.label_visibility or {}).items() if vis and int(lbl) > 0
-        ]
-        if len(visible_labels) != 2:
+        # Validation des labels sélectionnés
+        try:
+            class_A_id = int(label_a) if label_a is not None else None
+        except Exception:
+            class_A_id = None
+        try:
+            class_B_id = int(label_b) if label_b is not None else None
+        except Exception:
+            class_B_id = None
+        if class_A_id is None or class_B_id is None:
             return CorrosionWorkflowResult(
                 ok=False,
-                message=f"Corrosion analysis requires exactly 2 visible labels; found {len(visible_labels)}.",
+                message="Veuillez choisir deux labels pour l'analyse corrosion.",
             )
-
-        class_A_id, class_B_id = sorted(int(x) for x in visible_labels[:2])
+        if class_A_id <= 0 or class_B_id <= 0:
+            return CorrosionWorkflowResult(
+                ok=False,
+                message="Les labels de corrosion doivent être > 0.",
+            )
+        if class_A_id == class_B_id:
+            return CorrosionWorkflowResult(
+                ok=False,
+                message="Veuillez choisir deux labels distincts pour l'analyse corrosion.",
+            )
+        available_labels = {
+            int(lbl) for lbl in (annotation_model.label_palette or {}).keys() if int(lbl) > 0
+        }
+        if not available_labels or class_A_id not in available_labels or class_B_id not in available_labels:
+            return CorrosionWorkflowResult(
+                ok=False,
+                message="Labels sélectionnés absents de la palette.",
+            )
+        if not np.any(mask_volume == class_A_id):
+            return CorrosionWorkflowResult(
+                ok=False,
+                message=f"Aucun voxel pour le label {class_A_id} (corrosion).",
+            )
+        if not np.any(mask_volume == class_B_id):
+            return CorrosionWorkflowResult(
+                ok=False,
+                message=f"Aucun voxel pour le label {class_B_id} (corrosion).",
+            )
 
         # Construction du masque global par label
         global_masks = [mask_volume[idx] for idx in range(mask_volume.shape[0])]

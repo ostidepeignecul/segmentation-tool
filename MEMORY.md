@@ -2750,3 +2750,21 @@ Le contour et les ROI n'étaient pas alignés sur la grille de pixels et l'épai
 1. Utiliser des pens « cosmetic » pour garder une épaisseur constante à 1 px.
 2. Étendre largeur/hauteur des rectangles de 1 px pour inclure le bord droit/bas.
 2. Décaler la ligne temporaire de 0.5 px pour coller aux centres de pixels.
+
+---
+### **2026-02-02** - Parametres corrosion + selection labels
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#controllers/cscan_controller.py`, `#models/view_state_model.py`, `#services/cscan_corrosion_service.py`, `#services/corrosion_label_service.py`, `#views/corrosion_settings_view.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#corrosion`, `#labels`, `#mvc`, `#ui`
+
+**Actions effectuees :**
+- Ajoute un dialogue Parametres corrosion avec 2 combos de labels et signaux (nouvelle vue).
+- Branche le menu Analyse > Parametres corrosion et synchronise la selection avec l'etat.
+- Ajoute l'etat des labels corrosion (A/B) dans ViewStateModel et la selection par defaut sur les deux premiers labels.
+- Fait passer la paire selectionnee dans le workflow corrosion et ajoute des validations (labels distincts, >0, presents, voxels).
+- Deplace la logique de normalisation des labels dans un service dedie pour respecter MVC.
+
+**Contexte :**
+L'analyse corrosion devait fonctionner avec n'importe quel nombre de labels, en laissant l'utilisateur choisir 2 labels.
+
+**Decisions techniques :**
+1. Isoler la normalisation de la paire dans un service pur (CorrosionLabelService) pour garder le controleur leger.
+2. Valider la paire dans le workflow corrosion afin d'eviter des analyses incoherentes.

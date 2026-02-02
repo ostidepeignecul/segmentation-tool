@@ -220,6 +220,8 @@ class Ui_MainWindow(object):
         self.actionResize_endview.setObjectName("actionResize_endview")
         self.actionAfficher_solide_3d = QtGui.QAction(parent=MainWindow)
         self.actionAfficher_solide_3d.setObjectName("actionAfficher_solide_3d")
+        self.actionParam_tres_3 = QtGui.QAction(parent=MainWindow)
+        self.actionParam_tres_3.setObjectName("actionParam_tres_3")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addAction(self.actionSauvegarder)
         self.menuFichier.addSeparator()
@@ -234,6 +236,7 @@ class Ui_MainWindow(object):
         self.menuOverlay.addAction(self.actionExporter_npz)
         self.menuAnalyse.addAction(self.actionCorrosion_analyse)
         self.menuAnalyse.addAction(self.actionAfficher_solide_3d)
+        self.menuAnalyse.addAction(self.actionParam_tres_3)
         self.menuInference.addAction(self.actionnnunet)
         self.menuAffichage.addAction(self.actionToggle_tools_panel)
         self.menuAffichage.addAction(self.actionResize_endview)
@@ -296,6 +299,7 @@ class Ui_MainWindow(object):
         self.actionSession_selector.setText(_translate("MainWindow", "Session selector"))
         self.actionResize_endview.setText(_translate("MainWindow", "Resize endview"))
         self.actionAfficher_solide_3d.setText(_translate("MainWindow", "Afficher solide 3d"))
+        self.actionParam_tres_3.setText(_translate("MainWindow", "Paramètres"))
 from views.annotation_view import AnnotationView
 from views.ascan_view import AScanView
 from views.cscan_view import CScanView
