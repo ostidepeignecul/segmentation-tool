@@ -2768,3 +2768,19 @@ L'analyse corrosion devait fonctionner avec n'importe quel nombre de labels, en 
 **Decisions techniques :**
 1. Isoler la normalisation de la paire dans un service pur (CorrosionLabelService) pour garder le controleur leger.
 2. Valider la paire dans le workflow corrosion afin d'eviter des analyses incoherentes.
+---
+### **2026-02-03** - Ancrage 3D corrosion sur centre de masse
+**Tags :** `#branch:annotation`, `#services/cscan_corrosion_service.py`, `#controllers/master_controller.py`, `#views/piece3d_view.py`, `#corrosion`, `#3d`, `#pivot`, `#anchor`
+
+**Actions effectu?es :**
+- Calcule le centre de masse du volume solide 0/1 (brut puis fallback interpol?) et le propage dans le workflow corrosion.
+- Stocke l'ancrage dans le contr?leur et l'applique ? la vue Piece 3D sans recalcul lors du toggle brut/interpol?.
+- Centre la cam?ra de `Piece3DView` sur cet ancrage en mode ancrage volume, avec flip XY coh?rent.
+
+**Contexte :**
+Besoin d'un pivot 3D align? sur la pi?ce corrosion bas? sur la paire de labels s?lectionn?e.
+
+**D?cisions techniques :**
+1. Calculer l'ancrage ? partir du volume brut quand disponible et le conserver pour les bascules de volume.
+2. Appliquer le flip XY au point d'ancrage pour rester coh?rent avec la transformation visuelle VisPy.
+

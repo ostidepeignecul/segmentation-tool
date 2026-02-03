@@ -27,6 +27,7 @@ class Piece3DView(VolumeView):
         self.set_base_colormap("Metal", self._metal_lut())
         self._status.setText("Pièce 3D non chargée")
         self._anchor_mode = AnchorMode.VOLUME_CENTER
+        self._anchor_point: tuple[float, float, float] | None = None
 
     def set_piece_volume(self, volume: np.ndarray) -> None:
         """Charge le volume solide (0/1) et reconstruit la scène iso."""
@@ -35,6 +36,12 @@ class Piece3DView(VolumeView):
         if self._volume_visual is not None:
             self._volume_visual.threshold = self._iso_threshold
             self._apply_shading()
+
+    def set_anchor_point(self, anchor: tuple[float, float, float] | None) -> None:
+        """Set the data-space anchor point (x, y, z) used for camera centering."""
+        self._anchor_point = anchor
+        if self._anchor_mode == AnchorMode.VOLUME_CENTER:
+            self._focus_camera_on_slice()
 
     def set_overlay(self, *args, **kwargs) -> None:  # type: ignore[override]
         """Désactive les overlays pour cette vue (non utilisés)."""
@@ -93,12 +100,24 @@ class Piece3DView(VolumeView):
             if self._view.camera is None or self._volume is None:
                 return
             depth, height, width = self._volume.shape[:3]
-            # Focus : centre absolu du volume
-            self._view.camera.center = (
-                width / 2.0,
-                height / 2.0,
-                depth / 2.0,
-            )
+            if self._anchor_point is not None:
+                x, y, z = self._anchor_point
+                x = max(0.0, min(float(width - 1), float(x)))
+                y = max(0.0, min(float(height - 1), float(y)))
+                z = max(0.0, min(float(depth - 1), float(z)))
+                # Apply the same XY flip as the volume visual.
+                self._view.camera.center = (
+                    float(width) - x,
+                    float(height) - y,
+                    z,
+                )
+            else:
+                # Fallback : centre absolu du volume
+                self._view.camera.center = (
+                    width / 2.0,
+                    height / 2.0,
+                    depth / 2.0,
+                )
 
     def _build_scene(self) -> None:
         """Recrée la scène VisPy en mode iso, sans overlay 2D."""

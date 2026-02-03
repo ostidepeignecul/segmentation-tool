@@ -33,6 +33,7 @@ class CorrosionAnalysisResult:
     overlay_npz_path: Optional[str]
     piece_volume_raw: Optional[np.ndarray] = None
     piece_volume_interpolated: Optional[np.ndarray] = None
+    piece_anchor: Optional[Tuple[float, float, float]] = None
 
 
 class CScanCorrosionService(CScanService):
@@ -167,6 +168,7 @@ class CScanCorrosionService(CScanService):
             class_A_id=color_A,
             class_B_id=color_B,
         )
+        piece_anchor = self._compute_piece_anchor(piece_volume_raw, piece_volume_interpolated)
 
         self._logger.info("=== ANALYSE CORROSION : terminée ===")
         self._log_progress(1.0, "Terminé")
@@ -183,6 +185,7 @@ class CScanCorrosionService(CScanService):
             overlay_npz_path=None,
             piece_volume_raw=piece_volume_raw,
             piece_volume_interpolated=piece_volume_interpolated,
+            piece_anchor=piece_anchor,
         )
 
     # --- Helpers --------------------------------------------------------------------
@@ -448,6 +451,34 @@ class CScanCorrosionService(CScanService):
 
         return solid
 
+    @staticmethod
+    def _compute_center_of_mass(volume: Optional[np.ndarray]) -> Optional[Tuple[float, float, float]]:
+        """Return (x, y, z) center of mass for a binary volume (values > 0)."""
+        if volume is None or volume.size == 0:
+            return None
+        mask = np.asarray(volume) > 0.0
+        if not np.any(mask):
+            return None
+        z_idx, y_idx, x_idx = np.nonzero(mask)
+        if z_idx.size == 0:
+            return None
+        x_mean = float(np.mean(x_idx, dtype=np.float64))
+        y_mean = float(np.mean(y_idx, dtype=np.float64))
+        z_mean = float(np.mean(z_idx, dtype=np.float64))
+        return (x_mean, y_mean, z_mean)
+
+    def _compute_piece_anchor(
+        self,
+        primary: Optional[np.ndarray],
+        fallback: Optional[np.ndarray],
+    ) -> Optional[Tuple[float, float, float]]:
+        """Compute anchor from the primary solid volume, fallback to interpolated."""
+        anchor = self._compute_center_of_mass(primary)
+        if anchor is None:
+            anchor = self._compute_center_of_mass(fallback)
+        return anchor
+
+
 @dataclass
 class CorrosionWorkflowResult:
     """Résultat du workflow d'analyse corrosion."""
@@ -465,6 +496,7 @@ class CorrosionWorkflowResult:
     overlay_palette: Optional[Dict[int, Tuple[int, int, int, int]]] = None
     piece_volume_raw: Optional[np.ndarray] = None
     piece_volume_interpolated: Optional[np.ndarray] = None
+    piece_anchor: Optional[Tuple[float, float, float]] = None
 
 
 class CorrosionWorkflowService:
@@ -610,6 +642,7 @@ class CorrosionWorkflowService:
                 overlay_palette=result.overlay_palette,
                 piece_volume_raw=result.piece_volume_raw,
                 piece_volume_interpolated=result.piece_volume_interpolated,
+                piece_anchor=result.piece_anchor,
             )
 
         except Exception as exc:

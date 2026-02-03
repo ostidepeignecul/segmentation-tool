@@ -88,6 +88,7 @@ class MasterController:
         self._piece_toggle_btn: Optional[QPushButton] = None
         self._piece_volume_raw: Optional[np.ndarray] = None
         self._piece_volume_interpolated: Optional[np.ndarray] = None
+        self._piece_anchor: Optional[tuple[float, float, float]] = None
         self._piece_show_interpolated: bool = True
         self._shortcuts: list[QShortcut] = []
         self._omniscan_lut: Optional[np.ndarray] = None
@@ -1179,6 +1180,7 @@ class MasterController:
         if (result.piece_volume_raw is not None and result.piece_volume_raw.size > 0) or (
             result.piece_volume_interpolated is not None and result.piece_volume_interpolated.size > 0
         ):
+            self._piece_anchor = result.piece_anchor
             self._show_piece3d_volume(
                 raw_volume=result.piece_volume_raw,
                 interpolated_volume=result.piece_volume_interpolated,
@@ -1238,6 +1240,7 @@ class MasterController:
             volume = self._piece_volume_raw
 
         if volume is not None:
+            self._piece3d_view.set_anchor_point(self._piece_anchor)
             self._piece3d_view.set_piece_volume(volume)
             self._update_piece_toggle_label()
 
@@ -1281,6 +1284,7 @@ class MasterController:
             current = self._piece_volume_raw
 
         if current is not None:
+            self._piece3d_view.set_anchor_point(self._piece_anchor)
             self._piece3d_view.set_piece_volume(current)
             self._update_piece_toggle_label()
             self._show_piece3d_window()
@@ -1298,6 +1302,7 @@ class MasterController:
         self._piece_show_interpolated = not self._piece_show_interpolated
         volume = self._piece_volume_interpolated if self._piece_show_interpolated else self._piece_volume_raw
         if volume is not None:
+            self._piece3d_view.set_anchor_point(self._piece_anchor)
             self._piece3d_view.set_piece_volume(volume)
             self._update_piece_toggle_label()
 
