@@ -50,8 +50,9 @@ class CScanView(QFrame):
 
         self._pixmap_item = QGraphicsPixmapItem()
         self._scene.addItem(self._pixmap_item)
-        pen = QPen(Qt.GlobalColor.white)
+        pen = QPen(Qt.GlobalColor.red)
         pen.setWidth(1)
+        pen.setCosmetic(True)
         self._cursor_h = QGraphicsLineItem()
         self._cursor_v = QGraphicsLineItem()
         self._cursor_h.setPen(pen)

@@ -2784,3 +2784,16 @@ Besoin d'un pivot 3D align? sur la pi?ce corrosion bas? sur la paire de labels s
 1. Calculer l'ancrage ? partir du volume brut quand disponible et le conserver pour les bascules de volume.
 2. Appliquer le flip XY au point d'ancrage pour rester coh?rent avec la transformation visuelle VisPy.
 
+### **2026-02-05** - Croix C-scan cosmetique rouge
+**Tags :** #branch:annotation, #views/cscan_view.py, #cscan, #crosshair, #ui, #zoom, #corrosion, #endview
+
+**Actions effectuees :**
+- Passe la croix C-scan en rouge et en pen cosmetic 1 px.
+- Rend l'epaisseur constante au zoom, identique a l'Endview, pour la vue standard et la corrosion (heritage CScanView).
+
+**Contexte :**
+La croix de position C-scan devait rester cosmetique (largeur constante) et rouge, comme l'Endview, y compris en vue corrosion.
+
+**Decisions techniques :**
+1. Aligner le style sur l'Endview en utilisant un pen cosmetic 1 px.
+2. Appliquer le changement dans CScanView pour couvrir aussi CscanViewCorrosion.

@@ -48,14 +48,16 @@ Si le prompt contient le mot `curate` :
 2.  **ByteRover** : `brv curate "CONTENU_COMPLET_DE_LA_MEMOIRE (Titre + Tags + Actions + Contexte)"`
     *   **Règle** : Tout le bloc texte doit être entre guillemets `" "`.
     *   **Attention** : Échapper les guillemets internes (`\"`).
+    *   **Important** : Le bloc ne doit **jamais** commencer par `-` (évite l'erreur de flag).
     *   *Exemple* : `brv curate "### Titre ... avec \"citation\" interne ..."`
+    *   **Option fichiers** : `brv curate "..." -f chemin/du/fichier.php` (max 5).
     *   **Fallback Shell** : Si erreur d'arguments (PowerShell), retirer les guillemets internes problématiques.
 3.  **MEMORY.md** : Copie **IDENTIQUE** du contenu.
     *   **CRITIQUE** : Toujours ajouter **À LA FIN** du fichier (ordre chronologique croissant).
     *   **FORMAT STRICT OBLIGATOIRE** :
 
     ```markdown
-    ---
+
     ### **YYYY-MM-DD** - Titre de la modification
     **Tags :** `#branch:<nom>`, `#fichier.py`, `#concept` 
 
