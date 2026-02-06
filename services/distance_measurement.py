@@ -43,16 +43,44 @@ class DistanceMeasurementService:
         - masks: 3D (Z,H,W) labels
         - pour chaque (Z,X), prend le Y max (ultrasound) pour chaque classe et mesure dy.
         """
+        distance_map, _, _ = self.measure_distance_and_peaks_vectorized(
+            volume=volume,
+            masks=masks,
+            class_A=class_A,
+            class_B=class_B,
+            use_mm=use_mm,
+            resolution_ultrasound=resolution_ultrasound,
+        )
+        return distance_map
+
+    def measure_distance_and_peaks_vectorized(
+        self,
+        *,
+        volume: np.ndarray,
+        masks: np.ndarray,
+        class_A: int,
+        class_B: int,
+        use_mm: bool = False,
+        resolution_ultrasound: float = 1.0,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Calcule la carte de distances (Z,X) et les indices Y de pics (A/B).
+        - volume: 3D (Z,H,W) valeurs ultrasound
+        - masks: 3D (Z,H,W) labels
+        - pour chaque (Z,X), prend le Y max (ultrasound) pour chaque classe
+        """
         vol = np.asarray(volume)
         msk = np.asarray(masks)
         if vol.shape != msk.shape:
-            raise ValueError(f"Shape volume {vol.shape} différent de masks {msk.shape}")
+            raise ValueError(f"Shape volume {vol.shape} different de masks {msk.shape}")
 
         if vol.ndim != 3:
-            raise ValueError(f"Volume attendu 3D, reçu {vol.ndim}D")
+            raise ValueError(f"Volume attendu 3D, recu {vol.ndim}D")
 
         z, h, w = vol.shape
         distance_map = np.full((z, w), np.nan, dtype=np.float32)
+        peak_map_a = np.full((z, w), -1, dtype=np.int32)
+        peak_map_b = np.full((z, w), -1, dtype=np.int32)
         scale = float(resolution_ultrasound) if use_mm else 1.0
 
         # Pour chaque slice, calcule les y max de chaque classe par colonne X
@@ -62,14 +90,10 @@ class DistanceMeasurementService:
 
             yA, xA = np.nonzero(slice_mask == class_A)
             yB, xB = np.nonzero(slice_mask == class_B)
-            if yA.size == 0 or yB.size == 0:
+            if yA.size == 0 and yB.size == 0:
                 continue
 
             # Max ultrasound (argmax) restreint aux positions de la classe
-            # On calcule les ascan max pour chaque colonne via bincount des valeurs ultrasound
-            # On prend l'index du maximum par x.
-            # Approche : pour chaque x, on garde le y avec la valeur volume max.
-            # On utilise np.argmax sur un tableau masqué par x pour A et B.
             max_y_A = np.full(w, -1, dtype=np.int32)
             max_y_B = np.full(w, -1, dtype=np.int32)
             max_val_A = np.full(w, -np.inf, dtype=np.float32)
@@ -87,14 +111,21 @@ class DistanceMeasurementService:
                     max_val_B[x] = val
                     max_y_B[x] = y
 
-            valid = (max_y_A >= 0) & (max_y_B >= 0)
+            valid_a = max_y_A >= 0
+            valid_b = max_y_B >= 0
+            if np.any(valid_a):
+                peak_map_a[zi, valid_a] = max_y_A[valid_a]
+            if np.any(valid_b):
+                peak_map_b[zi, valid_b] = max_y_B[valid_b]
+
+            valid = valid_a & valid_b
             if not np.any(valid):
                 continue
 
             dy = np.abs(max_y_A.astype(np.float32) - max_y_B.astype(np.float32)) * scale
             distance_map[zi, valid] = dy[valid]
 
-        return distance_map
+        return distance_map, peak_map_a, peak_map_b
 
     def _normalize_class_key(self, class_id: str) -> str:
         """Normalize a class identifier to a comparable string key."""

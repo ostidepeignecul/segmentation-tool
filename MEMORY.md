@@ -2828,3 +2828,17 @@ La nouvelle session corrosion devait reutiliser les memes numeros de labels et l
 **Decisions techniques :**
 1. Centraliser la logique dans CScanCorrosionService pour respecter MVC et eviter une reconversion en controller.
 2. Utiliser la palette de la session source avec fallback quand une couleur manque.
+### **2026-02-06** - Peaks corrosion pour A-scan et overlay
+**Tags :** `#branch:annotation`, `#services/distance_measurement.py`, `#services/cscan_corrosion_service.py`, `#services/ascan_service.py`, `#controllers/ascan_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#corrosion`, `#ascan`, `#cscan`, `#overlay`, `#measurement`, `#peaks`
+
+**Actions effectuees :**
+- Ajoute un calcul vectorise des index Y max (peak maps A/B) en plus de la distance_map.
+- Propage les peak maps dans le workflow corrosion et le ViewStateModel pour l'A-scan.
+- Fait prioriser l'A-scan sur les peak maps et construit l'overlay corrosion depuis ces peaks.
+
+**Contexte :**
+Les lignes A-scan/C-scan ne suivaient pas toujours les vrais pics car l'overlay utilisait une moyenne Y par X.
+
+**Decisions techniques :**
+1. Utiliser des peak maps ZxX calculees sur le volume brut pour aligner A-scan et overlay.
+2. Conserver la distance_map pour la valeur affichee et garder un fallback sur l'overlay si besoin.

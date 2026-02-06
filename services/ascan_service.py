@@ -239,8 +239,14 @@ class AScanService:
         slice_idx: int,
         x_pos: int,
         axis_index: int,
+        signal: Optional[np.ndarray] = None,
     ) -> Optional[Tuple[int, int]]:
-        """Resolve (A, B) y-indices for a corrosion measurement at a given slice/x."""
+        """Resolve (A, B) y-indices for a corrosion measurement at a given slice/x.
+
+        If a signal is provided, snap each index to the max amplitude within the
+        label mask at the given (slice, x). Falls back to the mask centroid when
+        no valid peak is available.
+        """
         if axis_index != 1:
             return None
 
@@ -263,8 +269,70 @@ class AScanService:
         if ys_a.size == 0 or ys_b.size == 0:
             return None
 
-        idx_a = int(round(float(np.mean(ys_a))))
-        idx_b = int(round(float(np.mean(ys_b))))
+        signal_arr: Optional[np.ndarray] = None
+        if signal is not None:
+            signal_arr = np.asarray(signal, dtype=np.float32).reshape(-1)
+            if signal_arr.size == 0:
+                signal_arr = None
+
+        def pick_index(candidates: np.ndarray) -> int:
+            if candidates.size == 0:
+                return 0
+            if signal_arr is None:
+                return int(round(float(np.mean(candidates))))
+
+            max_signal_idx = signal_arr.size - 1
+            if max_signal_idx < 0:
+                return int(round(float(np.mean(candidates))))
+
+            valid = candidates[(candidates >= 0) & (candidates <= max_signal_idx)]
+            if valid.size == 0:
+                return int(round(float(np.mean(candidates))))
+
+            values = signal_arr[valid]
+            if not np.isfinite(values).any():
+                return int(round(float(np.mean(valid))))
+
+            peak_local = int(np.nanargmax(values))
+            return int(valid[peak_local])
+
+        idx_a = pick_index(ys_a)
+        idx_b = pick_index(ys_b)
+        return idx_a, idx_b
+
+    @staticmethod
+    def resolve_corrosion_indices_from_peak_maps(
+        *,
+        peak_map_a: np.ndarray,
+        peak_map_b: np.ndarray,
+        slice_idx: int,
+        x_pos: int,
+        axis_index: int,
+    ) -> Optional[Tuple[int, int]]:
+        """Resolve (A, B) y-indices from precomputed peak maps at a given slice/x."""
+        if axis_index != 1:
+            return None
+
+        data_a = np.asarray(peak_map_a)
+        data_b = np.asarray(peak_map_b)
+        if data_a.ndim != 2 or data_b.ndim != 2:
+            return None
+
+        max_z = min(data_a.shape[0], data_b.shape[0]) - 1
+        max_x = min(data_a.shape[1], data_b.shape[1]) - 1
+        if max_z < 0 or max_x < 0:
+            return None
+
+        z = max(0, min(max_z, int(slice_idx)))
+        x = max(0, min(max_x, int(x_pos)))
+        try:
+            idx_a = int(data_a[z, x])
+            idx_b = int(data_b[z, x])
+        except Exception:
+            return None
+
+        if idx_a < 0 or idx_b < 0:
+            return None
         return idx_a, idx_b
 
     def resolve_corrosion_distance(

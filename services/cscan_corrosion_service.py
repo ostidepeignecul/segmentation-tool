@@ -24,6 +24,8 @@ class CorrosionAnalysisResult:
 
     distance_results: Dict
     distance_map: np.ndarray
+    peak_index_map_a: np.ndarray
+    peak_index_map_b: np.ndarray
     distance_value_range: Tuple[float, float]
     interpolated_distance_map: np.ndarray
     interpolated_value_range: Tuple[float, float]
@@ -97,7 +99,7 @@ class CScanCorrosionService(CScanService):
 
         # Calcul vectorisé de la carte de distances (Z,X) directement depuis volume + masques
         mask_stack = np.stack(global_masks, axis=0)
-        distance_map = self._distance_service.measure_distance_vectorized(
+        distance_map, peak_index_map_a, peak_index_map_b = self._distance_service.measure_distance_and_peaks_vectorized(
             volume=volume_data,
             masks=mask_stack,
             class_A=class_A_id,
@@ -112,8 +114,10 @@ class CScanCorrosionService(CScanService):
 
         color_A = int(class_A_id)
         color_B = int(class_B_id)
-        lines_overlay = self._build_overlay_from_masks(
-            mask_stack=mask_stack,
+        lines_overlay = self._build_overlay_from_peak_maps(
+            peak_map_a=peak_index_map_a,
+            peak_map_b=peak_index_map_b,
+            image_shape=mask_stack.shape[1:],
             class_A_id=class_A_id,
             class_B_id=class_B_id,
             line_thickness=2,
@@ -175,6 +179,8 @@ class CScanCorrosionService(CScanService):
         return CorrosionAnalysisResult(
             distance_results={},
             distance_map=distance_map,
+            peak_index_map_a=peak_index_map_a,
+            peak_index_map_b=peak_index_map_b,
             distance_value_range=value_range,
             interpolated_distance_map=interpolated_distance_map,
             interpolated_value_range=interpolated_value_range,
@@ -316,6 +322,54 @@ class CScanCorrosionService(CScanService):
             interpolated[z, valid] = dist[valid]
 
         return interpolated
+
+    def _build_overlay_from_peak_maps(
+        self,
+        *,
+        peak_map_a: np.ndarray,
+        peak_map_b: np.ndarray,
+        image_shape: Tuple[int, int],
+        class_A_id: int,
+        class_B_id: int,
+        line_thickness: int = 1,
+    ) -> np.ndarray:
+        """Construit un overlay de lignes BW/FW Ã  partir des indices de pics (Y par X)."""
+        if peak_map_a.ndim != 2 or peak_map_b.ndim != 2:
+            raise ValueError(
+                f"Peak maps attendus 2D (Z,W), reÃ§us {peak_map_a.shape} et {peak_map_b.shape}"
+            )
+
+        height, width = image_shape
+        num_slices = min(peak_map_a.shape[0], peak_map_b.shape[0])
+        lines_volume = np.zeros((num_slices, height, width), dtype=np.uint8)
+        color_A = int(class_A_id)
+        color_B = int(class_B_id)
+
+        width_map = min(width, peak_map_a.shape[1], peak_map_b.shape[1])
+        if width_map <= 0 or num_slices <= 0:
+            return lines_volume
+
+        for z in range(num_slices):
+            slice_a = peak_map_a[z]
+            slice_b = peak_map_b[z]
+
+            valid_a = np.where((slice_a[:width_map] >= 0) & (slice_a[:width_map] < height))[0]
+            pts_a = [(int(x), int(slice_a[x])) for x in valid_a]
+            if len(pts_a) >= 2:
+                for i in range(len(pts_a) - 1):
+                    cv2.line(lines_volume[z], pts_a[i], pts_a[i + 1], color=color_A, thickness=line_thickness)
+            elif len(pts_a) == 1:
+                lines_volume[z, pts_a[0][1], pts_a[0][0]] = color_A
+
+            valid_b = np.where((slice_b[:width_map] >= 0) & (slice_b[:width_map] < height))[0]
+            pts_b = [(int(x), int(slice_b[x])) for x in valid_b]
+            if len(pts_b) >= 2:
+                for i in range(len(pts_b) - 1):
+                    cv2.line(lines_volume[z], pts_b[i], pts_b[i + 1], color=color_B, thickness=line_thickness)
+            elif len(pts_b) == 1:
+                lines_volume[z, pts_b[0][1], pts_b[0][0]] = color_B
+
+        return lines_volume
 
     def _build_overlay_from_masks(
         self,
@@ -487,6 +541,8 @@ class CorrosionWorkflowResult:
     projection: Optional[np.ndarray] = None
     value_range: Optional[Tuple[float, float]] = None
     raw_distance_map: Optional[np.ndarray] = None
+    peak_index_map_a: Optional[np.ndarray] = None
+    peak_index_map_b: Optional[np.ndarray] = None
     interpolated_distance_map: Optional[np.ndarray] = None
     interpolated_projection: Optional[np.ndarray] = None
     interpolated_value_range: Optional[Tuple[float, float]] = None
@@ -635,6 +691,8 @@ class CorrosionWorkflowService:
                 projection=projection,
                 value_range=value_range,
                 raw_distance_map=result.distance_map,
+                peak_index_map_a=result.peak_index_map_a,
+                peak_index_map_b=result.peak_index_map_b,
                 interpolated_distance_map=result.interpolated_distance_map,
                 interpolated_projection=interpolated_projection,
                 interpolated_value_range=interpolated_value_range,

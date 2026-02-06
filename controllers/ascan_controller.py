@@ -117,13 +117,27 @@ class AScanController:
 
         axis_index = self.ascan_service.get_ultrasound_axis_index(nde_model, volume.shape)
 
-        indices = self.ascan_service.resolve_corrosion_indices(
-            overlay=overlay,
-            label_ids=label_ids,
-            slice_idx=self.view_state_model.current_slice,
-            x_pos=profile.crosshair[0],
-            axis_index=axis_index,
-        )
+        indices = None
+        peak_map_a = self.view_state_model.corrosion_peak_index_map_a
+        peak_map_b = self.view_state_model.corrosion_peak_index_map_b
+        if peak_map_a is not None and peak_map_b is not None:
+            indices = self.ascan_service.resolve_corrosion_indices_from_peak_maps(
+                peak_map_a=peak_map_a,
+                peak_map_b=peak_map_b,
+                slice_idx=self.view_state_model.current_slice,
+                x_pos=profile.crosshair[0],
+                axis_index=axis_index,
+            )
+
+        if indices is None:
+            indices = self.ascan_service.resolve_corrosion_indices(
+                overlay=overlay,
+                label_ids=label_ids,
+                slice_idx=self.view_state_model.current_slice,
+                x_pos=profile.crosshair[0],
+                axis_index=axis_index,
+                signal=profile.signal_percent,
+            )
         if indices is None:
             self.corrosion_view.clear_measurement()
             return

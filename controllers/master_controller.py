@@ -1146,6 +1146,8 @@ class MasterController:
         self.view_state_model.corrosion_overlay_volume = result.overlay_volume
         self.view_state_model.corrosion_overlay_palette = result.overlay_palette
         self.view_state_model.corrosion_overlay_label_ids = result.overlay_label_ids
+        self.view_state_model.corrosion_peak_index_map_a = result.peak_index_map_a
+        self.view_state_model.corrosion_peak_index_map_b = result.peak_index_map_b
 
         if self.session_manager._active_id is not None:  # noqa: SLF001
             raw_state = self.session_manager._snapshot(  # noqa: SLF001
