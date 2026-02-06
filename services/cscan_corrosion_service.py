@@ -39,13 +39,6 @@ class CorrosionAnalysisResult:
 class CScanCorrosionService(CScanService):
     """Compute corrosion projections and orchestrate corrosion analysis."""
 
-    _CLASS_TO_PLOT_VALUE = {
-        1: 5,
-        2: 6,
-        3: 7,
-        4: 8,
-    }
-
     def __init__(self) -> None:
         super().__init__()
         self._distance_service = DistanceMeasurementService()
@@ -92,6 +85,7 @@ class CScanCorrosionService(CScanService):
         output_directory: str,
         class_A_id: int,
         class_B_id: int,
+        label_palette: Optional[Dict[int, Tuple[int, int, int, int]]] = None,
         use_mm: bool = False,
     ) -> CorrosionAnalysisResult:
         if not global_masks:
@@ -116,14 +110,12 @@ class CScanCorrosionService(CScanService):
         t_overlay = time.perf_counter()
         distance_results: Dict = {}
 
-        color_A = self._CLASS_TO_PLOT_VALUE.get(class_A_id, 5)
-        color_B = self._CLASS_TO_PLOT_VALUE.get(class_B_id, 6)
+        color_A = int(class_A_id)
+        color_B = int(class_B_id)
         lines_overlay = self._build_overlay_from_masks(
             mask_stack=mask_stack,
             class_A_id=class_A_id,
             class_B_id=class_B_id,
-            color_A=color_A,
-            color_B=color_B,
             line_thickness=2,
         )
         self._logger.info("[Corrosion] Overlay lignes construit en %.2f s", time.perf_counter() - t_overlay)
@@ -153,9 +145,16 @@ class CScanCorrosionService(CScanService):
             else (0.0, 0.0)
         )
 
+        palette_source = label_palette or {}
+        color_a_bgra = palette_source.get(color_A)
+        if color_a_bgra is None:
+            color_a_bgra = MASK_COLORS_BGRA.get(color_A, (255, 0, 255, 160))
+        color_b_bgra = palette_source.get(color_B)
+        if color_b_bgra is None:
+            color_b_bgra = MASK_COLORS_BGRA.get(color_B, (255, 0, 255, 160))
         overlay_palette = {
-            color_A: tuple(int(c) for c in MASK_COLORS_BGRA.get(color_A, (255, 0, 255, 160))),
-            color_B: tuple(int(c) for c in MASK_COLORS_BGRA.get(color_B, (255, 0, 255, 160))),
+            color_A: tuple(int(c) for c in color_a_bgra),
+            color_B: tuple(int(c) for c in color_b_bgra),
         }
 
         piece_volume_raw = self._build_solid_volume(
@@ -201,8 +200,8 @@ class CScanCorrosionService(CScanService):
     ) -> np.ndarray:
         height, width = image_shape
         lines_volume = np.zeros((num_endviews, height, width), dtype=np.uint8)
-        color_A = self._CLASS_TO_PLOT_VALUE.get(class_A_id, 5)
-        color_B = self._CLASS_TO_PLOT_VALUE.get(class_B_id, 6)
+        color_A = int(class_A_id)
+        color_B = int(class_B_id)
 
         endviews_data = distance_results.get("endviews", {}) if distance_results else {}
         for endview_id_str, endview_result in endviews_data.items():
@@ -324,8 +323,6 @@ class CScanCorrosionService(CScanService):
         mask_stack: np.ndarray,
         class_A_id: int,
         class_B_id: int,
-        color_A: int,
-        color_B: int,
         line_thickness: int = 1,
     ) -> np.ndarray:
         """Construit un overlay de lignes BW/FW (moyenne Y par X, ligne fine)."""
@@ -334,6 +331,8 @@ class CScanCorrosionService(CScanService):
 
         num_slices, height, width = mask_stack.shape
         lines_volume = np.zeros((num_slices, height, width), dtype=np.uint8)
+        color_A = int(class_A_id)
+        color_B = int(class_B_id)
 
         for z in range(num_slices):
             slice_mask = mask_stack[z]
@@ -594,6 +593,7 @@ class CorrosionWorkflowService:
         if nde_model is not None:
             nde_filename = str(nde_model.metadata.get("path", "unknown"))
         output_directory = os.path.dirname(nde_filename) if nde_filename not in ("", "unknown") else "."
+        palette_source = annotation_model.get_label_palette()
 
         try:
             # Appel à CScanCorrosionService.run_analysis()
@@ -610,6 +610,7 @@ class CorrosionWorkflowService:
                 output_directory=output_directory,
                 class_A_id=class_A_id,
                 class_B_id=class_B_id,
+                label_palette=palette_source,
                 use_mm=False,
             )
 

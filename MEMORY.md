@@ -2813,3 +2813,18 @@ Besoin d'afficher la distance entre labels sur l'A-scan en mode corrosion et d'e
 **Decisions techniques :**
 1. Utiliser la distance_map corrosion comme source unique pour le label A-scan afin d'etre identique au C-scan.
 2. Laisser l'overlay comme aide visuelle et centraliser le calcul (indices + distance) dans le service.
+
+### **2026-02-06** - Corrosion overlay garde labels source
+**Tags :** `#branch:annotation`, `#services/cscan_corrosion_service.py`, `#corrosion`, `#labels`, `#palette`, `#session`, `#mvc`
+
+**Actions effectuees :**
+- Supprime le mapping des IDs corrosion vers 5/6 et conserve label_a/label_b comme IDs d'overlay.
+- Transmet la palette source depuis le workflow et construit overlay_palette avec ces couleurs (fallback MASK_COLORS_BGRA).
+- Aligne la generation des overlays corrosion sur les IDs d'origine.
+
+**Contexte :**
+La nouvelle session corrosion devait reutiliser les memes numeros de labels et les memes couleurs que la session de depart.
+
+**Decisions techniques :**
+1. Centraliser la logique dans CScanCorrosionService pour respecter MVC et eviter une reconversion en controller.
+2. Utiliser la palette de la session source avec fallback quand une couleur manque.
