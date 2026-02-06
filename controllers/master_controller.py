@@ -42,6 +42,7 @@ from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWor
 from services.corrosion_label_service import CorrosionLabelService
 from ui_mainwindow import Ui_MainWindow
 from views.annotation_view import AnnotationView
+from views.ascan_view_corrosion import AScanViewCorrosion
 from views.cscan_view_corrosion import CscanViewCorrosion
 from views.corrosion_settings_view import CorrosionSettingsView
 from views.nde_settings_view import NdeSettingsView
@@ -128,6 +129,33 @@ class MasterController:
 
             self.cscan_stack = stack
 
+        # A-scan stacked layout (standard + corrosion)
+        self.ascan_view_corrosion = None
+        self.ascan_stack = None
+        try:
+            ascan_splitter = self.ui.splitter_2
+        except Exception:
+            ascan_splitter = None
+        if ascan_splitter is not None and self.ascan_view is not None:
+            container = QWidget(parent=ascan_splitter)
+            stack = QStackedLayout(container)
+            stack.setContentsMargins(0, 0, 0, 0)
+            idx = ascan_splitter.indexOf(self.ascan_view)
+
+            self.ascan_view.setParent(container)
+            stack.addWidget(self.ascan_view)
+
+            self.ascan_view_corrosion = AScanViewCorrosion(parent=container)
+            stack.addWidget(self.ascan_view_corrosion)
+            stack.setCurrentWidget(self.ascan_view)
+
+            if idx >= 0:
+                ascan_splitter.replaceWidget(idx, container)
+            else:
+                ascan_splitter.addWidget(container)
+
+            self.ascan_stack = stack
+
         self.annotation_service = AnnotationService()
 
         # Apply default colormaps
@@ -169,7 +197,9 @@ class MasterController:
         self.ascan_service = AScanService()
         self.ascan_controller = AScanController(
             ascan_service=self.ascan_service,
-            ascan_view=self.ascan_view,
+            standard_view=self.ascan_view,
+            corrosion_view=self.ascan_view_corrosion,
+            stacked_layout=self.ascan_stack,
             endview_view=self.annotation_view,
             view_state_model=self.view_state_model,
             set_cscan_crosshair=self.cscan_controller.set_crosshair,
@@ -306,6 +336,9 @@ class MasterController:
             self.cscan_view.slice_requested.connect(self._on_cscan_slice_requested)
         self.ascan_view.position_changed.connect(self._on_ascan_position_changed)
         self.ascan_view.cursor_moved.connect(self._on_ascan_cursor_moved)
+        if self.ascan_view_corrosion is not None:
+            self.ascan_view_corrosion.position_changed.connect(self._on_ascan_position_changed)
+            self.ascan_view_corrosion.cursor_moved.connect(self._on_ascan_cursor_moved)
         if self.cscan_view_corrosion is not None:
             self.cscan_view_corrosion.crosshair_changed.connect(self._on_cscan_crosshair_changed)
             self.cscan_view_corrosion.slice_requested.connect(self._on_cscan_slice_requested)
@@ -834,7 +867,7 @@ class MasterController:
         self.view_state_model.set_show_cross(enabled)
         self.annotation_view.set_cross_visible(enabled)
         self.cscan_controller.set_cross_visible(enabled)
-        self.ascan_view.set_marker_visible(enabled)
+        self.ascan_controller.set_marker_visible(enabled)
 
     def _on_endview_point_selected(self, pos: Any) -> None:
         """Handle point selection for crosshair sync."""
@@ -1024,7 +1057,7 @@ class MasterController:
         self._update_ascan_trace()
         self.annotation_view.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
-        self.ascan_view.set_marker_visible(self.view_state_model.show_cross)
+        self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
 
 
     # ------------------------------------------------------------------ #
@@ -1089,7 +1122,7 @@ class MasterController:
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
         self.annotation_view.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
-        self.ascan_view.set_marker_visible(self.view_state_model.show_cross)
+        self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
 
         # Colormaps
         self.annotation_view.set_colormap(self.view_state_model.endview_colormap, None)

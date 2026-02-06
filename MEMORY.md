@@ -2797,3 +2797,19 @@ La croix de position C-scan devait rester cosmetique (largeur constante) et roug
 **Decisions techniques :**
 1. Aligner le style sur l'Endview en utilisant un pen cosmetic 1 px.
 2. Appliquer le changement dans CScanView pour couvrir aussi CscanViewCorrosion.
+
+### **2026-02-05** - Mesure A-scan corrosion alignee sur C-scan
+**Tags :** `#branch:annotation`, `#controllers/ascan_controller.py`, `#controllers/master_controller.py`, `#services/ascan_service.py`, `#views/ascan_view_corrosion.py`, `#ascan`, `#corrosion`, `#mvc`, `#ui`, `#measurement`, `#pyqtgraph`
+
+**Actions effectuees :**
+- Ajoute la vue A-scan corrosion avec overlay (deux lignes verticales paralleles, ligne de mesure horizontale, label).
+- Integre un stack A-scan standard/corrosion et branche les signaux/visibilites via AScanController.
+- Aligne la valeur affichee sur la distance_map corrosion (C-scan) et descend le texte.
+- Deplace le calcul des indices/distance corrosion dans AScanService pour respecter MVC.
+
+**Contexte :**
+Besoin d'afficher la distance entre labels sur l'A-scan en mode corrosion et d'eviter les ecarts de 1 px avec le C-scan.
+
+**Decisions techniques :**
+1. Utiliser la distance_map corrosion comme source unique pour le label A-scan afin d'etre identique au C-scan.
+2. Laisser l'overlay comme aide visuelle et centraliser le calcul (indices + distance) dans le service.

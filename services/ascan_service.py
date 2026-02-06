@@ -11,6 +11,7 @@ import numpy as np
 
 from models.nde_model import NdeModel
 from services.ascan_debug_logger import ascan_debug_logger
+from services.cscan_service import CScanService
 
 
 @dataclass
@@ -225,6 +226,78 @@ class AScanService:
         if pos_array.size != expected_len:
             return np.arange(expected_len, dtype=np.float32)
         return pos_array
+
+    def get_ultrasound_axis_index(self, model: NdeModel, shape: Tuple[int, ...]) -> int:
+        """Expose the ultrasound axis index for external consumers."""
+        return self._ultrasound_axis_index(model, shape)
+
+    @staticmethod
+    def resolve_corrosion_indices(
+        *,
+        overlay: np.ndarray,
+        label_ids: Tuple[int, int],
+        slice_idx: int,
+        x_pos: int,
+        axis_index: int,
+    ) -> Optional[Tuple[int, int]]:
+        """Resolve (A, B) y-indices for a corrosion measurement at a given slice/x."""
+        if axis_index != 1:
+            return None
+
+        data = np.asarray(overlay)
+        if data.ndim != 3:
+            return None
+
+        max_z = data.shape[0] - 1
+        max_x = data.shape[2] - 1
+        if max_z < 0 or max_x < 0:
+            return None
+
+        z = max(0, min(max_z, int(slice_idx)))
+        x = max(0, min(max_x, int(x_pos)))
+        label_a, label_b = label_ids
+
+        slice_mask = data[z]
+        ys_a = np.where(slice_mask[:, x] == label_a)[0]
+        ys_b = np.where(slice_mask[:, x] == label_b)[0]
+        if ys_a.size == 0 or ys_b.size == 0:
+            return None
+
+        idx_a = int(round(float(np.mean(ys_a))))
+        idx_b = int(round(float(np.mean(ys_b))))
+        return idx_a, idx_b
+
+    def resolve_corrosion_distance(
+        self,
+        *,
+        projection: np.ndarray,
+        slice_idx: int,
+        x_pos: int,
+        nde_model: Optional[NdeModel],
+    ) -> Optional[Tuple[float, Optional[float]]]:
+        """Resolve distance (px, mm) from a corrosion projection at slice/x."""
+        data = np.asarray(projection)
+        if data.ndim != 2:
+            return None
+        max_z = data.shape[0] - 1
+        max_x = data.shape[1] - 1
+        if max_z < 0 or max_x < 0:
+            return None
+
+        z = max(0, min(max_z, int(slice_idx)))
+        x = max(0, min(max_x, int(x_pos)))
+        try:
+            distance_px = float(data[z, x])
+        except Exception:
+            return None
+
+        if not np.isfinite(distance_px):
+            return None
+
+        mm_scale = CScanService.compute_ultrasound_resolution_mm(nde_model)
+        if mm_scale is not None:
+            return distance_px, distance_px * float(mm_scale)
+        return distance_px, None
 
     def _ultrasound_axis_index(self, model: NdeModel, shape: Tuple[int, ...]) -> int:
         axis_order = model.metadata.get("axis_order", [])
