@@ -180,3 +180,16 @@ class AScanController:
             current_point,
             slice_idx,
         )
+
+    def on_position_changed(
+        self,
+        nde_model: Optional[NdeModel],
+        profile_idx: int,
+    ) -> Optional[Tuple[Tuple[int, int], Optional[int]]]:
+        """Resolve A-scan cursor position into an endview point and optional slice."""
+        return self.map_profile_index_to_point(
+            nde_model,
+            profile_idx,
+            self.view_state_model.current_point,
+            self.view_state_model.current_slice,
+        )

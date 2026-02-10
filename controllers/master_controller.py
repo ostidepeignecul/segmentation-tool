@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
-import PyQt6Ads as ads
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
@@ -15,7 +14,6 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QStackedLayout,
     QWidget,
     QVBoxLayout,
 )
@@ -24,6 +22,7 @@ from config.constants import MASK_COLORS_BGRA
 from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
+from controllers.dock_layout_controller import DockLayoutController
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
@@ -41,15 +40,8 @@ from services.split_service import SplitFlawNoflawService
 from services.nde_loader import NdeLoader
 from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
 from services.corrosion_label_service import CorrosionLabelService
-from ui_annotation import Ui_DockWidget as Ui_AnnotationDockWidget
-from ui_ascan import Ui_DockWidget as Ui_AScanDockWidget
-from ui_cscan import Ui_DockWidget as Ui_CScanDockWidget
 from ui_mainwindow import Ui_MainWindow
-from ui_toolspanel import Ui_DockWidget as Ui_ToolsPanelDockWidget
-from ui_volume import Ui_DockWidget as Ui_VolumeDockWidget
 from views.annotation_view import AnnotationView
-from views.ascan_view_corrosion import AScanViewCorrosion
-from views.cscan_view_corrosion import CscanViewCorrosion
 from views.corrosion_settings_view import CorrosionSettingsView
 from views.nde_settings_view import NdeSettingsView
 from views.endview_resize_dialog import EndviewResizeDialog
@@ -66,22 +58,7 @@ class MasterController:
         self.main_window = main_window or QMainWindow()
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self.main_window)
-        self.dock_manager = ads.CDockManager(self.main_window)
-        self._annotation_ui = Ui_AnnotationDockWidget()
-        self._cscan_ui = Ui_CScanDockWidget()
-        self._ascan_ui = Ui_AScanDockWidget()
-        self._volume_ui = Ui_VolumeDockWidget()
-        self._tools_ui = Ui_ToolsPanelDockWidget()
-        self._annotation_dock = ads.CDockWidget("Annotation")
-        self._cscan_dock = ads.CDockWidget("C-Scan")
-        self._ascan_dock = ads.CDockWidget("A-Scan")
-        self._volume_dock = ads.CDockWidget("Volume")
-        self.tools_dock = ads.CDockWidget("Tools")
-        self._annotation_ui.setupUi(self._annotation_dock)
-        self._cscan_ui.setupUi(self._cscan_dock)
-        self._ascan_ui.setupUi(self._ascan_dock)
-        self._volume_ui.setupUi(self._volume_dock)
-        self._tools_ui.setupUi(self.tools_dock)
+        self.dock_layout_controller = DockLayoutController(main_window=self.main_window)
 
         self.nde_model: Optional[NdeModel] = None
         self.annotation_model = AnnotationModel()
@@ -118,84 +95,17 @@ class MasterController:
         self._session_dialog: Optional[SessionManagerDialog] = None
 
         # References to Designer-created views.
-        self.annotation_view: AnnotationView = self._annotation_ui.frame
-        self.cscan_view = self._cscan_ui.frame
-        self.volume_view = self._volume_ui.frame
-        self.ascan_view = self._ascan_ui.frame
-        self.tools_panel = self._tools_ui.dockWidgetContents
-
-        self._annotation_dock.setWindowTitle("Annotation")
-        self._cscan_dock.setWindowTitle("C-Scan")
-        self._volume_dock.setWindowTitle("Volume")
-        self._ascan_dock.setWindowTitle("A-Scan")
-        self.tools_dock.setObjectName("dockWidget_2")
-        self.tools_dock.setWindowTitle("Tools")
-        self.tools_dock.setFeatures(ads.CDockWidget.DockWidgetFeature.DefaultDockWidgetFeatures)
-
-        tools_area = self.dock_manager.addDockWidget(
-            ads.DockWidgetArea.LeftDockWidgetArea,
-            self.tools_dock,
-        )
-        annotation_area = self.dock_manager.addDockWidget(
-            ads.DockWidgetArea.RightDockWidgetArea,
-            self._annotation_dock,
-            tools_area,
-        )
-        right_top_area = self.dock_manager.addDockWidget(
-            ads.DockWidgetArea.RightDockWidgetArea,
-            self._volume_dock,
-            annotation_area,
-        )
-        right_mid_area = self.dock_manager.addDockWidget(
-            ads.DockWidgetArea.BottomDockWidgetArea,
-            self._ascan_dock,
-            right_top_area,
-        )
-        self.dock_manager.addDockWidget(
-            ads.DockWidgetArea.BottomDockWidgetArea,
-            self._cscan_dock,
-            right_mid_area,
-        )
-
-        # C-scan stacked layout (standard + corrosion)
-        self.cscan_view_corrosion = None
-        self.cscan_stack = None
-        if self.cscan_view is not None:
-            parent_widget = self.cscan_view.parentWidget()
-            parent_layout = parent_widget.layout() if parent_widget is not None else None
-            container = QWidget(parent=parent_widget)
-            stack = QStackedLayout(container)
-            stack.setContentsMargins(0, 0, 0, 0)
-
-            if parent_layout is not None:
-                parent_layout.replaceWidget(self.cscan_view, container)
-            self.cscan_view.setParent(container)
-            stack.addWidget(self.cscan_view)
-
-            self.cscan_view_corrosion = CscanViewCorrosion(parent=container)
-            stack.addWidget(self.cscan_view_corrosion)
-            stack.setCurrentWidget(self.cscan_view)
-            self.cscan_stack = stack
-
-        # A-scan stacked layout (standard + corrosion)
-        self.ascan_view_corrosion = None
-        self.ascan_stack = None
-        if self.ascan_view is not None:
-            parent_widget = self.ascan_view.parentWidget()
-            parent_layout = parent_widget.layout() if parent_widget is not None else None
-            container = QWidget(parent=parent_widget)
-            stack = QStackedLayout(container)
-            stack.setContentsMargins(0, 0, 0, 0)
-
-            if parent_layout is not None:
-                parent_layout.replaceWidget(self.ascan_view, container)
-            self.ascan_view.setParent(container)
-            stack.addWidget(self.ascan_view)
-
-            self.ascan_view_corrosion = AScanViewCorrosion(parent=container)
-            stack.addWidget(self.ascan_view_corrosion)
-            stack.setCurrentWidget(self.ascan_view)
-            self.ascan_stack = stack
+        self.annotation_view: AnnotationView = self.dock_layout_controller.annotation_view
+        self.cscan_view = self.dock_layout_controller.cscan_view
+        self.volume_view = self.dock_layout_controller.volume_view
+        self.ascan_view = self.dock_layout_controller.ascan_view
+        self.tools_panel = self.dock_layout_controller.tools_panel
+        self._tools_ui = self.dock_layout_controller.tools_ui
+        self.tools_dock = self.dock_layout_controller.tools_dock
+        self.cscan_view_corrosion = self.dock_layout_controller.cscan_view_corrosion
+        self.ascan_view_corrosion = self.dock_layout_controller.ascan_view_corrosion
+        self.cscan_stack = self.dock_layout_controller.cscan_stack
+        self.ascan_stack = self.dock_layout_controller.ascan_stack
 
         self.annotation_service = AnnotationService()
 
@@ -283,11 +193,7 @@ class MasterController:
         if hasattr(self.ui, "actionSession_selector"):
             self.ui.actionSession_selector.triggered.connect(self._open_session_dialog)
         if hasattr(self.ui, "actionToggle_tools_panel"):
-            action = self.ui.actionToggle_tools_panel
-            action.setCheckable(True)
-            action.toggled.connect(self._on_toggle_tools_panel)
-            action.setChecked(not self.tools_dock.isClosed())
-            self.tools_dock.viewToggled.connect(self._on_tools_panel_visibility_changed)
+            self.dock_layout_controller.bind_tools_toggle_action(self.ui.actionToggle_tools_panel)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionAfficher_solide_3d"):
@@ -439,21 +345,6 @@ class MasterController:
             else:
                 width, height = dialog.get_size()
                 self.annotation_view.set_display_size(width, height)
-
-    def _on_toggle_tools_panel(self, checked: bool) -> None:
-        """Show/hide the tools dock when the menu action is toggled."""
-        if self.tools_dock is None:
-            return
-        self.tools_dock.toggleView(bool(checked))
-
-    def _on_tools_panel_visibility_changed(self, visible: bool) -> None:
-        """Keep the toggle action state in sync with the dock visibility."""
-        action = getattr(self.ui, "actionToggle_tools_panel", None)
-        if action is None:
-            return
-        action.blockSignals(True)
-        action.setChecked(bool(visible))
-        action.blockSignals(False)
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
@@ -810,8 +701,7 @@ class MasterController:
     def _on_cscan_colormap_changed(self, name: str) -> None:
         lut = self._get_colormap_lut(name)
         self.view_state_model.set_cscan_colormap(name)
-        if self.cscan_view is not None:
-            self.cscan_view.set_colormap(name, lut)
+        self.cscan_controller.set_colormap(name, lut)
 
     def _on_apply_volume_range_changed(self, start: int, end: int) -> None:
         """Handle apply-to-volume range updates from settings."""
@@ -874,8 +764,7 @@ class MasterController:
         self.view_state_model.set_slice(index)
         clamped = self.view_state_model.current_slice
         self.tools_panel.set_slice_value(clamped)
-        self.annotation_view.set_slice(clamped)
-        self.annotation_controller.refresh_roi_overlay_for_slice(clamped)
+        self.annotation_controller.on_slice_changed(clamped)
         self.cscan_controller.highlight_slice(clamped)
         self.volume_view.set_slice_index(clamped, update_slider=True)
         self._update_ascan_trace()
@@ -903,25 +792,25 @@ class MasterController:
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
         self.view_state_model.set_show_cross(enabled)
-        self.annotation_view.set_cross_visible(enabled)
+        self.annotation_controller.set_cross_visible(enabled)
         self.cscan_controller.set_cross_visible(enabled)
         self.ascan_controller.set_marker_visible(enabled)
 
     def _on_endview_point_selected(self, pos: Any) -> None:
         """Handle point selection for crosshair sync."""
-        if not isinstance(pos, tuple) or len(pos) != 2:
+        point = self.annotation_controller.on_annotation_point_selected(pos)
+        if point is None:
             return
-        x, y = int(pos[0]), int(pos[1])
-        self.view_state_model.update_crosshair(x, y)
+        x, y = point
         self.tools_panel.set_position_label(x, y)
         self._update_ascan_trace(point=(x, y))
 
     def _on_endview_drag_update(self, pos: Any) -> None:
         """Handle drag updates during drawing (cursor label only)."""
-        if not isinstance(pos, tuple) or len(pos) != 2:
+        point = self.annotation_controller.on_annotation_drag_update(pos)
+        if point is None:
             return
-        x, y = int(pos[0]), int(pos[1])
-        self.view_state_model.set_cursor_position(x, y)
+        x, y = point
         self.tools_panel.set_position_label(x, y)
 
     def _on_cscan_crosshair_changed(self, slice_idx: int, x: int) -> None:
@@ -929,17 +818,16 @@ class MasterController:
         volume = self._current_volume()
         if volume is None:
             return
-        self.view_state_model.set_slice(slice_idx)
+        point = self.cscan_controller.on_crosshair_changed(
+            slice_idx=slice_idx,
+            x=x,
+            volume_shape=tuple(volume.shape),
+            current_point=self.view_state_model.current_point,
+        )
         clamped_slice = self.view_state_model.current_slice
         self.tools_panel.set_slice_value(clamped_slice)
-        self.annotation_view.set_slice(clamped_slice)
-        self.cscan_controller.highlight_slice(clamped_slice)
-        self.cscan_controller.set_crosshair(clamped_slice, x)
-        y_default = volume.shape[1] // 2
-        current_y = self.view_state_model.current_point[1] if self.view_state_model.current_point else y_default
-        self.view_state_model.update_crosshair(x, current_y)
-        y = self.view_state_model.current_point[1] if self.view_state_model.current_point else y_default
-        self._update_ascan_trace(point=(x, y))
+        self.annotation_controller.on_slice_changed(clamped_slice)
+        self._update_ascan_trace(point=point)
 
     def _on_cscan_slice_requested(self, z: int) -> None:
         """Handle slice requests originating from the C-Scan view."""
@@ -947,12 +835,7 @@ class MasterController:
 
     def _on_ascan_position_changed(self, profile_idx: int) -> None:
         """Handle A-Scan position changes."""
-        selection = self.ascan_controller.map_profile_index_to_point(
-            self.nde_model,
-            profile_idx,
-            self.view_state_model.current_point,
-            self.view_state_model.current_slice,
-        )
+        selection = self.ascan_controller.on_position_changed(self.nde_model, profile_idx)
         if selection is None:
             return
         point, new_slice = selection
@@ -1074,7 +957,7 @@ class MasterController:
 
         # Met à jour l’Endview (pas de changement ici)
         self.annotation_view.set_volume(volume)
-        self.annotation_view.set_slice(slice_idx)
+        self.annotation_controller.on_slice_changed(slice_idx)
         self.annotation_controller.ensure_restriction_rect(
             shape=(volume.shape[1], volume.shape[2])
         )
@@ -1093,7 +976,7 @@ class MasterController:
 
         # Reste des mises à jour
         self._update_ascan_trace()
-        self.annotation_view.set_cross_visible(self.view_state_model.show_cross)
+        self.annotation_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
 
@@ -1158,15 +1041,14 @@ class MasterController:
         """Synchronise l'état du modèle actif vers les vues."""
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
-        self.annotation_view.set_cross_visible(self.view_state_model.show_cross)
+        self.annotation_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
 
         # Colormaps
         self.annotation_view.set_colormap(self.view_state_model.endview_colormap, None)
         self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
-        if self.cscan_view is not None:
-            self.cscan_view.set_colormap(self.view_state_model.cscan_colormap, None)
+        self.cscan_controller.set_colormap(self.view_state_model.cscan_colormap, None)
 
         self._sync_tools_labels()
         self.annotation_controller.sync_overlay_settings()

@@ -246,6 +246,15 @@ class AnnotationController:
         """Handle ROI persistence toggle (stub)."""
         self.view_state_model.set_roi_persistence(enabled)
 
+    def on_slice_changed(self, slice_idx: int) -> None:
+        """Apply current slice to annotation view and refresh ROI preview."""
+        self.annotation_view.set_slice(int(slice_idx))
+        self.refresh_roi_overlay_for_slice(int(slice_idx))
+
+    def set_cross_visible(self, visible: bool) -> None:
+        """Show or hide the crosshair in the annotation view."""
+        self.annotation_view.set_cross_visible(bool(visible))
+
     def on_restriction_rect_changed(self, rect: Any) -> None:
         """Update the global restriction rectangle from the view."""
         norm = self._normalize_rect_input(rect)
@@ -710,13 +719,35 @@ class AnnotationController:
         else:
             self.annotation_view.clear_roi_points()
 
-    def on_annotation_point_selected(self, pos: Any) -> None:
-        """Handle point selection (stub)."""
-        pass
+    def on_annotation_point_selected(self, pos: Any) -> Optional[tuple[int, int]]:
+        """Handle point selection and update crosshair state.
 
-    def on_annotation_drag_update(self, pos: Any) -> None:
-        """Handle drag update (stub)."""
-        pass
+        Returns:
+            (x, y) when selection is valid, else None.
+        """
+        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
+            return None
+        try:
+            x, y = int(pos[0]), int(pos[1])
+        except Exception:
+            return None
+        self.view_state_model.update_crosshair(x, y)
+        return x, y
+
+    def on_annotation_drag_update(self, pos: Any) -> Optional[tuple[int, int]]:
+        """Handle drag updates and refresh cursor state.
+
+        Returns:
+            (x, y) when update is valid, else None.
+        """
+        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
+            return None
+        try:
+            x, y = int(pos[0]), int(pos[1])
+        except Exception:
+            return None
+        self.view_state_model.set_cursor_position(x, y)
+        return x, y
 
     def on_apply_temp_mask_requested(self) -> None:
         """Apply the current temporary mask (free-hand/ROI) into the annotation model."""

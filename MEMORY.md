@@ -2863,3 +2863,22 @@ Le refactor UI visait a abandonner les splitters du MainWindow au profit d'une a
 2. Preserver l'architecture MVC: aucun transfert de logique metier vers les vues, les controlleurs existants restent les points d'orchestration.
 3. Conserver les stacks corrosion A-scan/C-scan dans les conteneurs de vue pour maintenir le comportement fonctionnel existant.
 
+
+
+### **2026-02-09** - Refactor MVC des docks ADS et delegation des controllers
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#controllers/dock_layout_controller.py`, `#controllers/annotation_controller.py`, `#controllers/cscan_controller.py`, `#controllers/ascan_controller.py`, `#mvc`, `#ads`, `#docking`, `#orchestration`
+
+**Actions effectuees :**
+- Ajoute `DockLayoutController` pour centraliser l'assemblage ADS des docks et des stacks corrosion (A-scan/C-scan), avec binding propre du toggle Tools.
+- Allege `MasterController` en supprimant la construction ADS inline et en deleguant le wiring dock/layout, les toggles, et plusieurs handlers vers les controllers respectifs.
+- Etend `AnnotationController` avec `on_slice_changed`, `set_cross_visible`, `on_annotation_point_selected` et `on_annotation_drag_update` pour sortir la logique d'interaction Endview du master.
+- Etend `CScanController` avec `set_colormap` et `on_crosshair_changed` pour encapsuler la synchro slice/crosshair C-scan et le point de rafraichissement A-scan.
+- Etend `AScanController` avec `on_position_changed` pour encapsuler la resolution curseur A-scan vers point Endview/slice.
+
+**Contexte :**
+Suite au split UI en vues dediees et a la migration vers des docks ADS, il fallait eviter les duplications dans `MasterController` et renforcer la separation MVC en confiant la logique d'interaction aux controllers specialises.
+
+**Decisions techniques :**
+1. ADS reste une couche d'orchestration de layout seulement via `DockLayoutController`, sans importer ADS dans les vues metier.
+2. `MasterController` conserve le role de coordination globale, tandis que les comportements de chaque vue sont deplaces dans `AnnotationController`, `CScanController` et `AScanController`.
+

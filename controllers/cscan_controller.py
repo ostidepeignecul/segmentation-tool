@@ -94,6 +94,35 @@ class CScanController:
         if self.corrosion_view is not None:
             self.corrosion_view.set_cross_visible(visible)
 
+    def set_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
+        """Apply colormap on the standard C-scan view."""
+        if self.standard_view is not None:
+            self.standard_view.set_colormap(name, lut)
+
+    def on_crosshair_changed(
+        self,
+        *,
+        slice_idx: int,
+        x: int,
+        volume_shape: Tuple[int, int, int],
+        current_point: Optional[Tuple[int, int]],
+    ) -> tuple[int, int]:
+        """Handle crosshair move from C-scan and update shared state.
+
+        Returns:
+            The point (x, y) to use for A-scan refresh.
+        """
+        self.view_state_model.set_slice(int(slice_idx))
+        clamped_slice = int(self.view_state_model.current_slice)
+        self.highlight_slice(clamped_slice)
+        self.set_crosshair(clamped_slice, int(x))
+
+        y_default = int(volume_shape[1]) // 2 if len(volume_shape) >= 2 else 0
+        current_y = int(current_point[1]) if current_point is not None else y_default
+        self.view_state_model.update_crosshair(int(x), current_y)
+        y = int(self.view_state_model.current_point[1]) if self.view_state_model.current_point else y_default
+        return int(x), y
+
     # --- Update projections --------------------------------------------------------
     def update_views(self, volume: Optional[np.ndarray]) -> None:
         """Met à jour la projection standard et corrosion selon l'état courant."""
