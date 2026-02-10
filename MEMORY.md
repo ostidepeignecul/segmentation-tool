@@ -2882,3 +2882,20 @@ Suite au split UI en vues dediees et a la migration vers des docks ADS, il falla
 1. ADS reste une couche d'orchestration de layout seulement via `DockLayoutController`, sans importer ADS dans les vues metier.
 2. `MasterController` conserve le role de coordination globale, tandis que les comportements de chaque vue sont deplaces dans `AnnotationController`, `CScanController` et `AScanController`.
 
+
+### **2026-02-09** - Stabilisation OpenGL du dock Volume en mode flottant
+**Tags :** `#branch:annotation`, `#controllers/dock_layout_controller.py`, `#main.py`, `#views/volume_view.py`, `#mvc`, `#ads`, `#vispy`, `#opengl`, `#docking`
+
+**Actions effectuees :**
+- Ajoute l'attribut Qt `AA_ShareOpenGLContexts` avant l'instanciation de `QApplication` pour stabiliser le partage de contexte OpenGL entre fenetres dockees/flottantes.
+- Connecte `volume_dock.topLevelChanged` dans `DockLayoutController` pour detecter les transitions dock <-> flottant du dock Volume.
+- Ajoute `notify_dock_topology_changed` dans `VolumeView` avec timer dedie pour relancer un rebuild de scene apres reparenting.
+- Rebuild la scene VisPy via `_build_scene()`, restaure la slice courante, et force un `canvas.update()` apres changement de topologie.
+
+**Contexte :**
+Un crash VisPy/OpenGL (`GL_INVALID_VALUE` pendant `SceneCanvas.on_draw`) apparaissait lorsque la vue Volume etait detachee en fenetre flottante ADS. Le symptome indique un etat GL invalide/stale apres changement de parent et de surface de rendu.
+
+**Decisions techniques :**
+1. Traiter le probleme a la source (partage de contextes Qt) et au niveau vue (reconstruction explicite de la scene) pour couvrir les cas de reparenting ADS.
+2. Garder la logique de docking dans `DockLayoutController` et la logique GL dans `VolumeView` pour rester conforme a MVC.
+

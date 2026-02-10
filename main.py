@@ -1,3 +1,4 @@
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 import os
 import sys
@@ -14,7 +15,10 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
     )
-    
+
+    # Keep OpenGL resources stable when moving QOpenGL widgets between docked/floating windows.
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
+
     app = QApplication(sys.argv)
     
     # Créer le contrôleur principal

@@ -63,6 +63,7 @@ class DockLayoutController:
         self._build_default_layout()
         self._build_corrosion_stacks()
         self.tools_dock.viewToggled.connect(self._on_tools_view_toggled)
+        self.volume_dock.topLevelChanged.connect(self._on_volume_top_level_changed)
 
     def bind_tools_toggle_action(self, action: QAction) -> None:
         """Bind menu action to ADS tools dock visibility."""
@@ -168,3 +169,9 @@ class DockLayoutController:
         action.blockSignals(True)
         action.setChecked(bool(visible))
         action.blockSignals(False)
+
+    def _on_volume_top_level_changed(self, _floating: bool) -> None:
+        """Rebuild VolumeView GL scene after dock/undock transitions."""
+        if self.volume_view is None:
+            return
+        self.volume_view.notify_dock_topology_changed()

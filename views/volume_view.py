@@ -112,6 +112,10 @@ class VolumeView(QFrame):
         self._overlay_timer.timeout.connect(self._apply_pending_overlay_volume)
         self._pending_overlay_apply = False
         self._pending_overlay_labels: Optional[set[int]] = None
+        # Rebuild scene after dock/undock transitions to avoid stale GL state.
+        self._dock_rebuild_timer = QTimer(self)
+        self._dock_rebuild_timer.setSingleShot(True)
+        self._dock_rebuild_timer.timeout.connect(self._rebuild_scene_after_dock_change)
 
     def set_volume(
         self,
@@ -180,6 +184,25 @@ class VolumeView(QFrame):
             self._volume_visual.cmap = self._base_colormap
         # self._slice_image uses direct RGBA, so no colormap needed.
         pass
+
+    def notify_dock_topology_changed(self) -> None:
+        """Schedule a scene rebuild after docking/floating transitions."""
+        self._dock_rebuild_timer.start(75)
+
+    def _rebuild_scene_after_dock_change(self) -> None:
+        """Recreate visuals after reparent/context changes triggered by docking."""
+        if self._volume is None or self._norm_volume is None:
+            return
+        current_slice = int(self._current_slice)
+        self._overlay_timer.stop()
+        self._pending_overlay_apply = False
+        self._pending_overlay_labels = None
+        self._build_scene()
+        self.set_slice_index(current_slice, update_slider=True, emit=False)
+        try:
+            self._canvas.update()
+        except Exception:
+            pass
 
     def set_overlay(
         self,
