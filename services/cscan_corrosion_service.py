@@ -120,7 +120,7 @@ class CScanCorrosionService(CScanService):
             image_shape=mask_stack.shape[1:],
             class_A_id=class_A_id,
             class_B_id=class_B_id,
-            line_thickness=2,
+            line_thickness=1,
         )
         self._logger.info("[Corrosion] Overlay lignes construit en %.2f s", time.perf_counter() - t_overlay)
         self._log_progress(0.75, "Overlay lignes")
