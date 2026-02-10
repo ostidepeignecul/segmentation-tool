@@ -20,6 +20,7 @@ from services.annotation_service import AnnotationService
 from services.overlay_service import OverlayService
 from services.overlay_export import OverlayExport
 from views.annotation_view import AnnotationView
+from views.endview_view_corrosion import EndviewViewCorrosion
 from views.overlay_settings_view import OverlaySettingsView
 from views.overlay_export_dialog import OverlayExportDialog
 from views.volume_view import VolumeView
@@ -42,6 +43,7 @@ class AnnotationController:
         overlay_service: OverlayService,
         overlay_export: OverlayExport,
         annotation_view: AnnotationView,
+        annotation_corrosion_view: Optional[EndviewViewCorrosion],
         volume_view: VolumeView,
         overlay_settings_view: OverlaySettingsView,
         logger: logging.Logger,
@@ -55,6 +57,7 @@ class AnnotationController:
         self.overlay_service = overlay_service
         self.overlay_export = overlay_export
         self.annotation_view = annotation_view
+        self.annotation_corrosion_view = annotation_corrosion_view
         self.volume_view = volume_view
         self.overlay_settings_view = overlay_settings_view
         self.logger = logger
@@ -132,6 +135,8 @@ class AnnotationController:
         if not show_volume_overlay:
             self.logger.info("Overlay hidden by toggle; clearing 2D/3D views.")
             self.annotation_view.set_overlay(None)
+            if self.annotation_corrosion_view is not None:
+                self.annotation_corrosion_view.set_overlay(None)
             self.volume_view.set_overlay(None)
 
         mask_volume = self.annotation_model.get_mask_volume()
@@ -164,6 +169,8 @@ class AnnotationController:
         if overlay_data is None:
             self.logger.info("No overlay available to push; clearing views.")
             self.annotation_view.set_overlay(None)
+            if self.annotation_corrosion_view is not None:
+                self.annotation_corrosion_view.set_overlay(None)
             self.volume_view.set_overlay(None)
             return
 
@@ -179,6 +186,8 @@ class AnnotationController:
 
         if show_volume_overlay:
             self.annotation_view.set_overlay(overlay_data, visible_labels=visible_labels)
+            if self.annotation_corrosion_view is not None:
+                self.annotation_corrosion_view.set_overlay(overlay_data, visible_labels=visible_labels)
             self.volume_view.set_overlay(
                 overlay_data,
                 visible_labels=visible_labels,
@@ -199,6 +208,8 @@ class AnnotationController:
         """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""
         self.annotation_model.clear_overlay_cache()
         self.annotation_view.set_overlay(None)
+        if self.annotation_corrosion_view is not None:
+            self.annotation_corrosion_view.set_overlay(None)
         self.annotation_view.clear_roi_overlay()
         self.annotation_view.clear_temp_shapes()
         self.volume_view.set_overlay(None)
@@ -211,6 +222,8 @@ class AnnotationController:
         """Apply the current overlay opacity to 2D and 3D views."""
         alpha = float(self.view_state_model.overlay_alpha)
         self.annotation_view.set_overlay_opacity(alpha)
+        if self.annotation_corrosion_view is not None:
+            self.annotation_corrosion_view.set_overlay_opacity(alpha)
         self.volume_view.set_overlay_opacity(alpha)
 
     # ------------------------------------------------------------------ #
@@ -247,13 +260,8 @@ class AnnotationController:
         self.view_state_model.set_roi_persistence(enabled)
 
     def on_slice_changed(self, slice_idx: int) -> None:
-        """Apply current slice to annotation view and refresh ROI preview."""
-        self.annotation_view.set_slice(int(slice_idx))
+        """Refresh ROI preview for the requested slice."""
         self.refresh_roi_overlay_for_slice(int(slice_idx))
-
-    def set_cross_visible(self, visible: bool) -> None:
-        """Show or hide the crosshair in the annotation view."""
-        self.annotation_view.set_cross_visible(bool(visible))
 
     def on_restriction_rect_changed(self, rect: Any) -> None:
         """Update the global restriction rectangle from the view."""
@@ -718,36 +726,6 @@ class AnnotationController:
             self.annotation_view.set_roi_points(seeds)
         else:
             self.annotation_view.clear_roi_points()
-
-    def on_annotation_point_selected(self, pos: Any) -> Optional[tuple[int, int]]:
-        """Handle point selection and update crosshair state.
-
-        Returns:
-            (x, y) when selection is valid, else None.
-        """
-        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
-            return None
-        try:
-            x, y = int(pos[0]), int(pos[1])
-        except Exception:
-            return None
-        self.view_state_model.update_crosshair(x, y)
-        return x, y
-
-    def on_annotation_drag_update(self, pos: Any) -> Optional[tuple[int, int]]:
-        """Handle drag updates and refresh cursor state.
-
-        Returns:
-            (x, y) when update is valid, else None.
-        """
-        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
-            return None
-        try:
-            x, y = int(pos[0]), int(pos[1])
-        except Exception:
-            return None
-        self.view_state_model.set_cursor_position(x, y)
-        return x, y
 
     def on_apply_temp_mask_requested(self) -> None:
         """Apply the current temporary mask (free-hand/ROI) into the annotation model."""

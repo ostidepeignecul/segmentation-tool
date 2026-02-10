@@ -12,7 +12,6 @@ from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService, AScanProfile
 from views.ascan_view import AScanView
 from views.ascan_view_corrosion import AScanViewCorrosion
-from views.endview_view import EndviewView
 
 
 class AScanController:
@@ -25,17 +24,17 @@ class AScanController:
         standard_view: Optional[AScanView],
         corrosion_view: Optional[AScanViewCorrosion],
         stacked_layout: Optional[QStackedLayout],
-        endview_view: EndviewView,
         view_state_model: ViewStateModel,
         set_cscan_crosshair: Callable[[int, int], None],
+        set_endview_crosshair: Callable[[int, int], None],
     ) -> None:
         self.ascan_service = ascan_service
         self.standard_view = standard_view
         self.corrosion_view = corrosion_view
         self._stack = stacked_layout
-        self.endview_view = endview_view
         self.view_state_model = view_state_model
         self.set_cscan_crosshair = set_cscan_crosshair
+        self.set_endview_crosshair = set_endview_crosshair
 
     def update_trace(
         self,
@@ -71,7 +70,7 @@ class AScanController:
             if self.corrosion_view is not None:
                 self.corrosion_view.clear_measurement()
 
-        self.endview_view.set_crosshair(*profile.crosshair)
+        self.set_endview_crosshair(*profile.crosshair)
         slice_idx = self.view_state_model.current_slice
         self.set_cscan_crosshair(slice_idx, profile.crosshair[0])
         self.view_state_model.update_crosshair(*profile.crosshair)

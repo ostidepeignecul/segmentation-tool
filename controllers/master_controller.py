@@ -23,6 +23,7 @@ from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
 from controllers.dock_layout_controller import DockLayoutController
+from controllers.endview_controller import EndviewController
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
@@ -93,6 +94,8 @@ class MasterController:
         self._shortcuts: list[QShortcut] = []
         self._omniscan_lut: Optional[np.ndarray] = None
         self._session_dialog: Optional[SessionManagerDialog] = None
+        self._pre_corrosion_session_state = None
+        self._pre_corrosion_session_id: Optional[str] = None
 
         # References to Designer-created views.
         self.annotation_view: AnnotationView = self.dock_layout_controller.annotation_view
@@ -102,15 +105,24 @@ class MasterController:
         self.tools_panel = self.dock_layout_controller.tools_panel
         self._tools_ui = self.dock_layout_controller.tools_ui
         self.tools_dock = self.dock_layout_controller.tools_dock
+        self.annotation_view_corrosion = self.dock_layout_controller.annotation_view_corrosion
+        self.annotation_stack = self.dock_layout_controller.annotation_stack
         self.cscan_view_corrosion = self.dock_layout_controller.cscan_view_corrosion
         self.ascan_view_corrosion = self.dock_layout_controller.ascan_view_corrosion
         self.cscan_stack = self.dock_layout_controller.cscan_stack
         self.ascan_stack = self.dock_layout_controller.ascan_stack
 
+        self.endview_controller = EndviewController(
+            standard_view=self.annotation_view,
+            corrosion_view=self.annotation_view_corrosion,
+            stacked_layout=self.annotation_stack,
+            view_state_model=self.view_state_model,
+        )
+
         self.annotation_service = AnnotationService()
 
         # Apply default colormaps
-        self.annotation_view.set_colormap(self.view_state_model.endview_colormap, None)
+        self.endview_controller.set_colormap(self.view_state_model.endview_colormap, None)
         self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
         if self.cscan_view is not None:
             self.cscan_view.set_colormap(self.view_state_model.cscan_colormap, None)
@@ -125,6 +137,7 @@ class MasterController:
             overlay_service=self.overlay_service,
             overlay_export=self.overlay_export,
             annotation_view=self.annotation_view,
+            annotation_corrosion_view=self.annotation_view_corrosion,
             volume_view=self.volume_view,
             overlay_settings_view=self.overlay_settings_view,
             logger=self.logger,
@@ -151,9 +164,9 @@ class MasterController:
             standard_view=self.ascan_view,
             corrosion_view=self.ascan_view_corrosion,
             stacked_layout=self.ascan_stack,
-            endview_view=self.annotation_view,
             view_state_model=self.view_state_model,
             set_cscan_crosshair=self.cscan_controller.set_crosshair,
+            set_endview_crosshair=self.endview_controller.set_crosshair,
         )
 
         self._connect_actions()
@@ -186,7 +199,7 @@ class MasterController:
         if hasattr(self.ui, "actionParam_tres_3"):
             self.ui.actionParam_tres_3.setText("Parametres corrosion")
             self.ui.actionParam_tres_3.triggered.connect(self._on_open_corrosion_settings)
-        self.ui.actionCorrosion_analyse.triggered.connect(self.cscan_controller.run_corrosion_analysis)
+        self.ui.actionCorrosion_analyse.triggered.connect(self._on_run_corrosion_analysis)
         if hasattr(self.ui, "actionnnunet"):
             self.ui.actionnnunet.triggered.connect(self._on_run_nnunet)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
@@ -275,6 +288,9 @@ class MasterController:
         )
         self.annotation_view.previous_requested.connect(self._on_previous_slice)
         self.annotation_view.next_requested.connect(self._on_next_slice)
+        if self.annotation_view_corrosion is not None:
+            self.annotation_view_corrosion.point_selected.connect(self._on_endview_point_selected)
+            self.annotation_view_corrosion.drag_update.connect(self._on_endview_drag_update)
 
         if self.cscan_view is not None:
             self.cscan_view.crosshair_changed.connect(self._on_cscan_crosshair_changed)
@@ -341,10 +357,10 @@ class MasterController:
         result = dialog.exec()
         if result == QDialog.DialogCode.Accepted:
             if dialog.wants_reset():
-                self.annotation_view.reset_display_size()
+                self.endview_controller.reset_display_size()
             else:
                 width, height = dialog.get_size()
-                self.annotation_view.set_display_size(width, height)
+                self.endview_controller.set_display_size(width, height)
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
@@ -672,6 +688,31 @@ class MasterController:
         self.corrosion_settings_view.raise_()
         self.corrosion_settings_view.activateWindow()
 
+    def _on_run_corrosion_analysis(self) -> None:
+        """Capture active session state before launching corrosion analysis."""
+        active_id = self.session_manager._active_id  # noqa: SLF001
+        if active_id is not None:
+            try:
+                active_name = self.session_manager._sessions[active_id].name  # noqa: SLF001
+                self._pre_corrosion_session_state = self.session_manager._snapshot(  # noqa: SLF001
+                    name=active_name,
+                    annotation_model=self.annotation_model,
+                    temp_mask_model=self.temp_mask_model,
+                    roi_model=self.roi_model,
+                    view_state_model=self.view_state_model,
+                )
+                self._pre_corrosion_session_id = active_id
+            except Exception:
+                self._pre_corrosion_session_state = None
+                self._pre_corrosion_session_id = None
+        else:
+            self._pre_corrosion_session_state = None
+            self._pre_corrosion_session_id = None
+        self.cscan_controller.run_corrosion_analysis()
+        if not self.view_state_model.corrosion_active:
+            self._pre_corrosion_session_state = None
+            self._pre_corrosion_session_id = None
+
     def _sync_apply_volume_range_view(self) -> None:
         """Sync apply-to-volume range bounds/values into the settings dialog."""
         volume = self._current_volume()
@@ -695,7 +736,7 @@ class MasterController:
     def _on_endview_colormap_changed(self, name: str) -> None:
         lut = self._get_colormap_lut(name)
         self.view_state_model.set_endview_colormap(name)
-        self.annotation_view.set_colormap(name, lut)
+        self.endview_controller.set_colormap(name, lut)
         self.volume_view.set_base_colormap(name, lut)
 
     def _on_cscan_colormap_changed(self, name: str) -> None:
@@ -764,6 +805,7 @@ class MasterController:
         self.view_state_model.set_slice(index)
         clamped = self.view_state_model.current_slice
         self.tools_panel.set_slice_value(clamped)
+        self.endview_controller.set_slice(clamped)
         self.annotation_controller.on_slice_changed(clamped)
         self.cscan_controller.highlight_slice(clamped)
         self.volume_view.set_slice_index(clamped, update_slider=True)
@@ -792,13 +834,13 @@ class MasterController:
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
         self.view_state_model.set_show_cross(enabled)
-        self.annotation_controller.set_cross_visible(enabled)
+        self.endview_controller.set_cross_visible(enabled)
         self.cscan_controller.set_cross_visible(enabled)
         self.ascan_controller.set_marker_visible(enabled)
 
     def _on_endview_point_selected(self, pos: Any) -> None:
         """Handle point selection for crosshair sync."""
-        point = self.annotation_controller.on_annotation_point_selected(pos)
+        point = self.endview_controller.on_point_selected(pos)
         if point is None:
             return
         x, y = point
@@ -807,7 +849,7 @@ class MasterController:
 
     def _on_endview_drag_update(self, pos: Any) -> None:
         """Handle drag updates during drawing (cursor label only)."""
-        point = self.annotation_controller.on_annotation_drag_update(pos)
+        point = self.endview_controller.on_drag_update(pos)
         if point is None:
             return
         x, y = point
@@ -826,6 +868,7 @@ class MasterController:
         )
         clamped_slice = self.view_state_model.current_slice
         self.tools_panel.set_slice_value(clamped_slice)
+        self.endview_controller.set_slice(clamped_slice)
         self.annotation_controller.on_slice_changed(clamped_slice)
         self._update_ascan_trace(point=point)
 
@@ -956,7 +999,8 @@ class MasterController:
         slice_idx = self.view_state_model.clamp_slice(self.view_state_model.current_slice)
 
         # Met à jour l’Endview (pas de changement ici)
-        self.annotation_view.set_volume(volume)
+        self.endview_controller.set_volume(volume)
+        self.endview_controller.set_slice(slice_idx)
         self.annotation_controller.on_slice_changed(slice_idx)
         self.annotation_controller.ensure_restriction_rect(
             shape=(volume.shape[1], volume.shape[2])
@@ -964,6 +1008,7 @@ class MasterController:
 
         # Met à jour la C‑scan (standard ou corrosion)
         self.cscan_controller.update_views(volume)
+        self.endview_controller.sync_mode()
 
         # Récupère l'ordre des axes depuis le modèle, s'il existe
         axis_order = self.view_state_model.axis_order
@@ -976,7 +1021,7 @@ class MasterController:
 
         # Reste des mises à jour
         self._update_ascan_trace()
-        self.annotation_controller.set_cross_visible(self.view_state_model.show_cross)
+        self.endview_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
 
@@ -1041,12 +1086,12 @@ class MasterController:
         """Synchronise l'état du modèle actif vers les vues."""
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
-        self.annotation_controller.set_cross_visible(self.view_state_model.show_cross)
+        self.endview_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
 
         # Colormaps
-        self.annotation_view.set_colormap(self.view_state_model.endview_colormap, None)
+        self.endview_controller.set_colormap(self.view_state_model.endview_colormap, None)
         self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
         self.cscan_controller.set_colormap(self.view_state_model.cscan_colormap, None)
 
@@ -1069,15 +1114,17 @@ class MasterController:
         self.view_state_model.corrosion_peak_index_map_a = result.peak_index_map_a
         self.view_state_model.corrosion_peak_index_map_b = result.peak_index_map_b
 
-        if self.session_manager._active_id is not None:  # noqa: SLF001
-            raw_state = self.session_manager._snapshot(  # noqa: SLF001
-                name=self.session_manager._sessions[self.session_manager._active_id].name,  # noqa: SLF001
-                annotation_model=self.annotation_model,
-                temp_mask_model=self.temp_mask_model,
-                roi_model=self.roi_model,
-                view_state_model=self.view_state_model,
-            )
-            self.session_manager._sessions[self.session_manager._active_id] = raw_state  # noqa: SLF001
+        origin_id = self._pre_corrosion_session_id
+        origin_state = self._pre_corrosion_session_state
+        if (
+            origin_id is not None
+            and origin_state is not None
+            and origin_id in self.session_manager._sessions  # noqa: SLF001
+        ):
+            try:
+                self.session_manager._sessions[origin_id] = copy.deepcopy(origin_state)  # noqa: SLF001
+            except Exception:
+                self.session_manager._sessions[origin_id] = origin_state  # noqa: SLF001
 
         # 2) Prépare un état interpolé pour la nouvelle session
         interpolated_view_state = copy.deepcopy(self.view_state_model)
@@ -1129,6 +1176,9 @@ class MasterController:
             set_active=True,
             save_active=False,
         )
+
+        self._pre_corrosion_session_state = None
+        self._pre_corrosion_session_id = None
 
         self._after_session_switch()
         self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)

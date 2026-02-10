@@ -2899,3 +2899,22 @@ Un crash VisPy/OpenGL (`GL_INVALID_VALUE` pendant `SceneCanvas.on_draw`) apparai
 1. Traiter le probleme a la source (partage de contextes Qt) et au niveau vue (reconstruction explicite de la scene) pour couvrir les cas de reparenting ADS.
 2. Garder la logique de docking dans `DockLayoutController` et la logique GL dans `VolumeView` pour rester conforme a MVC.
 
+
+
+### **2026-02-10** - Refactor Endview MVC et session corrosion preservee
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/ascan_controller.py`, `#controllers/dock_layout_controller.py`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#views/endview_view_corrosion.py`, `#mvc`, `#endview`, `#corrosion`, `#sessions`, `#stackedlayout`
+
+**Actions effectuees :**
+- Ajout de `EndviewViewCorrosion` heritee de `EndviewView` avec rendu de lignes corrosion cosmetiques et stack Endview standard/corrosion dans `DockLayoutController`.
+- Creation de `EndviewController` pour centraliser le mode standard/corrosion, la slice, la crosshair, la colormap, et les interactions point/drag.
+- Delegation des responsabilites Endview depuis `MasterController` vers `EndviewController` et adaptation de `AScanController` via callback `set_endview_crosshair`.
+- Synchronisation de l overlay annotation vers la vue corrosion dans `AnnotationController` et suppression de methodes redondantes point/drag/cross de ce controller.
+- Protection de la session source pendant l analyse corrosion: snapshot pre-analyse, restauration de la session d origine, creation de la session corrosion active sans ecraser la session initiale.
+
+**Contexte :**
+Les vues basculaient en mode corrosion dans une nouvelle session mais le retour a la session d origine conservait un etat de vue corrosion. En parallele, la logique Endview etait dispersee entre controllers, ce qui rendait la separation MVC moins claire.
+
+**Decisions techniques :**
+1. Introduire un controller dedie Endview pour isoler l orchestration des vues Endview et reduire le couplage avec `MasterController`.
+2. Capturer et restaurer explicitement l etat de session pre-corrosion pour garantir qu un retour a la session d origine restaure bien les vues standard.
+
