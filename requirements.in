@@ -1,5 +1,6 @@
 # UI / visualisation
 PyQt6
+PyQt6Ads
 pyqtgraph
 vispy
 PyOpenGL

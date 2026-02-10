@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
+import PyQt6Ads as ads
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
@@ -40,7 +41,12 @@ from services.split_service import SplitFlawNoflawService
 from services.nde_loader import NdeLoader
 from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
 from services.corrosion_label_service import CorrosionLabelService
+from ui_annotation import Ui_DockWidget as Ui_AnnotationDockWidget
+from ui_ascan import Ui_DockWidget as Ui_AScanDockWidget
+from ui_cscan import Ui_DockWidget as Ui_CScanDockWidget
 from ui_mainwindow import Ui_MainWindow
+from ui_toolspanel import Ui_DockWidget as Ui_ToolsPanelDockWidget
+from ui_volume import Ui_DockWidget as Ui_VolumeDockWidget
 from views.annotation_view import AnnotationView
 from views.ascan_view_corrosion import AScanViewCorrosion
 from views.cscan_view_corrosion import CscanViewCorrosion
@@ -60,6 +66,22 @@ class MasterController:
         self.main_window = main_window or QMainWindow()
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self.main_window)
+        self.dock_manager = ads.CDockManager(self.main_window)
+        self._annotation_ui = Ui_AnnotationDockWidget()
+        self._cscan_ui = Ui_CScanDockWidget()
+        self._ascan_ui = Ui_AScanDockWidget()
+        self._volume_ui = Ui_VolumeDockWidget()
+        self._tools_ui = Ui_ToolsPanelDockWidget()
+        self._annotation_dock = ads.CDockWidget("Annotation")
+        self._cscan_dock = ads.CDockWidget("C-Scan")
+        self._ascan_dock = ads.CDockWidget("A-Scan")
+        self._volume_dock = ads.CDockWidget("Volume")
+        self.tools_dock = ads.CDockWidget("Tools")
+        self._annotation_ui.setupUi(self._annotation_dock)
+        self._cscan_ui.setupUi(self._cscan_dock)
+        self._ascan_ui.setupUi(self._ascan_dock)
+        self._volume_ui.setupUi(self._volume_dock)
+        self._tools_ui.setupUi(self.tools_dock)
 
         self.nde_model: Optional[NdeModel] = None
         self.annotation_model = AnnotationModel()
@@ -96,64 +118,83 @@ class MasterController:
         self._session_dialog: Optional[SessionManagerDialog] = None
 
         # References to Designer-created views.
-        self.annotation_view: AnnotationView = self.ui.frame_3
-        self.volume_view = self.ui.frame_5
-        self.ascan_view = self.ui.frame_7
-        self.tools_panel = self.ui.dockWidgetContents_2
+        self.annotation_view: AnnotationView = self._annotation_ui.frame
+        self.cscan_view = self._cscan_ui.frame
+        self.volume_view = self._volume_ui.frame
+        self.ascan_view = self._ascan_ui.frame
+        self.tools_panel = self._tools_ui.dockWidgetContents
+
+        self._annotation_dock.setWindowTitle("Annotation")
+        self._cscan_dock.setWindowTitle("C-Scan")
+        self._volume_dock.setWindowTitle("Volume")
+        self._ascan_dock.setWindowTitle("A-Scan")
+        self.tools_dock.setObjectName("dockWidget_2")
+        self.tools_dock.setWindowTitle("Tools")
+        self.tools_dock.setFeatures(ads.CDockWidget.DockWidgetFeature.DefaultDockWidgetFeatures)
+
+        tools_area = self.dock_manager.addDockWidget(
+            ads.DockWidgetArea.LeftDockWidgetArea,
+            self.tools_dock,
+        )
+        annotation_area = self.dock_manager.addDockWidget(
+            ads.DockWidgetArea.RightDockWidgetArea,
+            self._annotation_dock,
+            tools_area,
+        )
+        right_top_area = self.dock_manager.addDockWidget(
+            ads.DockWidgetArea.RightDockWidgetArea,
+            self._volume_dock,
+            annotation_area,
+        )
+        right_mid_area = self.dock_manager.addDockWidget(
+            ads.DockWidgetArea.BottomDockWidgetArea,
+            self._ascan_dock,
+            right_top_area,
+        )
+        self.dock_manager.addDockWidget(
+            ads.DockWidgetArea.BottomDockWidgetArea,
+            self._cscan_dock,
+            right_mid_area,
+        )
 
         # C-scan stacked layout (standard + corrosion)
-        self.cscan_view = self.ui.frame_4
         self.cscan_view_corrosion = None
         self.cscan_stack = None
-        try:
-            splitter = self.ui.splitter
-        except Exception:
-            splitter = None
-        if splitter is not None and self.cscan_view is not None:
-            container = QWidget(parent=splitter)
+        if self.cscan_view is not None:
+            parent_widget = self.cscan_view.parentWidget()
+            parent_layout = parent_widget.layout() if parent_widget is not None else None
+            container = QWidget(parent=parent_widget)
             stack = QStackedLayout(container)
             stack.setContentsMargins(0, 0, 0, 0)
-            idx = splitter.indexOf(self.cscan_view)
 
+            if parent_layout is not None:
+                parent_layout.replaceWidget(self.cscan_view, container)
             self.cscan_view.setParent(container)
             stack.addWidget(self.cscan_view)
 
             self.cscan_view_corrosion = CscanViewCorrosion(parent=container)
             stack.addWidget(self.cscan_view_corrosion)
             stack.setCurrentWidget(self.cscan_view)
-
-            if idx >= 0:
-                splitter.replaceWidget(idx, container)
-            else:
-                splitter.addWidget(container)
-
             self.cscan_stack = stack
 
         # A-scan stacked layout (standard + corrosion)
         self.ascan_view_corrosion = None
         self.ascan_stack = None
-        try:
-            ascan_splitter = self.ui.splitter_2
-        except Exception:
-            ascan_splitter = None
-        if ascan_splitter is not None and self.ascan_view is not None:
-            container = QWidget(parent=ascan_splitter)
+        if self.ascan_view is not None:
+            parent_widget = self.ascan_view.parentWidget()
+            parent_layout = parent_widget.layout() if parent_widget is not None else None
+            container = QWidget(parent=parent_widget)
             stack = QStackedLayout(container)
             stack.setContentsMargins(0, 0, 0, 0)
-            idx = ascan_splitter.indexOf(self.ascan_view)
 
+            if parent_layout is not None:
+                parent_layout.replaceWidget(self.ascan_view, container)
             self.ascan_view.setParent(container)
             stack.addWidget(self.ascan_view)
 
             self.ascan_view_corrosion = AScanViewCorrosion(parent=container)
             stack.addWidget(self.ascan_view_corrosion)
             stack.setCurrentWidget(self.ascan_view)
-
-            if idx >= 0:
-                ascan_splitter.replaceWidget(idx, container)
-            else:
-                ascan_splitter.addWidget(container)
-
             self.ascan_stack = stack
 
         self.annotation_service = AnnotationService()
@@ -244,11 +285,9 @@ class MasterController:
         if hasattr(self.ui, "actionToggle_tools_panel"):
             action = self.ui.actionToggle_tools_panel
             action.setCheckable(True)
-            action.triggered.connect(self._on_toggle_tools_panel)
-            dock = getattr(self.ui, "dockWidget_2", None)
-            if dock is not None:
-                action.setChecked(dock.isVisible())
-                dock.visibilityChanged.connect(self._on_tools_panel_visibility_changed)
+            action.toggled.connect(self._on_toggle_tools_panel)
+            action.setChecked(not self.tools_dock.isClosed())
+            self.tools_dock.viewToggled.connect(self._on_tools_panel_visibility_changed)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionAfficher_solide_3d"):
@@ -260,32 +299,32 @@ class MasterController:
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
         self.tools_panel.attach_designer_widgets(
-            slice_slider=self.ui.horizontalSlider_2,
-            slice_label=self.ui.label_3,
-            goto_button=self.ui.pushButton,
-            threshold_slider=self.ui.horizontalSlider,
-            threshold_label=self.ui.label_2,
-            free_hand_radio=self.ui.radioButton,
-            box_radio=self.ui.radioButton_2,
-            grow_radio=self.ui.radioButton_3,
-            line_radio=self.ui.radioButton_5,
-            paint_radio=self.ui.radioButton_4,
-            paint_slider=self.ui.horizontalSlider_3,
-            nde_label=self.ui.label,
-            endview_label=self.ui.label_5,
-            position_label=self.ui.label_4,
-            overlay_checkbox=self.ui.checkBox_5,
-            cross_checkbox=self.ui.checkBox_4,
-            apply_volume_checkbox=self.ui.checkBox,
-            threshold_auto_checkbox=self.ui.checkBox_2,
-            roi_persistence_checkbox=self.ui.checkBox_3,
-            roi_recompute_button=self.ui.pushButton_2,
-            roi_delete_button=self.ui.pushButton_3,
-            selection_cancel_button=self.ui.pushButton_4,
-            previous_button=self.ui.pushButton_5,
-            next_button=self.ui.pushButton_6,
-            apply_roi_button=self.ui.pushButton_7,
-            label_container=self.ui.scrollAreaWidgetContents,
+            slice_slider=self._tools_ui.horizontalSlider_2,
+            slice_label=self._tools_ui.label_3,
+            goto_button=self._tools_ui.pushButton,
+            threshold_slider=self._tools_ui.horizontalSlider,
+            threshold_label=self._tools_ui.label_2,
+            free_hand_radio=self._tools_ui.radioButton,
+            box_radio=self._tools_ui.radioButton_2,
+            grow_radio=self._tools_ui.radioButton_3,
+            line_radio=self._tools_ui.radioButton_5,
+            paint_radio=self._tools_ui.radioButton_4,
+            paint_slider=self._tools_ui.horizontalSlider_3,
+            nde_label=self._tools_ui.label,
+            endview_label=self._tools_ui.label_5,
+            position_label=self._tools_ui.label_4,
+            overlay_checkbox=self._tools_ui.checkBox_5,
+            cross_checkbox=self._tools_ui.checkBox_4,
+            apply_volume_checkbox=self._tools_ui.checkBox,
+            threshold_auto_checkbox=self._tools_ui.checkBox_2,
+            roi_persistence_checkbox=self._tools_ui.checkBox_3,
+            roi_recompute_button=self._tools_ui.pushButton_2,
+            roi_delete_button=self._tools_ui.pushButton_3,
+            selection_cancel_button=self._tools_ui.pushButton_4,
+            previous_button=self._tools_ui.pushButton_5,
+            next_button=self._tools_ui.pushButton_6,
+            apply_roi_button=self._tools_ui.pushButton_7,
+            label_container=self._tools_ui.scrollAreaWidgetContents,
         )
 
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
@@ -403,10 +442,9 @@ class MasterController:
 
     def _on_toggle_tools_panel(self, checked: bool) -> None:
         """Show/hide the tools dock when the menu action is toggled."""
-        dock = getattr(self.ui, "dockWidget_2", None)
-        if dock is None:
+        if self.tools_dock is None:
             return
-        dock.setVisible(bool(checked))
+        self.tools_dock.toggleView(bool(checked))
 
     def _on_tools_panel_visibility_changed(self, visible: bool) -> None:
         """Keep the toggle action state in sync with the dock visibility."""

@@ -192,6 +192,8 @@ pyqt6==6.10.0
     # via -r requirements.in
 pyqt6-qt6==6.10.1
     # via pyqt6
+pyqt6ads==4.5.0
+    # via -r requirements.in
 pyqt6-sip==13.10.2
     # via pyqt6
 pyqtgraph==0.14.0

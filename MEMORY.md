@@ -2842,3 +2842,24 @@ Les lignes A-scan/C-scan ne suivaient pas toujours les vrais pics car l'overlay 
 **Decisions techniques :**
 1. Utiliser des peak maps ZxX calculees sur le volume brut pour aligner A-scan et overlay.
 2. Conserver la distance_map pour la valeur affichee et garder un fallback sur l'overlay si besoin.
+
+### **2026-02-09** - Refactor UI en docks modularises avec ADS
+**Tags :** `#branch:annotation`, `#.gitignore`, `#annotation.ui`, `#ascan.ui`, `#controllers/master_controller.py`, `#cscan.ui`, `#requirements.in`, `#requirements.txt`, `#toolspanel.ui`, `#ui_annotation.py`, `#ui_ascan.py`, `#ui_cscan.py`, `#ui_mainwindow.py`, `#ui_toolspanel.py`, `#ui_volume.py`, `#untitled.ui`, `#volume.ui`, `#mvc`, `#ui`, `#docking`, `#ads`, `#pyqt6`, `#qt-designer`
+
+**Actions effectuees :**
+- Decoupe l'UI monolithique en fichiers .ui dedies pour annotation, cscan, ascan, volume et tools panel, puis regenere les wrappers `ui_*.py`.
+- Rebranche `MasterController` pour instancier les vues depuis ces UI separees et conserver les controlleurs existants (Annotation/CScan/AScan) sans deplacer la logique metier.
+- Integre `PyQt6Ads` comme couche d'orchestration de layout (`CDockManager` + `CDockWidget`) et migre le wiring des docks vers ADS.
+- Adapte le panneau tools au modele ADS: binding des widgets Designer via `attach_designer_widgets`, toggle menu via `viewToggled`/`toggleView`.
+- Fixe le layout par defaut demande: Tools a gauche, Annotation a sa droite, puis Volume/AScan/CScan empiles de haut en bas a droite.
+- Active les features par defaut du dock Tools pour le rendre deplacable comme les autres docks.
+- Ajoute `PyQt6Ads` dans `requirements.in` et `requirements.txt`.
+
+**Contexte :**
+Le refactor UI visait a abandonner les splitters du MainWindow au profit d'une architecture full dock widget, plus flexible pour le placement et la manipulation des vues.
+
+**Decisions techniques :**
+1. Garder les vues en PyQt6/Designer pures et limiter ADS a la couche d'assemblage dans `MasterController`.
+2. Preserver l'architecture MVC: aucun transfert de logique metier vers les vues, les controlleurs existants restent les points d'orchestration.
+3. Conserver les stacks corrosion A-scan/C-scan dans les conteneurs de vue pour maintenir le comportement fonctionnel existant.
+
