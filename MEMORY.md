@@ -2940,3 +2940,22 @@ Besoin de supporter deux endviews synchronisees avec une coupe orthogonale secon
 2. Appliquer le changement de plan d annotation au chargement via permutation du volume du modele et mise a jour de `axis_order`, afin de conserver un pipeline aval coherent.
 3. Centraliser l index de slice secondaire dans `ViewStateModel` et synchroniser toutes les vues a partir de cet etat partage.
 
+
+
+### **2026-02-11** - Profil corrosion applique a la vue transversale read-only
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/dock_layout_controller.py`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#mvc`, `#corrosion`, `#endview`, `#read-only`, `#overlay`, `#pyqt`
+
+**Actions effectuees :**
+- Ajout d un stack corrosion secondaire dans `DockLayoutController` pour la vue V read-only avec une instance dediee de `EndviewViewCorrosion`.
+- Extension de `EndviewController` avec gestion du stack secondaire standard/corrosion et synchronisation secondaire du volume, slice, crosshair, colormap et taille d affichage.
+- Extension de `AnnotationController` pour pousser l overlay transpose vers la vue secondaire corrosion et propager clear/opacite sur cette vue.
+- Mise a jour de `MasterController` pour injecter les nouvelles references secondaire corrosion, connecter les signaux de slice et brancher les nouveaux parametres des controllers.
+
+**Contexte :**
+Apres l analyse corrosion, la vue annotation corrosion affichait un profil interpole propre, mais la vue transversale read-only affichait un rendu masque moins lisible. Le besoin etait d aligner le rendu profil de la vue read-only sur celui de la corrosion annotation sans casser la separation MVC.
+
+**Decisions techniques :**
+1. Reutiliser `EndviewViewCorrosion` pour la vue secondaire afin de conserver un rendu de lignes cosmetiques coherent entre les deux endviews.
+2. Conserver la transposition d overlay dans `AnnotationAxisService` et diffuser ce meme overlay secondaire vers les vues read-only standard et corrosion.
+3. Maintenir la separation MVC en limitant la composition UI a `DockLayoutController` et l orchestration d etat aux controllers (`MasterController`, `EndviewController`, `AnnotationController`).
+

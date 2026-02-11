@@ -67,9 +67,11 @@ class DockLayoutController:
         self.cscan_view_corrosion: Optional[CscanViewCorrosion] = None
         self.ascan_view_corrosion: Optional[AScanViewCorrosion] = None
         self.annotation_view_corrosion: Optional[EndviewViewCorrosion] = None
+        self.secondary_annotation_view_corrosion: Optional[EndviewViewCorrosion] = None
         self.cscan_stack: Optional[QStackedLayout] = None
         self.ascan_stack: Optional[QStackedLayout] = None
         self.annotation_stack: Optional[QStackedLayout] = None
+        self.secondary_annotation_stack: Optional[QStackedLayout] = None
         self._tools_toggle_action: Optional[QAction] = None
 
         self._configure_docks()
@@ -161,6 +163,10 @@ class DockLayoutController:
 
     def _build_corrosion_stacks(self) -> None:
         self.annotation_stack, self.annotation_view_corrosion = self._build_annotation_stack()
+        (
+            self.secondary_annotation_stack,
+            self.secondary_annotation_view_corrosion,
+        ) = self._build_secondary_annotation_stack()
         self.cscan_stack, self.cscan_view_corrosion = self._build_cscan_stack()
         self.ascan_stack, self.ascan_view_corrosion = self._build_ascan_stack()
 
@@ -180,6 +186,24 @@ class DockLayoutController:
         corrosion_view = EndviewViewCorrosion(parent=container)
         stack.addWidget(corrosion_view)
         stack.setCurrentWidget(self.annotation_view)
+        return stack, corrosion_view
+
+    def _build_secondary_annotation_stack(self) -> tuple[Optional[QStackedLayout], Optional[EndviewViewCorrosion]]:
+        parent_widget = self.secondary_annotation_view.parentWidget()
+        parent_layout = parent_widget.layout() if parent_widget is not None else None
+        if parent_widget is None or parent_layout is None:
+            return None, None
+
+        container = QWidget(parent=parent_widget)
+        stack = QStackedLayout(container)
+        stack.setContentsMargins(0, 0, 0, 0)
+        parent_layout.replaceWidget(self.secondary_annotation_view, container)
+        self.secondary_annotation_view.setParent(container)
+        stack.addWidget(self.secondary_annotation_view)
+
+        corrosion_view = EndviewViewCorrosion(parent=container)
+        stack.addWidget(corrosion_view)
+        stack.setCurrentWidget(self.secondary_annotation_view)
         return stack, corrosion_view
 
     def _build_cscan_stack(self) -> tuple[Optional[QStackedLayout], Optional[CscanViewCorrosion]]:

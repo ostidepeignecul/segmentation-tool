@@ -47,6 +47,7 @@ class AnnotationController:
         annotation_view: AnnotationView,
         annotation_corrosion_view: Optional[EndviewViewCorrosion],
         annotation_secondary_view: Optional[AnnotationView],
+        annotation_secondary_corrosion_view: Optional[EndviewViewCorrosion],
         volume_view: VolumeView,
         overlay_settings_view: OverlaySettingsView,
         logger: logging.Logger,
@@ -63,6 +64,7 @@ class AnnotationController:
         self.annotation_view = annotation_view
         self.annotation_corrosion_view = annotation_corrosion_view
         self.annotation_secondary_view = annotation_secondary_view
+        self.annotation_secondary_corrosion_view = annotation_secondary_corrosion_view
         self.volume_view = volume_view
         self.overlay_settings_view = overlay_settings_view
         self.logger = logger
@@ -142,6 +144,8 @@ class AnnotationController:
             self.annotation_view.set_overlay(None)
             if self.annotation_secondary_view is not None:
                 self.annotation_secondary_view.set_overlay(None)
+            if self.annotation_secondary_corrosion_view is not None:
+                self.annotation_secondary_corrosion_view.set_overlay(None)
             if self.annotation_corrosion_view is not None:
                 self.annotation_corrosion_view.set_overlay(None)
             self.volume_view.set_overlay(None)
@@ -178,6 +182,8 @@ class AnnotationController:
             self.annotation_view.set_overlay(None)
             if self.annotation_secondary_view is not None:
                 self.annotation_secondary_view.set_overlay(None)
+            if self.annotation_secondary_corrosion_view is not None:
+                self.annotation_secondary_corrosion_view.set_overlay(None)
             if self.annotation_corrosion_view is not None:
                 self.annotation_corrosion_view.set_overlay(None)
             self.volume_view.set_overlay(None)
@@ -198,6 +204,11 @@ class AnnotationController:
             secondary_overlay = self.annotation_axis_service.build_secondary_overlay_data(overlay_data)
             if self.annotation_secondary_view is not None:
                 self.annotation_secondary_view.set_overlay(
+                    secondary_overlay,
+                    visible_labels=visible_labels,
+                )
+            if self.annotation_secondary_corrosion_view is not None:
+                self.annotation_secondary_corrosion_view.set_overlay(
                     secondary_overlay,
                     visible_labels=visible_labels,
                 )
@@ -225,6 +236,8 @@ class AnnotationController:
         self.annotation_view.set_overlay(None)
         if self.annotation_secondary_view is not None:
             self.annotation_secondary_view.set_overlay(None)
+        if self.annotation_secondary_corrosion_view is not None:
+            self.annotation_secondary_corrosion_view.set_overlay(None)
         if self.annotation_corrosion_view is not None:
             self.annotation_corrosion_view.set_overlay(None)
         self.annotation_view.clear_roi_overlay()
@@ -244,6 +257,8 @@ class AnnotationController:
         self.annotation_view.set_overlay_opacity(alpha)
         if self.annotation_secondary_view is not None:
             self.annotation_secondary_view.set_overlay_opacity(alpha)
+        if self.annotation_secondary_corrosion_view is not None:
+            self.annotation_secondary_corrosion_view.set_overlay_opacity(alpha)
         if self.annotation_corrosion_view is not None:
             self.annotation_corrosion_view.set_overlay_opacity(alpha)
         self.volume_view.set_overlay_opacity(alpha)

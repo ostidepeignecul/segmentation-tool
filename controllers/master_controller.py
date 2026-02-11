@@ -105,6 +105,9 @@ class MasterController:
         # References to Designer-created views.
         self.annotation_view: AnnotationView = self.dock_layout_controller.annotation_view
         self.secondary_annotation_view: AnnotationView = self.dock_layout_controller.secondary_annotation_view
+        self.secondary_annotation_view_corrosion = (
+            self.dock_layout_controller.secondary_annotation_view_corrosion
+        )
         self.cscan_view = self.dock_layout_controller.cscan_view
         self.volume_view = self.dock_layout_controller.volume_view
         self.ascan_view = self.dock_layout_controller.ascan_view
@@ -115,6 +118,7 @@ class MasterController:
         self.vcoordinate_dock = self.dock_layout_controller.vcoordinate_dock
         self.annotation_view_corrosion = self.dock_layout_controller.annotation_view_corrosion
         self.annotation_stack = self.dock_layout_controller.annotation_stack
+        self.secondary_annotation_stack = self.dock_layout_controller.secondary_annotation_stack
         self.cscan_view_corrosion = self.dock_layout_controller.cscan_view_corrosion
         self.ascan_view_corrosion = self.dock_layout_controller.ascan_view_corrosion
         self.cscan_stack = self.dock_layout_controller.cscan_stack
@@ -124,7 +128,9 @@ class MasterController:
             standard_view=self.annotation_view,
             corrosion_view=self.annotation_view_corrosion,
             secondary_view=self.secondary_annotation_view,
+            secondary_corrosion_view=self.secondary_annotation_view_corrosion,
             stacked_layout=self.annotation_stack,
+            secondary_stacked_layout=self.secondary_annotation_stack,
             view_state_model=self.view_state_model,
         )
 
@@ -149,6 +155,7 @@ class MasterController:
             annotation_view=self.annotation_view,
             annotation_corrosion_view=self.annotation_view_corrosion,
             annotation_secondary_view=self.secondary_annotation_view,
+            annotation_secondary_corrosion_view=self.secondary_annotation_view_corrosion,
             volume_view=self.volume_view,
             overlay_settings_view=self.overlay_settings_view,
             logger=self.logger,
@@ -300,6 +307,10 @@ class MasterController:
         self.annotation_view.previous_requested.connect(self._on_previous_slice)
         self.annotation_view.next_requested.connect(self._on_next_slice)
         self.secondary_annotation_view.slice_changed.connect(self._on_secondary_slice_changed)
+        if self.secondary_annotation_view_corrosion is not None:
+            self.secondary_annotation_view_corrosion.slice_changed.connect(
+                self._on_secondary_slice_changed
+            )
         if self.annotation_view_corrosion is not None:
             self.annotation_view_corrosion.point_selected.connect(self._on_endview_point_selected)
             self.annotation_view_corrosion.drag_update.connect(self._on_endview_drag_update)
