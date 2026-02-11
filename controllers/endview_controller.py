@@ -19,11 +19,13 @@ class EndviewController:
         *,
         standard_view: EndviewView,
         corrosion_view: Optional[EndviewView],
+        secondary_view: Optional[EndviewView],
         stacked_layout: Optional[QStackedLayout],
         view_state_model: ViewStateModel,
     ) -> None:
         self.standard_view = standard_view
         self.corrosion_view = corrosion_view
+        self.secondary_view = secondary_view
         self._stack = stacked_layout
         self.view_state_model = view_state_model
 
@@ -48,35 +50,55 @@ class EndviewController:
         if self.corrosion_view is not None:
             self.corrosion_view.set_volume(volume)
 
+    def set_secondary_volume(self, volume: np.ndarray) -> None:
+        if self.secondary_view is not None:
+            self.secondary_view.set_volume(volume)
+
     def set_slice(self, slice_idx: int) -> None:
         self.standard_view.set_slice(int(slice_idx))
         if self.corrosion_view is not None:
             self.corrosion_view.set_slice(int(slice_idx))
 
+    def set_secondary_slice(self, slice_idx: int) -> None:
+        if self.secondary_view is not None:
+            self.secondary_view.set_slice(int(slice_idx))
+
     def set_cross_visible(self, visible: bool) -> None:
         self.standard_view.set_cross_visible(bool(visible))
         if self.corrosion_view is not None:
             self.corrosion_view.set_cross_visible(bool(visible))
+        if self.secondary_view is not None:
+            self.secondary_view.set_cross_visible(bool(visible))
 
     def set_crosshair(self, x: int, y: int) -> None:
         self.standard_view.set_crosshair(int(x), int(y))
         if self.corrosion_view is not None:
             self.corrosion_view.set_crosshair(int(x), int(y))
 
+    def set_secondary_crosshair(self, x: int, y: int) -> None:
+        if self.secondary_view is not None:
+            self.secondary_view.set_crosshair(int(x), int(y))
+
     def set_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
         self.standard_view.set_colormap(name, lut)
         if self.corrosion_view is not None:
             self.corrosion_view.set_colormap(name, lut)
+        if self.secondary_view is not None:
+            self.secondary_view.set_colormap(name, lut)
 
     def reset_display_size(self) -> None:
         self.standard_view.reset_display_size()
         if self.corrosion_view is not None:
             self.corrosion_view.reset_display_size()
+        if self.secondary_view is not None:
+            self.secondary_view.reset_display_size()
 
     def set_display_size(self, width: int, height: int) -> None:
         self.standard_view.set_display_size(int(width), int(height))
         if self.corrosion_view is not None:
             self.corrosion_view.set_display_size(int(width), int(height))
+        if self.secondary_view is not None:
+            self.secondary_view.set_display_size(int(width), int(height))
 
     # --- Input/state helpers --------------------------------------------------------
     def on_point_selected(self, pos: Any) -> Optional[Tuple[int, int]]:

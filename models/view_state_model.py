@@ -37,6 +37,9 @@ class ViewStateModel:
         self.current_slice: int = 0
         self.slice_min: int = 0
         self.slice_max: int = 0
+        self.secondary_slice: int = 0
+        self.secondary_slice_min: int = 0
+        self.secondary_slice_max: int = 0
         self.current_point: Optional[Tuple[int, int]] = None
 
         # --- Metadata for Views ---
@@ -72,6 +75,20 @@ class ViewStateModel:
     def set_slice(self, index: int) -> None:
         """Update current slice using clamping rules."""
         self.current_slice = self.clamp_slice(index)
+
+    def set_secondary_slice_bounds(self, min_idx: int, max_idx: int) -> None:
+        """Define valid range for the secondary orthogonal slice."""
+        self.secondary_slice_min = int(min_idx)
+        self.secondary_slice_max = int(max_idx)
+
+    def clamp_secondary_slice(self, index: int) -> int:
+        """Clamp secondary slice index inside defined bounds."""
+        index = int(index)
+        return max(self.secondary_slice_min, min(self.secondary_slice_max, index))
+
+    def set_secondary_slice(self, index: int) -> None:
+        """Update the secondary slice using clamping rules."""
+        self.secondary_slice = self.clamp_secondary_slice(index)
 
     # ------------------------------------------------------------------ #
     # Crosshair & point control

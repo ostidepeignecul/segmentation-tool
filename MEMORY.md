@@ -2918,3 +2918,25 @@ Les vues basculaient en mode corrosion dans une nouvelle session mais le retour 
 1. Introduire un controller dedie Endview pour isoler l orchestration des vues Endview et reduire le couplage avec `MasterController`.
 2. Capturer et restaurer explicitement l etat de session pre-corrosion pour garantir qu un retour a la session d origine restaure bien les vues standard.
 
+
+
+### **2026-02-10** - Dual endview U V et slice orthogonale synchronisee
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/dock_layout_controller.py`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_axis_service.py`, `#views/volume_view.py`, `#ucoordinate.ui`, `#ui_ucoordinate.py`, `#ui_vcoordinate.py`, `#vcoordinate.ui`, `#mvc`, `#orthogonal-view`, `#overlay-sync`
+
+**Actions effectuees :**
+- Ajout d un layout dock dual U Coordinate et V Coordinate avec nouveaux fichiers UI et alias de compatibilite dans `DockLayoutController`.
+- Ajout du service `AnnotationAxisService` pour choix du mode d axe annotation `Auto` `UCoordinate` `VCoordinate`, application du mode par permutation des axes du modele, generation des titres de docks, transposition du volume secondaire et transposition de l overlay secondaire.
+- Extension de `ViewStateModel` avec etat de navigation secondaire `secondary_slice`, bornes min max et helpers de clamp et set.
+- Extension de `VolumeView` avec slider secondaire, signal `secondary_slice_changed`, et visualisation 3D du plan orthogonal secondaire via une ligne rectangle synchronisee.
+- Extension de `EndviewController` pour piloter aussi la vue secondaire sur volume, slice, crosshair, colormap, visibilite du crosshair et resize.
+- Mise a jour de `MasterController` pour demander le mode d axe au chargement NDE, initialiser les bornes de slice secondaire, connecter les signaux secondaires, synchroniser slice secondaire depuis interactions endview cscan ascan, et pousser etat secondaire vers les vues.
+- Mise a jour de `AnnotationController` pour propager overlay, reset et opacite vers la vue secondaire et y appliquer une version transposee de l overlay.
+
+**Contexte :**
+Besoin de supporter deux endviews synchronisees avec une coupe orthogonale secondaire lisible en temps reel, tout en gardant une architecture MVC stricte et une source unique d etat de navigation.
+
+**Decisions techniques :**
+1. Garder la vue secondaire en lecture seule pour eviter de dupliquer la logique metier d annotation et limiter les regressions d edition.
+2. Appliquer le changement de plan d annotation au chargement via permutation du volume du modele et mise a jour de `axis_order`, afin de conserver un pipeline aval coherent.
+3. Centraliser l index de slice secondaire dans `ViewStateModel` et synchroniser toutes les vues a partir de cet etat partage.
+

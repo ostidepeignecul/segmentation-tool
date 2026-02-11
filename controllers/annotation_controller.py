@@ -16,6 +16,7 @@ from models.roi_model import RoiModel
 from models.temp_mask_model import TempMaskModel
 from models.overlay_data import OverlayData
 from models.view_state_model import ViewStateModel
+from services.annotation_axis_service import AnnotationAxisService
 from services.annotation_service import AnnotationService
 from services.overlay_service import OverlayService
 from services.overlay_export import OverlayExport
@@ -39,11 +40,13 @@ class AnnotationController:
         view_state_model: ViewStateModel,
         roi_model: RoiModel,
         temp_mask_model: TempMaskModel,
+        annotation_axis_service: AnnotationAxisService,
         annotation_service: AnnotationService,
         overlay_service: OverlayService,
         overlay_export: OverlayExport,
         annotation_view: AnnotationView,
         annotation_corrosion_view: Optional[EndviewViewCorrosion],
+        annotation_secondary_view: Optional[AnnotationView],
         volume_view: VolumeView,
         overlay_settings_view: OverlaySettingsView,
         logger: logging.Logger,
@@ -53,11 +56,13 @@ class AnnotationController:
         self.view_state_model = view_state_model
         self.roi_model = roi_model
         self.temp_mask_model = temp_mask_model
+        self.annotation_axis_service = annotation_axis_service
         self.annotation_service = annotation_service
         self.overlay_service = overlay_service
         self.overlay_export = overlay_export
         self.annotation_view = annotation_view
         self.annotation_corrosion_view = annotation_corrosion_view
+        self.annotation_secondary_view = annotation_secondary_view
         self.volume_view = volume_view
         self.overlay_settings_view = overlay_settings_view
         self.logger = logger
@@ -135,6 +140,8 @@ class AnnotationController:
         if not show_volume_overlay:
             self.logger.info("Overlay hidden by toggle; clearing 2D/3D views.")
             self.annotation_view.set_overlay(None)
+            if self.annotation_secondary_view is not None:
+                self.annotation_secondary_view.set_overlay(None)
             if self.annotation_corrosion_view is not None:
                 self.annotation_corrosion_view.set_overlay(None)
             self.volume_view.set_overlay(None)
@@ -169,6 +176,8 @@ class AnnotationController:
         if overlay_data is None:
             self.logger.info("No overlay available to push; clearing views.")
             self.annotation_view.set_overlay(None)
+            if self.annotation_secondary_view is not None:
+                self.annotation_secondary_view.set_overlay(None)
             if self.annotation_corrosion_view is not None:
                 self.annotation_corrosion_view.set_overlay(None)
             self.volume_view.set_overlay(None)
@@ -186,6 +195,12 @@ class AnnotationController:
 
         if show_volume_overlay:
             self.annotation_view.set_overlay(overlay_data, visible_labels=visible_labels)
+            secondary_overlay = self.annotation_axis_service.build_secondary_overlay_data(overlay_data)
+            if self.annotation_secondary_view is not None:
+                self.annotation_secondary_view.set_overlay(
+                    secondary_overlay,
+                    visible_labels=visible_labels,
+                )
             if self.annotation_corrosion_view is not None:
                 self.annotation_corrosion_view.set_overlay(overlay_data, visible_labels=visible_labels)
             self.volume_view.set_overlay(
@@ -208,10 +223,15 @@ class AnnotationController:
         """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""
         self.annotation_model.clear_overlay_cache()
         self.annotation_view.set_overlay(None)
+        if self.annotation_secondary_view is not None:
+            self.annotation_secondary_view.set_overlay(None)
         if self.annotation_corrosion_view is not None:
             self.annotation_corrosion_view.set_overlay(None)
         self.annotation_view.clear_roi_overlay()
         self.annotation_view.clear_temp_shapes()
+        if self.annotation_secondary_view is not None:
+            self.annotation_secondary_view.clear_roi_overlay()
+            self.annotation_secondary_view.clear_temp_shapes()
         self.volume_view.set_overlay(None)
         if not preserve_labels:
             self.overlay_settings_view.clear_labels()
@@ -222,6 +242,8 @@ class AnnotationController:
         """Apply the current overlay opacity to 2D and 3D views."""
         alpha = float(self.view_state_model.overlay_alpha)
         self.annotation_view.set_overlay_opacity(alpha)
+        if self.annotation_secondary_view is not None:
+            self.annotation_secondary_view.set_overlay_opacity(alpha)
         if self.annotation_corrosion_view is not None:
             self.annotation_corrosion_view.set_overlay_opacity(alpha)
         self.volume_view.set_overlay_opacity(alpha)

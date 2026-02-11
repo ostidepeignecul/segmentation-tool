@@ -51,6 +51,7 @@ class VolumeView(QFrame):
     volume_needs_update = pyqtSignal()
     overlay_updated = pyqtSignal()
     slice_changed = pyqtSignal(int)
+    secondary_slice_changed = pyqtSignal(int)
     camera_changed = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QFrame] = None) -> None:
@@ -61,6 +62,7 @@ class VolumeView(QFrame):
         self._volume_min: Optional[float] = None
         self._volume_max: Optional[float] = None
         self._current_slice: int = 0
+        self._secondary_slice: int = 0
         # VisPy canvas and scene
         self._canvas = scene.SceneCanvas(keys="interactive", bgcolor="black", show=False)
         self._view = self._canvas.central_widget.add_view()
@@ -83,6 +85,12 @@ class VolumeView(QFrame):
         self._slider.setMaximum(0)
         self._slider.valueChanged.connect(self._emit_slice_change)
         layout.addWidget(self._slider)
+        # Slider to change the secondary orthogonal slice index
+        self._secondary_slider = QSlider(Qt.Orientation.Horizontal)
+        self._secondary_slider.setMinimum(0)
+        self._secondary_slider.setMaximum(0)
+        self._secondary_slider.valueChanged.connect(self._emit_secondary_slice_change)
+        layout.addWidget(self._secondary_slider)
         # Status label
         self._status = QLabel("Volume non chargé")
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -91,6 +99,7 @@ class VolumeView(QFrame):
         self._volume_visual: Optional[scene.visuals.Volume] = None
         self._slice_highlight_visual: Optional[scene.visuals.Volume] = None
         self._slice_image: Optional[scene.visuals.Image] = None
+        self._secondary_slice_line: Optional[scene.visuals.Line] = None
         self._slice_overlay: Optional[scene.visuals.Image] = None
         self._overlay_volume_visual: Optional[scene.visuals.Volume] = None
         self._base_colormap_name: str = "Gris"
@@ -145,6 +154,7 @@ class VolumeView(QFrame):
             self._norm_volume = None
             self._status.setText("Volume vide")
             self._slider.setMaximum(0)
+            self._secondary_slider.setMaximum(0)
             self._clear_overlay_visuals()
             return
         # Make a copy to avoid side effects and ensure float32 for VisPy
@@ -164,6 +174,7 @@ class VolumeView(QFrame):
         # Update status and slider range
         self._status.setText(f"Volume chargé: {self._volume.shape}")
         self._slider.setMaximum(self._volume.shape[0] - 1)
+        self._secondary_slider.setMaximum(self._volume.shape[2] - 1)
         # Clear any existing overlay visuals before rebuilding the scene
         self._clear_overlay_visuals()
         # Build scene with new data
@@ -171,6 +182,7 @@ class VolumeView(QFrame):
         # Set initial slice
         target_slice = slice_idx if slice_idx is not None else self._current_slice
         self.set_slice_index(target_slice, update_slider=True, emit=False)
+        self.set_secondary_slice_index(self._secondary_slice, update_slider=True, emit=False)
 
     def set_base_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
         """Set the base volume colormap (lut expected shape (256,3) floats 0-1)."""
@@ -194,11 +206,17 @@ class VolumeView(QFrame):
         if self._volume is None or self._norm_volume is None:
             return
         current_slice = int(self._current_slice)
+        current_secondary_slice = int(self._secondary_slice)
         self._overlay_timer.stop()
         self._pending_overlay_apply = False
         self._pending_overlay_labels = None
         self._build_scene()
         self.set_slice_index(current_slice, update_slider=True, emit=False)
+        self.set_secondary_slice_index(
+            current_secondary_slice,
+            update_slider=True,
+            emit=False,
+        )
         try:
             self._canvas.update()
         except Exception:
@@ -412,6 +430,22 @@ class VolumeView(QFrame):
             self.slice_changed.emit(clamped)
             self.camera_changed.emit({"slice": clamped})
 
+    def set_secondary_slice_index(
+        self, index: int, *, update_slider: bool = False, emit: bool = False
+    ) -> None:
+        """Synchronise the orthogonal slicing plane along axis X."""
+        if self._volume is None:
+            return
+        clamped = max(0, min(self._volume.shape[2] - 1, int(index)))
+        self._secondary_slice = clamped
+        self._update_secondary_slice_plane()
+        if update_slider:
+            self._secondary_slider.blockSignals(True)
+            self._secondary_slider.setValue(clamped)
+            self._secondary_slider.blockSignals(False)
+        if emit:
+            self.secondary_slice_changed.emit(clamped)
+
     # ------------------------------------------------------------------
     # Internal scene construction and updates
     # ------------------------------------------------------------------
@@ -424,6 +458,7 @@ class VolumeView(QFrame):
         self._volume_visual = None
         self._slice_highlight_visual = None
         self._slice_image = None
+        self._secondary_slice_line = None
         self._slice_overlay = None
         self._overlay_volume_visual = None
         # If no data, nothing to do
@@ -444,6 +479,7 @@ class VolumeView(QFrame):
         self._apply_visual_transform()
         # Add the initial 2D slice image overlay
         self._add_slice_image()
+        self._add_secondary_slice_line()
         self._add_overlay_volume()
 
     def update_volume(self) -> None:
@@ -456,6 +492,9 @@ class VolumeView(QFrame):
 
     def _emit_slice_change(self, value: int) -> None:
         self.set_slice_index(value, update_slider=False, emit=True)
+
+    def _emit_secondary_slice_change(self, value: int) -> None:
+        self.set_secondary_slice_index(value, update_slider=False, emit=True)
 
     def _add_slice_image(self) -> None:
         """Add a static translucent black plane to indicate the current slice."""
@@ -508,6 +547,40 @@ class VolumeView(QFrame):
             ),
         )
         self._update_overlay_image()
+
+    def _add_secondary_slice_line(self) -> None:
+        """Add an orthogonal rectangle showing the secondary slicing plane."""
+        if self._volume is None:
+            return
+        self._secondary_slice_line = scene.visuals.Line(
+            np.zeros((5, 3), dtype=np.float32),
+            color=(1.0, 0.85, 0.1, 0.95),
+            width=2.0,
+            parent=self._view.scene,
+        )
+        self._secondary_slice_line.order = 12
+        self._secondary_slice_line.set_gl_state(depth_test=False, blend=True)
+        self._apply_visual_transform()
+        self._update_secondary_slice_plane()
+
+    def _update_secondary_slice_plane(self) -> None:
+        """Move the secondary slicing rectangle along the X axis."""
+        if self._secondary_slice_line is None or self._volume is None:
+            return
+        depth, height, width = self._volume.shape[:3]
+        x_pos = max(0, min(width - 1, int(self._secondary_slice)))
+        z_max = max(0, depth - 1)
+        points = np.array(
+            [
+                [float(x_pos), 0.0, 0.0],
+                [float(x_pos), float(height), 0.0],
+                [float(x_pos), float(height), float(z_max)],
+                [float(x_pos), 0.0, float(z_max)],
+                [float(x_pos), 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
+        self._secondary_slice_line.set_data(pos=points)
 
     def _add_slice_overlay(self) -> None:
         """Add a colored overlay image for the current slice."""
@@ -648,6 +721,8 @@ class VolumeView(QFrame):
             )
         if self._slice_overlay is not None:
             self._slice_overlay.transform = self._overlay_transform()
+        if self._secondary_slice_line is not None:
+            self._secondary_slice_line.transform = flip
 
     def _overlay_transform(self) -> STTransform:
         """Return transform for overlay aligned with the base slice."""

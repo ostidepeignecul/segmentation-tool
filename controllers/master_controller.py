@@ -29,6 +29,7 @@ from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from models.roi_model import RoiModel
 from models.temp_mask_model import TempMaskModel
+from services.annotation_axis_service import AnnotationAxisService
 from services.annotation_session_manager import AnnotationSessionManager
 from services.annotation_service import AnnotationService
 from services.ascan_service import AScanService
@@ -67,6 +68,7 @@ class MasterController:
         self.roi_model = RoiModel()
         self.temp_mask_model = TempMaskModel()
         self.nde_loader = NdeLoader()
+        self.annotation_axis_service = AnnotationAxisService()
         self.session_manager = AnnotationSessionManager()
         self._nde_path: Optional[str] = None
         self.overlay_loader = OverlayLoader()
@@ -96,15 +98,21 @@ class MasterController:
         self._session_dialog: Optional[SessionManagerDialog] = None
         self._pre_corrosion_session_state = None
         self._pre_corrosion_session_id: Optional[str] = None
+        self._annotation_axis_mode: str = "Auto"
+        self._annotation_axis_name: str = "UCoordinate"
+        self._secondary_axis_name: str = "VCoordinate"
 
         # References to Designer-created views.
         self.annotation_view: AnnotationView = self.dock_layout_controller.annotation_view
+        self.secondary_annotation_view: AnnotationView = self.dock_layout_controller.secondary_annotation_view
         self.cscan_view = self.dock_layout_controller.cscan_view
         self.volume_view = self.dock_layout_controller.volume_view
         self.ascan_view = self.dock_layout_controller.ascan_view
         self.tools_panel = self.dock_layout_controller.tools_panel
         self._tools_ui = self.dock_layout_controller.tools_ui
         self.tools_dock = self.dock_layout_controller.tools_dock
+        self.ucoordinate_dock = self.dock_layout_controller.ucoordinate_dock
+        self.vcoordinate_dock = self.dock_layout_controller.vcoordinate_dock
         self.annotation_view_corrosion = self.dock_layout_controller.annotation_view_corrosion
         self.annotation_stack = self.dock_layout_controller.annotation_stack
         self.cscan_view_corrosion = self.dock_layout_controller.cscan_view_corrosion
@@ -115,6 +123,7 @@ class MasterController:
         self.endview_controller = EndviewController(
             standard_view=self.annotation_view,
             corrosion_view=self.annotation_view_corrosion,
+            secondary_view=self.secondary_annotation_view,
             stacked_layout=self.annotation_stack,
             view_state_model=self.view_state_model,
         )
@@ -133,11 +142,13 @@ class MasterController:
             view_state_model=self.view_state_model,
             roi_model=self.roi_model,
             temp_mask_model=self.temp_mask_model,
+            annotation_axis_service=self.annotation_axis_service,
             annotation_service=self.annotation_service,
             overlay_service=self.overlay_service,
             overlay_export=self.overlay_export,
             annotation_view=self.annotation_view,
             annotation_corrosion_view=self.annotation_view_corrosion,
+            annotation_secondary_view=self.secondary_annotation_view,
             volume_view=self.volume_view,
             overlay_settings_view=self.overlay_settings_view,
             logger=self.logger,
@@ -288,6 +299,7 @@ class MasterController:
         )
         self.annotation_view.previous_requested.connect(self._on_previous_slice)
         self.annotation_view.next_requested.connect(self._on_next_slice)
+        self.secondary_annotation_view.slice_changed.connect(self._on_secondary_slice_changed)
         if self.annotation_view_corrosion is not None:
             self.annotation_view_corrosion.point_selected.connect(self._on_endview_point_selected)
             self.annotation_view_corrosion.drag_update.connect(self._on_endview_drag_update)
@@ -305,6 +317,7 @@ class MasterController:
             self.cscan_view_corrosion.slice_requested.connect(self._on_cscan_slice_requested)
 
         self.volume_view.volume_needs_update.connect(self._on_volume_needs_update)
+        self.volume_view.secondary_slice_changed.connect(self._on_secondary_slice_changed)
         self.volume_view.camera_changed.connect(self._on_camera_changed)
         self.overlay_settings_view.label_visibility_changed.connect(
             self.annotation_controller.on_label_visibility_changed
@@ -375,9 +388,16 @@ class MasterController:
 
         try:
             loaded_model = self.nde_loader.load(file_path)
+            axis_mode = self._prompt_annotation_axis_mode(loaded_model)
+            if axis_mode is None:
+                return
+            self._annotation_axis_mode = axis_mode
+            self._apply_annotation_axis_mode(loaded_model, axis_mode)
             volume = loaded_model.get_active_volume()
             if volume is None or getattr(volume, "ndim", 0) != 3:
                 raise ValueError("Le fichier NDE ne contient pas de volume 3D exploitable.")
+
+            self._update_coordinate_dock_titles_from_model(loaded_model)
 
             self._initialize_ascan_logger(file_path)
 
@@ -385,6 +405,8 @@ class MasterController:
             num_slices = volume.shape[0]
             self.view_state_model.set_slice_bounds(0, num_slices - 1)
             self.view_state_model.set_slice(0)
+            self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
+            self.view_state_model.set_secondary_slice(volume.shape[2] // 2)
             self.view_state_model.set_current_point(None)
             self.view_state_model.set_apply_volume_range(0, num_slices - 1, include_current=True)
             self.annotation_controller.reset_overlay_state(preserve_labels=True)
@@ -831,6 +853,17 @@ class MasterController:
         """Handle explicit goto action from tools panel."""
         self._on_slice_changed(slice_idx)
 
+    def _on_secondary_slice_changed(self, index: int) -> None:
+        """Handle secondary orthogonal slice changes."""
+        volume = self._current_volume()
+        if volume is None or getattr(volume, "ndim", 0) != 3:
+            return
+        self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
+        self.view_state_model.set_secondary_slice(index)
+        clamped = self.view_state_model.secondary_slice
+        self.volume_view.set_secondary_slice_index(clamped, update_slider=True, emit=False)
+        self._sync_secondary_endview_state()
+
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
         self.view_state_model.set_show_cross(enabled)
@@ -846,6 +879,7 @@ class MasterController:
         x, y = point
         self.tools_panel.set_position_label(x, y)
         self._update_ascan_trace(point=(x, y))
+        self._on_secondary_slice_changed(x)
 
     def _on_endview_drag_update(self, pos: Any) -> None:
         """Handle drag updates during drawing (cursor label only)."""
@@ -871,6 +905,8 @@ class MasterController:
         self.endview_controller.set_slice(clamped_slice)
         self.annotation_controller.on_slice_changed(clamped_slice)
         self._update_ascan_trace(point=point)
+        if point is not None:
+            self._on_secondary_slice_changed(point[0])
 
     def _on_cscan_slice_requested(self, z: int) -> None:
         """Handle slice requests originating from the C-Scan view."""
@@ -885,6 +921,8 @@ class MasterController:
         if new_slice is not None:
             self._on_slice_changed(new_slice)
         self._update_ascan_trace(point=point)
+        if point is not None:
+            self._on_secondary_slice_changed(point[0])
 
     def _on_ascan_cursor_moved(self, t: float) -> None:
         """Handle cursor moves within the A-Scan."""
@@ -988,19 +1026,81 @@ class MasterController:
     # Internal helpers
     # ------------------------------------------------------------------ #
 
+    def _prompt_annotation_axis_mode(self, model: NdeModel) -> Optional[str]:
+        """Ask which coordinate axis should be the editable annotation plane."""
+        choices = self.annotation_axis_service.axis_mode_choices(model)
+        if len(choices) <= 1:
+            return "Auto"
+
+        current = self.annotation_axis_service.normalize_axis_mode(
+            self._annotation_axis_mode,
+            choices,
+        )
+        current_idx = choices.index(current)
+        selection, ok = QInputDialog.getItem(
+            self.main_window,
+            "Plan d'annotation",
+            "Plan autorise pour annotation:",
+            choices,
+            current_idx,
+            False,
+        )
+        if not ok:
+            return None
+        return str(selection)
+
+    def _apply_annotation_axis_mode(self, model: NdeModel, axis_mode: str) -> None:
+        """Force U/V as primary slice axis when requested by the user."""
+        warning_message = self.annotation_axis_service.apply_axis_mode(model, axis_mode)
+        if warning_message:
+            self.logger.warning("%s", warning_message)
+
+    def _update_coordinate_dock_titles_from_model(self, model: NdeModel) -> None:
+        """Reflect active and secondary axes in dock titles."""
+        titles = self.annotation_axis_service.build_coordinate_dock_titles(
+            model,
+            axis_mode=self._annotation_axis_mode,
+        )
+        self._annotation_axis_name = titles.primary_axis_name
+        self._secondary_axis_name = titles.secondary_axis_name
+        self.ucoordinate_dock.setWindowTitle(titles.primary_title)
+        self.vcoordinate_dock.setWindowTitle(titles.secondary_title)
+
+    def _sync_secondary_endview_state(self) -> None:
+        """Apply secondary slice/crosshair state to the secondary endview."""
+        volume = self._current_volume()
+        if volume is None or getattr(volume, "ndim", 0) != 3:
+            return
+        self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
+        self.view_state_model.set_secondary_slice(self.view_state_model.secondary_slice)
+        self.endview_controller.set_secondary_slice(self.view_state_model.secondary_slice)
+        crosshair = self.annotation_axis_service.secondary_crosshair(
+            current_slice=self.view_state_model.current_slice,
+            current_point=self.view_state_model.current_point,
+        )
+        if crosshair is not None:
+            self.endview_controller.set_secondary_crosshair(*crosshair)
+
     def _refresh_views(self) -> None:
         """Push the current volume state into all views."""
         volume = self._current_volume()
         if volume is None:
             return
         self.view_state_model.set_slice_bounds(0, volume.shape[0] - 1)
+        self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
 
         # Sélectionne l’indice de tranche courant dans les bornes valides
         slice_idx = self.view_state_model.clamp_slice(self.view_state_model.current_slice)
+        self.view_state_model.set_secondary_slice(self.view_state_model.secondary_slice)
+        secondary_slice_idx = self.view_state_model.secondary_slice
 
         # Met à jour l’Endview (pas de changement ici)
         self.endview_controller.set_volume(volume)
+        secondary_volume = self.annotation_axis_service.build_secondary_volume(volume)
+        if secondary_volume is not None:
+            self.endview_controller.set_secondary_volume(secondary_volume)
         self.endview_controller.set_slice(slice_idx)
+        self.endview_controller.set_secondary_slice(secondary_slice_idx)
         self.annotation_controller.on_slice_changed(slice_idx)
         self.annotation_controller.ensure_restriction_rect(
             shape=(volume.shape[1], volume.shape[2])
@@ -1015,6 +1115,11 @@ class MasterController:
 
         # Envoie le volume à la vue 3D en précisant l’ordre des axes
         self.volume_view.set_volume(volume, slice_idx=slice_idx, axis_order=axis_order)
+        self.volume_view.set_secondary_slice_index(
+            secondary_slice_idx,
+            update_slider=True,
+            emit=False,
+        )
 
         # Applique l’overlay après la (re)construction de la scène 3D
         self.annotation_controller.refresh_overlay(rebuild=False)
@@ -1352,4 +1457,5 @@ class MasterController:
             volume,
             point=point,
         )
+        self._sync_secondary_endview_state()
 
