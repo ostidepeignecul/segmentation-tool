@@ -19,6 +19,7 @@ class Piece3DView(VolumeView):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._recenter_on_slice_change = True
         self._canvas.bgcolor = "#0b0b0b"
         self._slider.hide()
         self._iso_threshold: float = 0.5

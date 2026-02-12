@@ -2959,3 +2959,23 @@ Apres l analyse corrosion, la vue annotation corrosion affichait un profil inter
 2. Conserver la transposition d overlay dans `AnnotationAxisService` et diffuser ce meme overlay secondaire vers les vues read-only standard et corrosion.
 3. Maintenir la separation MVC en limitant la composition UI a `DockLayoutController` et l orchestration d etat aux controllers (`MasterController`, `EndviewController`, `AnnotationController`).
 
+
+
+### **2026-02-11** - Interaction camera VolumeView: ancrage clic droit et recentrage au double clic
+**Tags :** `#branch:annotation`, `#views/volume_view.py`, `#views/piece3d_view.py`, `#vispy`, `#camera`, `#anchor`, `#double-click`
+
+**Actions effectuees :**
+- Ajout de `_AnchorMoveTurntableCamera` dans `VolumeView` pour remplacer le zoom au clic droit par un deplacement du centre camera (point d ancrage) en XY.
+- Correction de compatibilite VisPy avec import explicite `PerspectiveCamera` depuis `vispy.scene.cameras.perspective` pour eviter l exception runtime sur les evenements souris.
+- Ajout d un `eventFilter` sur le canvas 3D pour recentrer la camera uniquement au double clic gauche.
+- Suppression du recentrage automatique dans `set_slice_index` via un flag `_recenter_on_slice_change` desactive par defaut.
+- Preservation du comportement de `Piece3DView` en forcant `_recenter_on_slice_change = True`.
+
+**Contexte :**
+Le besoin etait de changer la navigation dans la vue volume: ne plus zoomer au clic droit, deplacer l ancrage manuellement, et eviter le recentrage automatique lors des changements d index. Un crash VisPy est apparu apres le premier patch a cause d un appel de classe camera non resolu dans la version locale.
+
+**Decisions techniques :**
+1. Garder la logique d interaction dans la couche View (`VolumeView`) pour respecter MVC et ne pas polluer les controllers.
+2. Deriver `TurntableCamera` au lieu de rebind des events externes pour conserver les comportements natifs VisPy (rotation, modificateurs) avec un changement localise.
+3. Activer le recentrage automatique uniquement dans `Piece3DView` afin de ne pas regresser les flux corrosion dependants de ce recentrage.
+

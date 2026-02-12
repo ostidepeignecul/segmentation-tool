@@ -19,10 +19,12 @@ from __future__ import annotations
 from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QLabel, QSlider, QVBoxLayout, QWidget
 from vispy import scene
+from vispy.scene.cameras.perspective import PerspectiveCamera
 from vispy.color import BaseColormap, Colormap
+from vispy.util import keys
 from vispy.visuals.transforms import STTransform
 
 from models.overlay_data import OverlayData
@@ -37,6 +39,74 @@ class _TranslucentMask(BaseColormap):
         return vec4(pow(a, 0.5), a, a * a, max(0.0, a * 1.05 - 0.05));
     }
     """
+
+
+class _AnchorMoveTurntableCamera(scene.TurntableCamera):
+    """Turntable camera where right-drag moves the camera anchor instead of zoom."""
+
+    def viewbox_mouse_event(self, event):
+        if event.handled or not self.interactive:
+            return
+
+        PerspectiveCamera.viewbox_mouse_event(self, event)
+
+        if event.type == "mouse_release":
+            self._event_value = None
+            return
+        if event.type == "mouse_press":
+            event.handled = True
+            return
+        if event.type != "mouse_move" or event.press_event is None:
+            return
+        if 1 in event.buttons and 2 in event.buttons:
+            return
+
+        modifiers = event.mouse_event.modifiers
+        p1 = event.mouse_event.press_event.pos
+        p2 = event.mouse_event.pos
+        d = p2 - p1
+
+        if 1 in event.buttons and not modifiers:
+            # Left drag keeps the default orbit behavior.
+            self._update_rotation(event)
+            return
+
+        if 2 in event.buttons and not modifiers:
+            # Right drag now repositions the pivot (camera center) in XY.
+            norm = np.mean(self._viewbox.size)
+            if self._event_value is None or len(self._event_value) == 2:
+                self._event_value = self.center
+            dist = (p1 - p2) / norm * self._scale_factor
+            dist[1] *= -1
+            dx, dy, dz = self._dist_to_trans(dist)
+            ff = self._flip_factors
+            up, forward, right = self._get_dim_vectors()
+            dx, dy, dz = right * dx + forward * dy + up * dz
+            dx, dy, dz = ff[0] * dx, ff[1] * dy, dz * ff[2]
+            c = self._event_value
+            self.center = c[0] + dx, c[1] + dy, c[2]
+            return
+
+        if 1 in event.buttons and keys.SHIFT in modifiers:
+            norm = np.mean(self._viewbox.size)
+            if self._event_value is None or len(self._event_value) == 2:
+                self._event_value = self.center
+            dist = (p1 - p2) / norm * self._scale_factor
+            dist[1] *= -1
+            dx, dy, dz = self._dist_to_trans(dist)
+            ff = self._flip_factors
+            up, forward, right = self._get_dim_vectors()
+            dx, dy, dz = right * dx + forward * dy + up * dz
+            dx, dy, dz = ff[0] * dx, ff[1] * dy, dz * ff[2]
+            c = self._event_value
+            self.center = c[0] + dx, c[1] + dy, c[2] + dz
+            return
+
+        if 2 in event.buttons and keys.SHIFT in modifiers:
+            if self._event_value is None:
+                self._event_value = self._fov
+            fov = self._event_value - d[1] / 5.0
+            self.fov = min(180.0, max(0.0, fov))
 
 
 class VolumeView(QFrame):
@@ -63,11 +133,12 @@ class VolumeView(QFrame):
         self._volume_max: Optional[float] = None
         self._current_slice: int = 0
         self._secondary_slice: int = 0
+        self._recenter_on_slice_change: bool = False
         # VisPy canvas and scene
         self._canvas = scene.SceneCanvas(keys="interactive", bgcolor="black", show=False)
         self._view = self._canvas.central_widget.add_view()
         # Use a turntable camera so the user can rotate/pan with the mouse
-        self._view.camera = scene.TurntableCamera(
+        self._view.camera = _AnchorMoveTurntableCamera(
             fov=45,
             up="+y",
         )
@@ -78,6 +149,7 @@ class VolumeView(QFrame):
         canvas_layout = QVBoxLayout(container)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.addWidget(self._canvas.native)
+        self._canvas.native.installEventFilter(self)
         layout.addWidget(container, 1)
         # Slider to change slice index
         self._slider = QSlider(Qt.Orientation.Horizontal)
@@ -99,6 +171,8 @@ class VolumeView(QFrame):
         self._volume_visual: Optional[scene.visuals.Volume] = None
         self._slice_highlight_visual: Optional[scene.visuals.Volume] = None
         self._slice_image: Optional[scene.visuals.Image] = None
+        self._primary_slice_line: Optional[scene.visuals.Line] = None
+        self._secondary_slice_plane: Optional[scene.visuals.Mesh] = None
         self._secondary_slice_line: Optional[scene.visuals.Line] = None
         self._slice_overlay: Optional[scene.visuals.Image] = None
         self._overlay_volume_visual: Optional[scene.visuals.Volume] = None
@@ -125,6 +199,18 @@ class VolumeView(QFrame):
         self._dock_rebuild_timer = QTimer(self)
         self._dock_rebuild_timer.setSingleShot(True)
         self._dock_rebuild_timer.timeout.connect(self._rebuild_scene_after_dock_change)
+
+    def eventFilter(self, watched, event) -> bool:
+        """Recentre the camera on double-click inside the 3D canvas."""
+        if (
+            watched is self._canvas.native
+            and event.type() == QEvent.Type.MouseButtonDblClick
+            and hasattr(event, "button")
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._focus_camera_on_slice()
+            return True
+        return super().eventFilter(watched, event)
 
     def set_volume(
         self,
@@ -409,8 +495,8 @@ class VolumeView(QFrame):
         """Synchronise the slice indicator (slider + plane + image) with external selection.
 
         Clamps the index to the valid range, updates the slice highlight and
-        image, recentres the camera on the selected slice, updates the slider
-        position if requested, and emits signals when appropriate.
+        image, optionally recentres the camera, updates the slider position if
+        requested, and emits signals when appropriate.
         """
         if self._volume is None:
             return
@@ -421,7 +507,9 @@ class VolumeView(QFrame):
         self._current_slice = clamped
         self._update_slice_plane()
         self._update_slice_image()
-        self._focus_camera_on_slice()
+        self._update_primary_slice_outline()
+        if self._recenter_on_slice_change:
+            self._focus_camera_on_slice()
         if update_slider:
             self._slider.blockSignals(True)
             self._slider.setValue(clamped)
@@ -458,6 +546,8 @@ class VolumeView(QFrame):
         self._volume_visual = None
         self._slice_highlight_visual = None
         self._slice_image = None
+        self._primary_slice_line = None
+        self._secondary_slice_plane = None
         self._secondary_slice_line = None
         self._slice_overlay = None
         self._overlay_volume_visual = None
@@ -479,6 +569,8 @@ class VolumeView(QFrame):
         self._apply_visual_transform()
         # Add the initial 2D slice image overlay
         self._add_slice_image()
+        self._add_primary_slice_line()
+        self._add_secondary_slice_plane()
         self._add_secondary_slice_line()
         self._add_overlay_volume()
 
@@ -516,6 +608,39 @@ class VolumeView(QFrame):
         self._update_slice_image()
         self._add_slice_overlay()
 
+    def _add_primary_slice_line(self) -> None:
+        """Add a green frame around the active primary slice."""
+        if self._volume is None:
+            return
+        self._primary_slice_line = scene.visuals.Line(
+            np.zeros((5, 3), dtype=np.float32),
+            color=(0.1, 1.0, 0.1, 0.95),
+            width=2.0,
+            parent=self._view.scene,
+        )
+        self._primary_slice_line.order = 13
+        self._primary_slice_line.set_gl_state(depth_test=False, blend=True)
+        self._apply_visual_transform()
+        self._update_primary_slice_outline()
+
+    def _update_primary_slice_outline(self) -> None:
+        """Move the primary green frame to the selected Z slice."""
+        if self._primary_slice_line is None or self._volume is None:
+            return
+        depth, height, width = self._volume.shape[:3]
+        z_pos = max(0, min(depth - 1, int(self._current_slice)))
+        points = np.array(
+            [
+                [0.0, 0.0, float(z_pos)],
+                [float(width), 0.0, float(z_pos)],
+                [float(width), float(height), float(z_pos)],
+                [0.0, float(height), float(z_pos)],
+                [0.0, 0.0, float(z_pos)],
+            ],
+            dtype=np.float32,
+        )
+        self._primary_slice_line.set_data(pos=points)
+
     def _update_slice_plane(self) -> None:
         """Move the highlight plane to the current slice index."""
         if self._slice_highlight_visual is None or self._volume is None:
@@ -548,6 +673,21 @@ class VolumeView(QFrame):
         )
         self._update_overlay_image()
 
+    def _add_secondary_slice_plane(self) -> None:
+        """Add a translucent wall for the current secondary orthogonal slice."""
+        if self._volume is None:
+            return
+        self._secondary_slice_plane = scene.visuals.Mesh(
+            vertices=np.zeros((4, 3), dtype=np.float32),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32),
+            color=(0.0, 0.0, 0.0, 100.0 / 255.0),
+            parent=self._view.scene,
+        )
+        self._secondary_slice_plane.order = 11
+        self._secondary_slice_plane.set_gl_state(depth_test=False, blend=True)
+        self._apply_visual_transform()
+        self._update_secondary_slice_plane()
+
     def _add_secondary_slice_line(self) -> None:
         """Add an orthogonal rectangle showing the secondary slicing plane."""
         if self._volume is None:
@@ -564,12 +704,27 @@ class VolumeView(QFrame):
         self._update_secondary_slice_plane()
 
     def _update_secondary_slice_plane(self) -> None:
-        """Move the secondary slicing rectangle along the X axis."""
-        if self._secondary_slice_line is None or self._volume is None:
+        """Move secondary translucent plane and yellow frame along the X axis."""
+        if self._volume is None:
             return
         depth, height, width = self._volume.shape[:3]
         x_pos = max(0, min(width - 1, int(self._secondary_slice)))
         z_max = max(0, depth - 1)
+        plane_vertices = np.array(
+            [
+                [float(x_pos), 0.0, 0.0],
+                [float(x_pos), float(height), 0.0],
+                [float(x_pos), float(height), float(z_max)],
+                [float(x_pos), 0.0, float(z_max)],
+            ],
+            dtype=np.float32,
+        )
+        if self._secondary_slice_plane is not None:
+            self._secondary_slice_plane.set_data(
+                vertices=plane_vertices,
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32),
+                color=(0.0, 0.0, 0.0, 100.0 / 255.0),
+            )
         points = np.array(
             [
                 [float(x_pos), 0.0, 0.0],
@@ -580,7 +735,8 @@ class VolumeView(QFrame):
             ],
             dtype=np.float32,
         )
-        self._secondary_slice_line.set_data(pos=points)
+        if self._secondary_slice_line is not None:
+            self._secondary_slice_line.set_data(pos=points)
 
     def _add_slice_overlay(self) -> None:
         """Add a colored overlay image for the current slice."""
@@ -709,6 +865,10 @@ class VolumeView(QFrame):
             
         if self._overlay_volume_visual is not None:
             self._overlay_volume_visual.transform = flip
+        if self._primary_slice_line is not None:
+            self._primary_slice_line.transform = flip
+        if self._secondary_slice_plane is not None:
+            self._secondary_slice_plane.transform = flip
         if self._slice_image is not None:
             # Scale 1x1 pixel to full size
             self._slice_image.transform = STTransform(
