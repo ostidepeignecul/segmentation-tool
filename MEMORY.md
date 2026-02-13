@@ -3020,3 +3020,21 @@ Demande utilisateur d implementer une zone ROI free hand qui se comporte comme l
 2. Reutiliser les memes regles fonctionnelles que `box` (threshold, restriction, blocage label, apply_volume, persistance) pour garantir un comportement coherent entre outils ROI.
 3. Utiliser un remplissage polygonal robuste (`cv2.fillPoly`) pour produire un masque binaire ferme et compatible avec la pipeline existante de temp mask.
 
+
+
+### **2026-02-13** - Couleur free hand ROI alignee sur le colormap endview
+**Tags :** `#branch:annotation`, `#views/annotation_view.py`, `#MEMORY.md`, `#roi`, `#free_hand`, `#colormap`, `#omniscan`, `#gris`, `#pyqt`
+
+**Actions effectuees :**
+- Extension de `_update_roi_outline_color` pour appliquer la couleur dynamique aussi au stylo du trace temporaire free hand (`_temp_line_item`).
+- Conservation de la regle de contraste existante: `OmniScan` en noir, `Gris` (et fallback) en blanc.
+- Maintien du comportement dynamique sur changement de colormap via `set_colormap` deja surcharge dans `AnnotationView`.
+
+**Contexte :**
+Apres la mise a jour de la ROI box, la demande etait d avoir le meme comportement visuel pour la free hand ROI pendant la selection, afin d uniformiser la lisibilite de tous les contours temporaires selon la palette active.
+
+**Decisions techniques :**
+1. Centraliser la mise a jour dans `_update_roi_outline_color` pour eviter une logique dupliquee entre box et free hand.
+2. Reutiliser le meme mapping `omniscan -> noir` et fallback blanc pour garantir un rendu coherent sur les outils ROI.
+3. Limiter le patch a la couche View (`AnnotationView`) car le changement est purement UI et ne touche ni service ni model.
+

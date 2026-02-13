@@ -593,6 +593,9 @@ class AnnotationView(EndviewView):
         temp_box_pen = self._temp_box_item.pen()
         temp_box_pen.setColor(outline_color)
         self._temp_box_item.setPen(temp_box_pen)
+        temp_line_pen = self._temp_line_item.pen()
+        temp_line_pen.setColor(outline_color)
+        self._temp_line_item.setPen(temp_line_pen)
         for item in self._roi_box_items:
             item.setPen(self._roi_pen)
         for item in self._roi_point_items:
