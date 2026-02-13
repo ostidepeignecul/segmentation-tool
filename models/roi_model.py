@@ -105,6 +105,28 @@ class RoiModel:
         self._rois.append(roi)
         return roi
 
+    def add_free_hand(
+        self,
+        slice_idx: int,
+        points: Sequence[Tuple[int, int]],
+        *,
+        label: int = 1,
+        threshold: Optional[float] = None,
+        persistent: bool = False,
+    ) -> ROI:
+        roi = ROI(
+            id=self._next_id,
+            roi_type="free_hand",
+            slice_idx=int(slice_idx),
+            points=[(int(x), int(y)) for x, y in (points or [])],
+            label=int(label),
+            threshold=threshold,
+            persistent=bool(persistent),
+        )
+        self._next_id += 1
+        self._rois.append(roi)
+        return roi
+
     def list(self) -> List[ROI]:
         """Return all ROIs."""
         return list(self._rois)

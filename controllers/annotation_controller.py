@@ -578,16 +578,113 @@ class AnnotationController:
         self.refresh_roi_overlay_for_slice(slice_idx)
 
     def on_annotation_freehand_started(self, pos: Any) -> None:
-        """Handle free-hand start (stub)."""
-        pass
+        """Handle free-hand start."""
+        if self.view_state_model.tool_mode != "free_hand":
+            return
+        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
+            return
 
     def on_annotation_freehand_point_added(self, pos: Any) -> None:
-        """Handle free-hand point addition (stub)."""
-        pass
+        """Handle free-hand point addition."""
+        if self.view_state_model.tool_mode != "free_hand":
+            return
+        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
+            return
 
     def on_annotation_freehand_completed(self, points: Any) -> None:
-        """Handle free-hand completion (stub)."""
-        pass
+        """Handle free-hand completion."""
+        if self.view_state_model.tool_mode != "free_hand":
+            return
+        if self.view_state_model.active_label is None:
+            return
+        if not isinstance(points, (list, tuple)):
+            return
+
+        clean_points: list[tuple[int, int]] = []
+        for pt in points:
+            if not isinstance(pt, (list, tuple)) or len(pt) != 2:
+                continue
+            try:
+                clean_points.append((int(pt[0]), int(pt[1])))
+            except Exception:
+                continue
+        if len(clean_points) < 3:
+            return
+
+        label = self.view_state_model.active_label
+        try:
+            slice_idx = int(self.view_state_model.current_slice)
+        except Exception:
+            return
+
+        shape = self.annotation_model.mask_shape_hw() or self.temp_mask_model.mask_shape_hw()
+        slice_data = self._slice_data(slice_idx)
+        if slice_data is not None and shape is None and slice_data.ndim >= 2:
+            shape = (int(slice_data.shape[0]), int(slice_data.shape[1]))
+        if shape is None:
+            _, shape = self._resolve_volume_dimensions()
+        if shape is None:
+            return
+
+        restriction_mask = self._restriction_mask(shape)
+        if int(label) == 0:
+            blocked_mask = self._build_label0_blocked_mask(
+                slice_idx, shape, include_temp=True
+            )
+        else:
+            blocked_mask = self._build_blocked_mask(slice_idx, shape, include_temp=True)
+        palette = self.annotation_model.get_label_palette()
+
+        if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
+            depth, _ = self._resolve_volume_dimensions()
+            if depth is None:
+                return
+            start_idx, end_idx = self._resolve_apply_volume_range(depth)
+            blocked_mask_provider = None
+            if int(label) == 0:
+                blocked_mask_provider = lambda idx, _shape=shape: self._build_label0_blocked_mask(
+                    idx, _shape, include_temp=True
+                )
+            else:
+                blocked_mask_provider = lambda idx, _shape=shape: self._build_blocked_mask(
+                    idx, _shape, include_temp=True
+                )
+            self.annotation_service.apply_free_hand_roi_to_range(
+                start_idx=start_idx,
+                end_idx=end_idx,
+                points=clean_points,
+                shape=shape,
+                label=label,
+                threshold=self.view_state_model.threshold,
+                persistent=self.view_state_model.roi_persistence,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=palette,
+                slice_data_provider=self._slice_data,
+                restriction_mask=restriction_mask,
+                blocked_mask_provider=blocked_mask_provider,
+                use_box_percentiles=self.view_state_model.threshold_auto,
+            )
+        else:
+            free_hand_mask = self.annotation_service.apply_free_hand_roi(
+                slice_idx=slice_idx,
+                points=clean_points,
+                shape=shape,
+                label=label,
+                threshold=self.view_state_model.threshold,
+                persistent=self.view_state_model.roi_persistence,
+                roi_model=self.roi_model,
+                temp_mask_model=self.temp_mask_model,
+                palette=palette,
+                slice_data=slice_data,
+                restriction_mask=restriction_mask,
+                blocked_mask=blocked_mask,
+                use_box_percentiles=self.view_state_model.threshold_auto,
+            )
+            if free_hand_mask is None:
+                return
+
+        self.refresh_roi_overlay_for_slice(slice_idx)
 
     def on_annotation_box_drawn(self, box: Any) -> None:
         """Handle box draw completion (stub)."""

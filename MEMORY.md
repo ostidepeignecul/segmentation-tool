@@ -2999,3 +2999,24 @@ Demande utilisateur de rendre la lisibilite des ROI box dependante du colormap a
 2. Reutiliser l etat existant `_colormap_name` mis a jour par `EndviewView.set_colormap` pour eviter tout couplage controller supplementaire.
 3. Appliquer un fallback blanc pour toute palette non OmniScan afin de maintenir une valeur sure par defaut.
 
+
+
+### **2026-02-13** - ROI free hand polygonale alignee sur le flux box
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#models/roi_model.py`, `#services/annotation_service.py`, `#views/annotation_view.py`, `#roi`, `#free_hand`, `#polygon`, `#threshold`, `#apply_volume`, `#mvc`, `#opencv`
+
+**Actions effectuees :**
+- Ajout du mode d interaction `free_hand` dans `AnnotationView` avec capture souris press/move/release, preview temporaire du trace et emission des signaux `freehand_started`, `freehand_point_added`, `freehand_completed`.
+- Ajout de `add_free_hand` dans `RoiModel` pour persister les ROI polygonales avec slice, points, label, threshold et persistance.
+- Ajout dans `AnnotationService` de `build_free_hand_mask` (remplissage polygonal via `cv2.fillPoly`) avec normalisation et clamp des points.
+- Ajout de `apply_free_hand_roi` et `apply_free_hand_roi_to_range` pour appliquer la ROI free hand comme la box (threshold, restriction mask, blocked mask, palette, mode volume).
+- Integration des ROI `free_hand` dans `rebuild_temp_masks_for_slice` pour que recompute/apply reconstruisent correctement les previews temporaires.
+- Implementation de `on_annotation_freehand_completed` dans `AnnotationController` avec orchestration complete mono-slice ou plage volume selon `apply_volume` et `roi_persistence`.
+
+**Contexte :**
+Demande utilisateur d implementer une zone ROI free hand qui se comporte comme la ROI box mais avec une forme polygonale dessinee a la main. Le diff staged montre que le wiring UI existait mais la logique free hand etait encore en stubs dans le controller/service/model.
+
+**Decisions techniques :**
+1. Conserver la separation MVC stricte : capture gesture et preview dans la View, stockage metadata dans le Model, calcul/application des masques dans le Service, orchestration dans le Controller.
+2. Reutiliser les memes regles fonctionnelles que `box` (threshold, restriction, blocage label, apply_volume, persistance) pour garantir un comportement coherent entre outils ROI.
+3. Utiliser un remplissage polygonal robuste (`cv2.fillPoly`) pour produire un masque binaire ferme et compatible avec la pipeline existante de temp mask.
+

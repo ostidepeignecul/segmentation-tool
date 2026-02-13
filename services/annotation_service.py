@@ -82,6 +82,45 @@ class AnnotationService:
         mask[ymin : ymax + 1, xmin : xmax + 1] = 1
         return mask
 
+    def build_free_hand_mask(
+        self,
+        shape: Tuple[int, int],
+        points: Sequence[Tuple[int, int]],
+    ) -> Optional[np.ndarray]:
+        """Build a binary mask for a free-hand polygon."""
+        try:
+            h, w = int(shape[0]), int(shape[1])
+        except Exception:
+            return None
+        if h <= 0 or w <= 0:
+            return None
+        if not points:
+            return None
+
+        clean_points: list[Tuple[int, int]] = []
+        for pt in points:
+            if not isinstance(pt, (list, tuple)) or len(pt) != 2:
+                continue
+            try:
+                x = max(0, min(w - 1, int(pt[0])))
+                y = max(0, min(h - 1, int(pt[1])))
+            except Exception:
+                continue
+            clean_points.append((x, y))
+        if len(clean_points) < 3:
+            return None
+
+        unique_points = {(x, y) for x, y in clean_points}
+        if len(unique_points) < 3:
+            return None
+
+        polygon = np.asarray(clean_points, dtype=np.int32).reshape((-1, 1, 2))
+        mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.fillPoly(mask, [polygon], 1)
+        if not np.any(mask):
+            return None
+        return mask
+
     def apply_temp_box(
         self,
         temp_model: TempMaskModel,
@@ -513,6 +552,72 @@ class AnnotationService:
         temp_mask_model.set_slice_mask(slice_idx, line_mask, label=label, persistent=persistent)
         return line_mask
 
+    def apply_free_hand_roi(
+        self,
+        *,
+        slice_idx: int,
+        points: Sequence[Tuple[int, int]],
+        shape: Tuple[int, int],
+        label: int,
+        threshold: Optional[float],
+        persistent: bool,
+        roi_model: RoiModel,
+        temp_mask_model: TempMaskModel,
+        palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
+        slice_data: Optional[np.ndarray] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask: Optional[np.ndarray] = None,
+        use_box_percentiles: bool = False,
+    ) -> Optional[np.ndarray]:
+        """
+        Free-hand ROI: fill polygon mask, store ROI metadata and apply to temp model.
+        """
+        poly_mask = self.build_free_hand_mask(shape, points)
+        if poly_mask is None:
+            return None
+        restriction = self._normalize_restriction_mask(restriction_mask, shape)
+        if restriction is not None:
+            poly_mask = np.where(restriction, poly_mask, 0)
+            if not np.any(poly_mask):
+                return None
+
+        color = None
+        if palette is not None:
+            color = palette.get(label)
+        if color is None:
+            color = MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
+
+        roi_model.add_free_hand(
+            slice_idx,
+            points,
+            label=label,
+            threshold=threshold,
+            persistent=persistent,
+        )
+        temp_mask_model.ensure_label(label, color, visible=True)
+
+        mask_to_apply = poly_mask
+        if slice_data is not None and threshold is not None:
+            mask_to_apply = self.build_thresholded_mask(
+                poly_mask,
+                slice_data,
+                threshold,
+                use_box_percentiles=use_box_percentiles,
+            )
+        if blocked_mask is not None:
+            blocked = np.asarray(blocked_mask, dtype=bool)
+            if blocked.shape == mask_to_apply.shape:
+                mask_to_apply = np.where(blocked, 0, mask_to_apply)
+
+        self.apply_temp_box(
+            temp_mask_model,
+            slice_idx,
+            mask_to_apply,
+            label,
+            persistent=persistent,
+        )
+        return mask_to_apply
+
     def rebuild_temp_masks_for_slice(
         self,
         *,
@@ -584,6 +689,39 @@ class AnnotationService:
                 persistent=getattr(roi, "persistent", False),
             )
             boxes.append(box_tuple)
+        # Free-hand ROIs (filled polygon)
+        for roi in rois:
+            if getattr(roi, "roi_type", None) != "free_hand" or len(getattr(roi, "points", [])) < 3:
+                continue
+            poly_mask = self.build_free_hand_mask(shape, roi.points)
+            if poly_mask is None:
+                continue
+            if restriction is not None:
+                poly_mask = np.where(restriction, poly_mask, 0)
+                if not np.any(poly_mask):
+                    continue
+            label = getattr(roi, "label", 1)
+            color = (palette or {}).get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
+            temp_mask_model.ensure_label(label, color, visible=True)
+            mask_to_apply = poly_mask
+            roi_threshold = getattr(roi, "threshold", None)
+            if slice_data is not None and roi_threshold is not None:
+                mask_to_apply = self.build_thresholded_mask(
+                    poly_mask,
+                    slice_data,
+                    roi_threshold,
+                    use_box_percentiles=use_box_percentiles,
+                )
+            blocked = resolve_blocked(label)
+            if blocked is not None:
+                mask_to_apply = np.where(blocked, 0, mask_to_apply)
+            self.apply_temp_box(
+                temp_mask_model,
+                slice_idx,
+                mask_to_apply,
+                label,
+                persistent=getattr(roi, "persistent", False),
+            )
         # Grow ROIs
         for roi in rois:
             if getattr(roi, "roi_type", None) != "grow" or len(getattr(roi, "points", [])) < 1:
@@ -1121,6 +1259,48 @@ class AnnotationService:
         for idx in range(start_slice - 1, min_idx - 1, -1):
             if not apply_once(idx):
                 break
+
+    def apply_free_hand_roi_to_range(
+        self,
+        *,
+        start_idx: int,
+        end_idx: int,
+        points: Sequence[Tuple[int, int]],
+        shape: Tuple[int, int],
+        label: int,
+        threshold: Optional[float],
+        persistent: bool,
+        roi_model: RoiModel,
+        temp_mask_model: TempMaskModel,
+        palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
+        slice_data_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        use_box_percentiles: bool = False,
+    ) -> None:
+        """Apply a free-hand ROI across a slice range."""
+        min_idx = int(min(start_idx, end_idx))
+        max_idx = int(max(start_idx, end_idx))
+        for idx in range(min_idx, max_idx + 1):
+            slice_data = slice_data_provider(idx) if slice_data_provider is not None else None
+            blocked_mask = (
+                blocked_mask_provider(idx) if blocked_mask_provider is not None else None
+            )
+            self.apply_free_hand_roi(
+                slice_idx=idx,
+                points=points,
+                shape=shape,
+                label=label,
+                threshold=threshold,
+                persistent=persistent,
+                roi_model=roi_model,
+                temp_mask_model=temp_mask_model,
+                palette=palette,
+                slice_data=slice_data,
+                restriction_mask=restriction_mask,
+                blocked_mask=blocked_mask,
+                use_box_percentiles=use_box_percentiles,
+            )
 
     def apply_box_roi_to_range(
         self,

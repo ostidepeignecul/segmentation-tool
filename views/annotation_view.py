@@ -30,6 +30,7 @@ class AnnotationView(EndviewView):
         self._temp_mask_points: list[Tuple[int, int]] = []
         self._temp_box: Optional[Tuple[int, int, int, int]] = None
         self._temp_line_points: list[Tuple[int, int]] = []
+        self._freehand_drawing: bool = False
         self._line_drawing: bool = False
         self._roi_overlay: Optional[Any] = None
         self._box_start: Optional[Tuple[int, int]] = None
@@ -120,6 +121,7 @@ class AnnotationView(EndviewView):
         self._box_start = None
         self._temp_box_item.setRect(0, 0, 0, 0)
         self._temp_line_points = []
+        self._freehand_drawing = False
         self._line_drawing = False
         self._temp_line_item.setPath(QPainterPath())
 
@@ -289,6 +291,10 @@ class AnnotationView(EndviewView):
                         handled = self._handle_line_press(event)
                         if handled:
                             return True
+                    if self._tool_mode == "free_hand":
+                        handled = self._handle_freehand_press(event)
+                        if handled:
+                            return True
                     if self._tool_mode == "box":
                         handled = self._handle_box_press(event)
                         if handled:
@@ -299,6 +305,8 @@ class AnnotationView(EndviewView):
                         return True
                     if self._tool_mode == "line":
                         self._handle_line_move(event)
+                    if self._tool_mode == "free_hand":
+                        self._handle_freehand_move(event)
                     if self._tool_mode == "box":
                         self._handle_box_move(event)
                 if event.type() == QMouseEvent.Type.MouseButtonRelease:
@@ -312,6 +320,10 @@ class AnnotationView(EndviewView):
                         return True
                     if self._tool_mode == "line":
                         handled = self._handle_line_release(event)
+                        if handled:
+                            return True
+                    if self._tool_mode == "free_hand":
+                        handled = self._handle_freehand_release(event)
                         if handled:
                             return True
         return super().eventFilter(obj, event)
@@ -408,6 +420,53 @@ class AnnotationView(EndviewView):
         self.clear_temp_shapes()
         if points:
             self.line_drawn.emit(points)
+        return False
+
+    def _handle_freehand_press(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            return False
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is None:
+            return False
+        self._view.setFocus(Qt.FocusReason.MouseFocusReason)
+        self._freehand_drawing = True
+        self._temp_mask_points = [coords]
+        self.set_temp_mask(self._temp_mask_points)
+        self.set_temp_line(self._temp_mask_points)
+        self.freehand_started.emit(coords)
+        return False
+
+    def _handle_freehand_move(self, event: QMouseEvent) -> None:
+        if not self._freehand_drawing:
+            return
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is None:
+            return
+        if self._temp_mask_points and coords == self._temp_mask_points[-1]:
+            return
+        self._temp_mask_points.append(coords)
+        self.set_temp_mask(self._temp_mask_points)
+        self.set_temp_line(self._temp_mask_points)
+        self.freehand_point_added.emit(coords)
+
+    def _handle_freehand_release(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if not self._freehand_drawing:
+            return False
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is not None and (
+            not self._temp_mask_points or coords != self._temp_mask_points[-1]
+        ):
+            self._temp_mask_points.append(coords)
+        points = list(self._temp_mask_points)
+        self.clear_temp_shapes()
+        if points:
+            self.freehand_completed.emit(points)
         return False
 
     def _handle_restriction_press(self, event: QMouseEvent) -> None:
