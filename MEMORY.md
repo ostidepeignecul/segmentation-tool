@@ -2979,3 +2979,23 @@ Le besoin etait de changer la navigation dans la vue volume: ne plus zoomer au c
 2. Deriver `TurntableCamera` au lieu de rebind des events externes pour conserver les comportements natifs VisPy (rotation, modificateurs) avec un changement localise.
 3. Activer le recentrage automatique uniquement dans `Piece3DView` afin de ne pas regresser les flux corrosion dependants de ce recentrage.
 
+
+
+### **2026-02-13** - Couleur du contour ROI box adaptee au colormap endview
+**Tags :** `#branch:annotation`, `#views/annotation_view.py`, `#roi`, `#box`, `#colormap`, `#omniscan`, `#gris`, `#pyqt`
+
+**Actions effectuees :**
+- Surcharge de `set_colormap` dans `AnnotationView` pour recalculer la couleur des contours ROI a chaque changement de palette.
+- Ajout de `_update_roi_outline_color` avec mapping explicite `OmniScan` vers noir et fallback blanc pour `Gris` et les autres palettes.
+- Application de la couleur sur les stylos ROI persistants (`_roi_pen`, `_roi_point_pen`) et re-application immediate sur les items deja affiches.
+- Synchronisation de la box temporaire de selection (`_temp_box_item`) sur la meme couleur que les ROI persistantes.
+- Initialisation de la couleur au demarrage via appel de `_update_roi_outline_color` en fin de constructeur.
+
+**Contexte :**
+Demande utilisateur de rendre la lisibilite des ROI box dependante du colormap actif dans l endview: contour blanc en mode Gris et noir en mode OmniScan, y compris pendant la selection en cours.
+
+**Decisions techniques :**
+1. Conserver la logique dans la couche View (`AnnotationView`) car il s agit d un comportement purement visuel.
+2. Reutiliser l etat existant `_colormap_name` mis a jour par `EndviewView.set_colormap` pour eviter tout couplage controller supplementaire.
+3. Appliquer un fallback blanc pour toute palette non OmniScan afin de maintenir une valeur sure par defaut.
+

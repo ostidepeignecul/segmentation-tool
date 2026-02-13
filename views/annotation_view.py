@@ -77,6 +77,12 @@ class AnnotationView(EndviewView):
         self._restriction_drag_rect: Optional[Tuple[int, int, int, int]] = None
         self._restriction_edge_grab: int = 6
         self._restriction_min_size: int = 10
+        self._update_roi_outline_color()
+
+    def set_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
+        """Set base colormap and adapt ROI box contour color for readability."""
+        super().set_colormap(name, lut)
+        self._update_roi_outline_color()
 
     # ------------------------------------------------------------------ #
     # Temporary shapes (stubs)
@@ -518,3 +524,17 @@ class AnnotationView(EndviewView):
         x = max(0, min(width - 1, x))
         y = max(0, min(height - 1, y))
         return (x, y)
+
+    def _update_roi_outline_color(self) -> None:
+        """Keep ROI outlines visible on selected base colormap."""
+        colormap_name = (self._colormap_name or "").strip().casefold()
+        outline_color = Qt.GlobalColor.black if colormap_name == "omniscan" else Qt.GlobalColor.white
+        self._roi_pen.setColor(outline_color)
+        self._roi_point_pen.setColor(outline_color)
+        temp_box_pen = self._temp_box_item.pen()
+        temp_box_pen.setColor(outline_color)
+        self._temp_box_item.setPen(temp_box_pen)
+        for item in self._roi_box_items:
+            item.setPen(self._roi_pen)
+        for item in self._roi_point_items:
+            item.setPen(self._roi_point_pen)
