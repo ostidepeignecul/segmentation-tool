@@ -3038,3 +3038,19 @@ Apres la mise a jour de la ROI box, la demande etait d avoir le meme comportemen
 2. Reutiliser le meme mapping `omniscan -> noir` et fallback blanc pour garantir un rendu coherent sur les outils ROI.
 3. Limiter le patch a la couche View (`AnnotationView`) car le changement est purement UI et ne touche ni service ni model.
 
+
+### **2026-02-17** - Réorganisation du layout ADS en grille 2x2
+**Tags :** `#branch:annotation`, `#dock_layout_controller.py`, `#ads`, `#splitter`, `#qtimer`
+
+**Actions effectuees :**
+- Ajout de `QTimer.singleShot(0, self._apply_default_splitter_sizes)` pour appliquer les tailles apres l'initialisation de la hierarchie de docks.
+- Activation de `EqualSplitOnInsertion` via `_configure_dock_manager()` pour stabiliser le comportement des splits imbriques.
+- Recomposition du layout par defaut en grille droite 2x2 : `[V-Coord | Volume]` au-dessus de `[A-Scan | C-Scan]`.
+- Separation des constantes de split en trois groupes (`root`, `right_top`, `right_bottom`) et mise a jour de `_apply_default_splitter_sizes()`.
+
+**Contexte :**
+Ajuster la disposition initiale ADS pour obtenir une structure visuelle plus previsible, avec des proportions fixes des le demarrage et un decoupage explicite des zones droite haute/basse.
+
+**Decisions techniques :**
+1. Utiliser `QTimer.singleShot(0, ...)` pour differer l'application des tailles apres construction complete des `dockAreaWidget`, afin d'eviter des tailles ignorees au premier rendu.
+2. Conserver des ratios `1:1` sur les splits internes droite haute/basse pour une symetrie lisible, tout en imposant `20/50/30` sur le split racine pour prioriser la zone centrale.

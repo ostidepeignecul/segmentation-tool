@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 import PyQt6Ads as ads
+from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMainWindow, QStackedLayout, QWidget
 
@@ -26,12 +27,14 @@ from views.volume_view import VolumeView
 
 class DockLayoutController:
     """Build and maintain ADS docks and related stacked view containers."""
-    _DEFAULT_ROOT_SPLITTER_SIZES = [220, 420, 420, 520]
-    _DEFAULT_ASCAN_CSCAN_SPLITTER_SIZES = [1, 1]
+    _DEFAULT_ROOT_SPLITTER_SIZES = [200, 500, 300]  # 20% | 50% | 30%
+    _DEFAULT_RIGHT_TOP_SPLITTER_SIZES = [1, 1]  # V-Coord | Volume
+    _DEFAULT_RIGHT_BOTTOM_SPLITTER_SIZES = [1, 1]  # A-Scan | C-Scan
 
     def __init__(self, *, main_window: QMainWindow) -> None:
         self.main_window = main_window
         self.dock_manager = ads.CDockManager(self.main_window)
+        self._configure_dock_manager()
 
         self.ucoordinate_ui = Ui_UCoordinateDockWidget()
         self.vcoordinate_ui = Ui_VCoordinateDockWidget()
@@ -76,6 +79,7 @@ class DockLayoutController:
 
         self._configure_docks()
         self._build_default_layout()
+        QTimer.singleShot(0, self._apply_default_splitter_sizes)
         self._build_corrosion_stacks()
         self.tools_dock.viewToggled.connect(self._on_tools_view_toggled)
         self.volume_dock.topLevelChanged.connect(self._on_volume_top_level_changed)
@@ -108,10 +112,18 @@ class DockLayoutController:
         self.tools_dock.setWindowTitle("Tools")
         self.tools_dock.setFeatures(ads.CDockWidget.DockWidgetFeature.DefaultDockWidgetFeatures)
 
+    def _configure_dock_manager(self) -> None:
+        """Enable deterministic nested split behaviour for startup layout."""
+        self.dock_manager.setConfigFlag(
+            ads.CDockManager.eConfigFlag.EqualSplitOnInsertion,
+            True,
+        )
+
     def _build_default_layout(self) -> None:
         """Default layout:
-        tools | (U/V) | volume
-              |      | (ascan | cscan)
+        tools | U-Coord | right grid
+                         [V-Coord | Volume]
+                         [A-Scan  | C-Scan]
         """
         tools_area = self.dock_manager.addDockWidget(
             ads.DockWidgetArea.LeftDockWidgetArea,
@@ -122,25 +134,25 @@ class DockLayoutController:
             self.ucoordinate_dock,
             tools_area,
         )
-        vcoordinate_area = self.dock_manager.addDockWidget(
-            ads.DockWidgetArea.RightDockWidgetArea,
-            self.vcoordinate_dock,
-            ucoordinate_area,
-        )
         right_top_area = self.dock_manager.addDockWidget(
             ads.DockWidgetArea.RightDockWidgetArea,
             self.volume_dock,
-            vcoordinate_area,
+            ucoordinate_area,
         )
-        right_mid_area = self.dock_manager.addDockWidget(
+        right_bottom_area = self.dock_manager.addDockWidget(
             ads.DockWidgetArea.BottomDockWidgetArea,
             self.ascan_dock,
             right_top_area,
         )
         self.dock_manager.addDockWidget(
+            ads.DockWidgetArea.LeftDockWidgetArea,
+            self.vcoordinate_dock,
+            right_top_area,
+        )
+        self.dock_manager.addDockWidget(
             ads.DockWidgetArea.RightDockWidgetArea,
             self.cscan_dock,
-            right_mid_area,
+            right_bottom_area,
         )
         self._apply_default_splitter_sizes()
 
@@ -148,17 +160,23 @@ class DockLayoutController:
         """Tune default dock proportions for initial startup layout."""
         root_reference_area = self.ucoordinate_dock.dockAreaWidget()
         if root_reference_area is not None:
-            # tools | U | V | (volume + ascan/cscan)
             self.dock_manager.setSplitterSizes(
                 root_reference_area,
                 self._DEFAULT_ROOT_SPLITTER_SIZES,
             )
 
-        ascan_cscan_reference_area = self.cscan_dock.dockAreaWidget()
-        if ascan_cscan_reference_area is not None:
+        right_top_reference_area = self.vcoordinate_dock.dockAreaWidget()
+        if right_top_reference_area is not None:
             self.dock_manager.setSplitterSizes(
-                ascan_cscan_reference_area,
-                self._DEFAULT_ASCAN_CSCAN_SPLITTER_SIZES,
+                right_top_reference_area,
+                self._DEFAULT_RIGHT_TOP_SPLITTER_SIZES,
+            )
+
+        right_bottom_reference_area = self.ascan_dock.dockAreaWidget()
+        if right_bottom_reference_area is not None:
+            self.dock_manager.setSplitterSizes(
+                right_bottom_reference_area,
+                self._DEFAULT_RIGHT_BOTTOM_SPLITTER_SIZES,
             )
 
     def _build_corrosion_stacks(self) -> None:
