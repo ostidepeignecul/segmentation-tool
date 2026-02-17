@@ -163,6 +163,20 @@
         </widget>
        </item>
        <item>
+        <widget class="QCheckBox" name="checkBox_6">
+         <property name="text">
+          <string>A-scan</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkBox_7">
+         <property name="text">
+          <string>A-scan 2e pic</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QCheckBox" name="checkBox_3">
          <property name="text">
           <string>Persistance de ROI</string>
@@ -252,8 +266,8 @@
            <rect>
             <x>0</x>
             <y>0</y>
-            <width>356</width>
-            <height>95</height>
+            <width>344</width>
+            <height>75</height>
            </rect>
           </property>
           <property name="minimumSize">

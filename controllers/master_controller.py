@@ -254,6 +254,8 @@ class MasterController:
             cross_checkbox=self._tools_ui.checkBox_4,
             apply_volume_checkbox=self._tools_ui.checkBox,
             threshold_auto_checkbox=self._tools_ui.checkBox_2,
+            ascan_mode_checkbox=self._tools_ui.checkBox_6,
+            ascan_peak_checkbox=self._tools_ui.checkBox_7,
             roi_persistence_checkbox=self._tools_ui.checkBox_3,
             roi_recompute_button=self._tools_ui.pushButton_2,
             roi_delete_button=self._tools_ui.pushButton_3,
@@ -266,6 +268,10 @@ class MasterController:
 
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
+        self.tools_panel.set_ascan_roi_mode_checked(self.view_state_model.roi_ascan_max_mode)
+        self.tools_panel.set_ascan_peak_second_checked(
+            self.view_state_model.roi_ascan_prefer_second_peak
+        )
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
@@ -276,6 +282,10 @@ class MasterController:
         self.tools_panel.paint_size_changed.connect(self.annotation_controller.on_paint_size_changed)
         self.tools_panel.threshold_changed.connect(self.annotation_controller.on_threshold_changed)
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
+        self.tools_panel.ascan_roi_mode_toggled.connect(self.annotation_controller.on_ascan_roi_mode_toggled)
+        self.tools_panel.ascan_peak_second_toggled.connect(
+            self.annotation_controller.on_ascan_peak_second_toggled
+        )
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
         self.tools_panel.overlay_toggled.connect(self.annotation_controller.on_overlay_toggled)
         self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
@@ -1202,6 +1212,10 @@ class MasterController:
         """Synchronise l'état du modèle actif vers les vues."""
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
+        self.tools_panel.set_ascan_roi_mode_checked(self.view_state_model.roi_ascan_max_mode)
+        self.tools_panel.set_ascan_peak_second_checked(
+            self.view_state_model.roi_ascan_prefer_second_peak
+        )
         self.endview_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)

@@ -23,6 +23,8 @@ class ViewStateModel:
         self.tool_mode: Optional[str] = None
         self.threshold: Optional[int] = 50
         self.threshold_auto: bool = False
+        self.roi_ascan_max_mode: bool = False
+        self.roi_ascan_prefer_second_peak: bool = False
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
         self.active_label: Optional[int] = None
@@ -121,6 +123,14 @@ class ViewStateModel:
 
     def set_threshold_auto(self, enabled: bool) -> None:
         self.threshold_auto = bool(enabled)
+
+    def set_roi_ascan_max_mode(self, enabled: bool) -> None:
+        """Enable/disable A-scan max-per-column selection inside ROI masks."""
+        self.roi_ascan_max_mode = bool(enabled)
+
+    def set_roi_ascan_prefer_second_peak(self, enabled: bool) -> None:
+        """Prefer second A-scan peak instead of first one inside ROI columns."""
+        self.roi_ascan_prefer_second_peak = bool(enabled)
 
     def set_apply_volume(self, enabled: bool) -> None:
         self.apply_volume = bool(enabled)

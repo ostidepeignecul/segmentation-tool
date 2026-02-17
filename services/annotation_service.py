@@ -228,6 +228,133 @@ class AnnotationService:
         norm = (data - dmin) / (dmax - dmin) * 255.0
         return norm.astype(np.uint8)
 
+    def _normalize_slice_to_float32(self, slice_data: np.ndarray) -> Optional[np.ndarray]:
+        """Normalize arbitrary slice data to a float32 2D array."""
+        try:
+            data = np.asarray(slice_data, dtype=np.float32)
+        except Exception:
+            return None
+        if data.ndim == 3 and data.shape[2] in (3, 4):
+            data = data[..., 0]
+        if data.ndim != 2 or data.size == 0:
+            return None
+        return data
+
+    def build_ascan_max_mask(
+        self,
+        roi_mask: np.ndarray,
+        slice_data: np.ndarray,
+        *,
+        prefer_second_peak: bool = False,
+    ) -> np.ndarray:
+        """Keep one A-scan peak per X column inside an ROI mask."""
+        try:
+            mask_bool = np.asarray(roi_mask, dtype=bool)
+        except Exception:
+            return np.zeros((0, 0), dtype=np.uint8)
+        if mask_bool.ndim != 2:
+            return np.zeros_like(mask_bool, dtype=np.uint8)
+        if not np.any(mask_bool):
+            return np.zeros(mask_bool.shape, dtype=np.uint8)
+
+        data = self._normalize_slice_to_float32(slice_data)
+        if data is None or data.shape != mask_bool.shape:
+            return np.zeros(mask_bool.shape, dtype=np.uint8)
+
+        ys, xs = np.nonzero(mask_bool)
+        if ys.size == 0:
+            return np.zeros(mask_bool.shape, dtype=np.uint8)
+
+        values = data[ys, xs]
+        finite = np.isfinite(values)
+        if not np.any(finite):
+            return np.zeros(mask_bool.shape, dtype=np.uint8)
+
+        ys = ys[finite]
+        xs = xs[finite]
+        values = values[finite]
+
+        out = np.zeros(mask_bool.shape, dtype=np.uint8)
+        for x in np.unique(xs):
+            col = xs == x
+            ys_col = ys[col]
+            vals_col = values[col]
+            if ys_col.size == 0:
+                continue
+
+            y_order = np.argsort(ys_col, kind="stable")
+            ys_sorted = ys_col[y_order]
+            vals_sorted = vals_col[y_order]
+            n = int(vals_sorted.size)
+            if n <= 0:
+                continue
+            if n == 1:
+                out[int(ys_sorted[0]), int(x)] = 1
+                continue
+
+            # No A-scan only when the column is effectively flat.
+            val_min = float(np.min(vals_sorted))
+            val_max = float(np.max(vals_sorted))
+            if (val_max - val_min) <= 1e-12:
+                continue
+
+            # Smooth slightly to reduce tiny noise-induced pseudo peaks.
+            vals_work = vals_sorted.astype(np.float32, copy=False)
+            vals_smooth = vals_work.copy()
+            vals_smooth[1:-1] = (vals_work[:-2] + vals_work[1:-1] + vals_work[2:]) / 3.0
+
+            peak_candidates: list[int] = []
+            # Endpoints can be valid peaks.
+            if float(vals_smooth[0]) > float(vals_smooth[1]):
+                peak_candidates.append(0)
+            for i in range(1, n - 1):
+                left = float(vals_smooth[i - 1])
+                right = float(vals_smooth[i + 1])
+                cur = float(vals_smooth[i])
+                is_peak = (cur >= left and cur > right) or (cur > left and cur >= right)
+                if is_peak:
+                    peak_candidates.append(i)
+            if float(vals_smooth[n - 1]) > float(vals_smooth[n - 2]):
+                peak_candidates.append(n - 1)
+
+            if not peak_candidates:
+                peak_candidates = [int(np.argmax(vals_smooth))]
+
+            # Keep only the two strongest peaks (max amplitudes), then choose
+            # first/second by depth order between those two.
+            top_by_amp = sorted(
+                peak_candidates,
+                key=lambda idx: (float(vals_sorted[idx]), -int(ys_sorted[idx])),
+                reverse=True,
+            )[:2]
+            top_by_depth = sorted(top_by_amp, key=lambda idx: int(ys_sorted[idx]))
+            strongest_idx = top_by_amp[0]
+            if len(top_by_amp) >= 2:
+                amp_1 = float(vals_sorted[top_by_amp[0]])
+                amp_2 = float(vals_sorted[top_by_amp[1]])
+                y_1 = int(ys_sorted[top_by_amp[0]])
+                y_2 = int(ys_sorted[top_by_amp[1]])
+                y_gap = abs(y_1 - y_2)
+                denom = max(abs(amp_1), 1e-12)
+                relative_gap = (amp_1 - amp_2) / denom
+                if (not prefer_second_peak) and y_gap > 30:
+                    # If peaks are too far apart in depth, keep strongest peak
+                    # when second-peak mode is disabled.
+                    chosen_idx = strongest_idx
+                elif relative_gap > 0.70:
+                    # If strongest peak is >70% above second strongest,
+                    # force the strongest peak regardless of 1st/2nd preference.
+                    chosen_idx = strongest_idx
+                elif prefer_second_peak:
+                    chosen_idx = top_by_depth[1]
+                else:
+                    chosen_idx = top_by_depth[0]
+            else:
+                chosen_idx = strongest_idx
+
+            out[int(ys_sorted[chosen_idx]), int(x)] = 1
+        return out
+
     def _prune_thin_lines(self, mask: np.ndarray, *, max_width: int = 2) -> np.ndarray:
         """Remove pixels thinner than or equal to max_width in horizontal or vertical direction."""
         try:
@@ -568,6 +695,8 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
         use_box_percentiles: bool = False,
+        use_ascan_max_in_roi: bool = False,
+        prefer_second_peak: bool = False,
     ) -> Optional[np.ndarray]:
         """
         Free-hand ROI: fill polygon mask, store ROI metadata and apply to temp model.
@@ -597,17 +726,30 @@ class AnnotationService:
         temp_mask_model.ensure_label(label, color, visible=True)
 
         mask_to_apply = poly_mask
-        if slice_data is not None and threshold is not None:
+        if (
+            slice_data is not None
+            and threshold is not None
+            and not use_ascan_max_in_roi
+        ):
             mask_to_apply = self.build_thresholded_mask(
                 poly_mask,
                 slice_data,
                 threshold,
                 use_box_percentiles=use_box_percentiles,
             )
+        blocked = None
         if blocked_mask is not None:
-            blocked = np.asarray(blocked_mask, dtype=bool)
-            if blocked.shape == mask_to_apply.shape:
-                mask_to_apply = np.where(blocked, 0, mask_to_apply)
+            blocked_candidate = np.asarray(blocked_mask, dtype=bool)
+            if blocked_candidate.shape == mask_to_apply.shape:
+                blocked = blocked_candidate
+        if use_ascan_max_in_roi and slice_data is not None:
+            mask_to_apply = self.build_ascan_max_mask(
+                mask_to_apply,
+                slice_data,
+                prefer_second_peak=prefer_second_peak,
+            )
+        if blocked is not None:
+            mask_to_apply = np.where(blocked, 0, mask_to_apply)
 
         self.apply_temp_box(
             temp_mask_model,
@@ -633,6 +775,8 @@ class AnnotationService:
         blocked_mask: Optional[np.ndarray] = None,
         blocked_mask_for_label: Optional[Callable[[int], Optional[np.ndarray]]] = None,
         use_box_percentiles: bool = False,
+        use_ascan_max_in_roi: bool = False,
+        prefer_second_peak: bool = False,
     ) -> list[Tuple[int, int, int, int]]:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
@@ -671,7 +815,11 @@ class AnnotationService:
             temp_mask_model.ensure_label(label, color, visible=True)
             mask_to_apply = box_mask
             roi_threshold = getattr(roi, "threshold", None)
-            if slice_data is not None and roi_threshold is not None:
+            if (
+                slice_data is not None
+                and roi_threshold is not None
+                and not use_ascan_max_in_roi
+            ):
                 mask_to_apply = self.build_thresholded_mask(
                     box_mask,
                     slice_data,
@@ -679,6 +827,12 @@ class AnnotationService:
                     use_box_percentiles=use_box_percentiles,
                 )
             blocked = resolve_blocked(label)
+            if use_ascan_max_in_roi and slice_data is not None:
+                mask_to_apply = self.build_ascan_max_mask(
+                    mask_to_apply,
+                    slice_data,
+                    prefer_second_peak=prefer_second_peak,
+                )
             if blocked is not None:
                 mask_to_apply = np.where(blocked, 0, mask_to_apply)
             self.apply_temp_box(
@@ -705,7 +859,11 @@ class AnnotationService:
             temp_mask_model.ensure_label(label, color, visible=True)
             mask_to_apply = poly_mask
             roi_threshold = getattr(roi, "threshold", None)
-            if slice_data is not None and roi_threshold is not None:
+            if (
+                slice_data is not None
+                and roi_threshold is not None
+                and not use_ascan_max_in_roi
+            ):
                 mask_to_apply = self.build_thresholded_mask(
                     poly_mask,
                     slice_data,
@@ -713,6 +871,12 @@ class AnnotationService:
                     use_box_percentiles=use_box_percentiles,
                 )
             blocked = resolve_blocked(label)
+            if use_ascan_max_in_roi and slice_data is not None:
+                mask_to_apply = self.build_ascan_max_mask(
+                    mask_to_apply,
+                    slice_data,
+                    prefer_second_peak=prefer_second_peak,
+                )
             if blocked is not None:
                 mask_to_apply = np.where(blocked, 0, mask_to_apply)
             self.apply_temp_box(
@@ -860,6 +1024,8 @@ class AnnotationService:
             Callable[[int, int], Optional[np.ndarray]]
         ] = None,
         use_box_percentiles: bool = False,
+        use_ascan_max_in_roi: bool = False,
+        prefer_second_peak: bool = False,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -904,6 +1070,8 @@ class AnnotationService:
                 blocked_mask=blocked_mask,
                 blocked_mask_for_label=blocked_mask_for_label,
                 use_box_percentiles=use_box_percentiles,
+                use_ascan_max_in_roi=use_ascan_max_in_roi,
+                prefer_second_peak=prefer_second_peak,
             )
 
     def build_thresholded_mask(
@@ -995,6 +1163,8 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
         use_box_percentiles: bool = False,
+        use_ascan_max_in_roi: bool = False,
+        prefer_second_peak: bool = False,
     ) -> Optional[np.ndarray]:
         """
         Normalize a box, build its mask, store ROI metadata and apply mask to temp model.
@@ -1029,17 +1199,30 @@ class AnnotationService:
         )
         temp_mask_model.ensure_label(label, color, visible=True)
         mask_to_apply = box_mask
-        if slice_data is not None and threshold is not None:
+        if (
+            slice_data is not None
+            and threshold is not None
+            and not use_ascan_max_in_roi
+        ):
             mask_to_apply = self.build_thresholded_mask(
                 box_mask,
                 slice_data,
                 threshold,
                 use_box_percentiles=use_box_percentiles,
             )
+        blocked = None
         if blocked_mask is not None:
-            blocked = np.asarray(blocked_mask, dtype=bool)
-            if blocked.shape == mask_to_apply.shape:
-                mask_to_apply = np.where(blocked, 0, mask_to_apply)
+            blocked_candidate = np.asarray(blocked_mask, dtype=bool)
+            if blocked_candidate.shape == mask_to_apply.shape:
+                blocked = blocked_candidate
+        if use_ascan_max_in_roi and slice_data is not None:
+            mask_to_apply = self.build_ascan_max_mask(
+                mask_to_apply,
+                slice_data,
+                prefer_second_peak=prefer_second_peak,
+            )
+        if blocked is not None:
+            mask_to_apply = np.where(blocked, 0, mask_to_apply)
 
         self.apply_temp_box(
             temp_mask_model, slice_idx, mask_to_apply, label, persistent=persistent
@@ -1277,6 +1460,8 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
         use_box_percentiles: bool = False,
+        use_ascan_max_in_roi: bool = False,
+        prefer_second_peak: bool = False,
     ) -> None:
         """Apply a free-hand ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -1300,6 +1485,8 @@ class AnnotationService:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 use_box_percentiles=use_box_percentiles,
+                use_ascan_max_in_roi=use_ascan_max_in_roi,
+                prefer_second_peak=prefer_second_peak,
             )
 
     def apply_box_roi_to_range(
@@ -1319,6 +1506,8 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
         use_box_percentiles: bool = False,
+        use_ascan_max_in_roi: bool = False,
+        prefer_second_peak: bool = False,
     ) -> None:
         """Apply a box ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -1342,4 +1531,6 @@ class AnnotationService:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 use_box_percentiles=use_box_percentiles,
+                use_ascan_max_in_roi=use_ascan_max_in_roi,
+                prefer_second_peak=prefer_second_peak,
             )

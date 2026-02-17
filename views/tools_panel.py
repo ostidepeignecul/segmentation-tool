@@ -29,6 +29,8 @@ class ToolsPanel(QFrame):
     tool_mode_changed = pyqtSignal(str)
     threshold_changed = pyqtSignal(int)
     threshold_auto_toggled = pyqtSignal(bool)
+    ascan_roi_mode_toggled = pyqtSignal(bool)
+    ascan_peak_second_toggled = pyqtSignal(bool)
     apply_volume_toggled = pyqtSignal(bool)
     roi_persistence_toggled = pyqtSignal(bool)
     roi_recompute_requested = pyqtSignal()
@@ -58,6 +60,8 @@ class ToolsPanel(QFrame):
         self._paint_size_slider: Optional[QSlider] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
+        self._ascan_mode_checkbox: Optional[QCheckBox] = None
+        self._ascan_peak_checkbox: Optional[QCheckBox] = None
         self._overlay_checkbox: Optional[QCheckBox] = None
         self._cross_checkbox: Optional[QCheckBox] = None
         self._roi_persistence_checkbox: Optional[QCheckBox] = None
@@ -97,6 +101,8 @@ class ToolsPanel(QFrame):
         cross_checkbox: QCheckBox,
         apply_volume_checkbox: QCheckBox,
         threshold_auto_checkbox: QCheckBox,
+        ascan_mode_checkbox: QCheckBox,
+        ascan_peak_checkbox: QCheckBox,
         roi_persistence_checkbox: QCheckBox,
         roi_recompute_button: QPushButton,
         roi_delete_button: QPushButton,
@@ -128,6 +134,8 @@ class ToolsPanel(QFrame):
         self._cross_checkbox = cross_checkbox
         self._apply_volume_checkbox = apply_volume_checkbox
         self._threshold_auto_checkbox = threshold_auto_checkbox
+        self._ascan_mode_checkbox = ascan_mode_checkbox
+        self._ascan_peak_checkbox = ascan_peak_checkbox
         self._roi_persistence_checkbox = roi_persistence_checkbox
         self._roi_recompute_button = roi_recompute_button
         self._roi_delete_button = roi_delete_button
@@ -151,6 +159,10 @@ class ToolsPanel(QFrame):
         self._threshold_slider.setValue(50)
         self._threshold_slider.valueChanged.connect(self._on_threshold_changed)
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
+        if self._ascan_mode_checkbox is not None:
+            self._ascan_mode_checkbox.toggled.connect(self.ascan_roi_mode_toggled.emit)
+        if self._ascan_peak_checkbox is not None:
+            self._ascan_peak_checkbox.toggled.connect(self.ascan_peak_second_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)
         self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
         self._cross_checkbox.toggled.connect(self.cross_toggled.emit)
@@ -270,6 +282,22 @@ class ToolsPanel(QFrame):
         self._cross_checkbox.blockSignals(True)
         self._cross_checkbox.setChecked(enabled)
         self._cross_checkbox.blockSignals(False)
+
+    def set_ascan_roi_mode_checked(self, enabled: bool) -> None:
+        """Set A-scan ROI checkbox state without emitting signals."""
+        if not self._ascan_mode_checkbox:
+            return
+        self._ascan_mode_checkbox.blockSignals(True)
+        self._ascan_mode_checkbox.setChecked(enabled)
+        self._ascan_mode_checkbox.blockSignals(False)
+
+    def set_ascan_peak_second_checked(self, enabled: bool) -> None:
+        """Set A-scan second-peak checkbox state without emitting signals."""
+        if not self._ascan_peak_checkbox:
+            return
+        self._ascan_peak_checkbox.blockSignals(True)
+        self._ascan_peak_checkbox.setChecked(enabled)
+        self._ascan_peak_checkbox.blockSignals(False)
 
     def select_tool_mode(self, mode: str) -> None:
         """Select a tool radio button without emitting tool_mode_changed."""

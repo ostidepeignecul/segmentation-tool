@@ -284,6 +284,14 @@ class AnnotationController:
         """Handle auto-threshold toggle (stub)."""
         self.view_state_model.set_threshold_auto(enabled)
 
+    def on_ascan_roi_mode_toggled(self, enabled: bool) -> None:
+        """Handle A-scan max ROI mode toggle."""
+        self.view_state_model.set_roi_ascan_max_mode(enabled)
+
+    def on_ascan_peak_second_toggled(self, enabled: bool) -> None:
+        """Handle preference toggle between first and second A-scan peaks."""
+        self.view_state_model.set_roi_ascan_prefer_second_peak(enabled)
+
     def on_label_selected(self, label_id: int) -> None:
         """Handle active label selection from the tools panel."""
         self.view_state_model.set_active_label(label_id)
@@ -360,6 +368,8 @@ class AnnotationController:
                 blocked_mask_provider=blocked_mask_provider,
                 blocked_mask_for_label_provider=blocked_mask_for_label_provider,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                use_ascan_max_in_roi=self.view_state_model.roi_ascan_max_mode,
+                prefer_second_peak=self.view_state_model.roi_ascan_prefer_second_peak,
             )
             self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
         else:
@@ -664,6 +674,8 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                use_ascan_max_in_roi=self.view_state_model.roi_ascan_max_mode,
+                prefer_second_peak=self.view_state_model.roi_ascan_prefer_second_peak,
             )
         else:
             free_hand_mask = self.annotation_service.apply_free_hand_roi(
@@ -680,6 +692,8 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                use_ascan_max_in_roi=self.view_state_model.roi_ascan_max_mode,
+                prefer_second_peak=self.view_state_model.roi_ascan_prefer_second_peak,
             )
             if free_hand_mask is None:
                 return
@@ -746,6 +760,8 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                use_ascan_max_in_roi=self.view_state_model.roi_ascan_max_mode,
+                prefer_second_peak=self.view_state_model.roi_ascan_prefer_second_peak,
             )
         else:
             self.annotation_service.apply_box_roi(
@@ -762,6 +778,8 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                use_ascan_max_in_roi=self.view_state_model.roi_ascan_max_mode,
+                prefer_second_peak=self.view_state_model.roi_ascan_prefer_second_peak,
             )
         self.refresh_roi_overlay_for_slice(slice_idx)
 
@@ -894,6 +912,8 @@ class AnnotationController:
                 blocked_mask_provider=blocked_mask_provider,
                 blocked_mask_for_label_provider=blocked_mask_for_label_provider,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                use_ascan_max_in_roi=self.view_state_model.roi_ascan_max_mode,
+                prefer_second_peak=self.view_state_model.roi_ascan_prefer_second_peak,
             )
             if prev_temp is not None and prev_cov is not None:
                 new_temp = self.temp_mask_model.get_mask_volume()
@@ -1333,6 +1353,8 @@ class AnnotationController:
             blocked_mask=blocked_mask,
             blocked_mask_for_label=blocked_mask_for_label,
             use_box_percentiles=self.view_state_model.threshold_auto,
+            use_ascan_max_in_roi=self.view_state_model.roi_ascan_max_mode,
+            prefer_second_peak=self.view_state_model.roi_ascan_prefer_second_peak,
         )
 
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)
@@ -1365,3 +1387,4 @@ class AnnotationController:
             self.annotation_view.set_roi_points(seeds)
         else:
             self.annotation_view.clear_roi_points()
+

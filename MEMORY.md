@@ -3054,3 +3054,21 @@ Ajuster la disposition initiale ADS pour obtenir une structure visuelle plus pre
 **Decisions techniques :**
 1. Utiliser `QTimer.singleShot(0, ...)` pour differer l'application des tailles apres construction complete des `dockAreaWidget`, afin d'eviter des tailles ignorees au premier rendu.
 2. Conserver des ratios `1:1` sur les splits internes droite haute/basse pour une symetrie lisible, tout en imposant `20/50/30` sur le split racine pour prioriser la zone centrale.
+
+### **2026-02-17** - Mode ROI A-scan max avec selection du 1er/2e pic
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_service.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/tools_panel.py`, `#roi`, `#ascan`, `#peak`, `#pyqt`, `#numpy`, `#mvc`
+
+**Actions effectuees :**
+- Ajout de deux options UI dans le panneau outils (`A-scan` et `A-scan 2e pic`) avec signaux dedies et synchronisation de l etat.
+- Extension du `ViewStateModel` avec `roi_ascan_max_mode` et `roi_ascan_prefer_second_peak`, puis propagation des toggles via `MasterController` et `AnnotationController`.
+- Ajout dans `AnnotationService` de `build_ascan_max_mask` pour conserver un pic A-scan par colonne ROI (lissage local, endpoints autorises, fallback robuste si pas de pic).
+- Injection des nouveaux flags dans tous les flux ROI (box, free hand, recompute slice/volume, apply range) avec conservation des masques bloques.
+
+**Contexte :**
+La logique ROI basee uniquement sur threshold n etait pas suffisante pour certains cas de segmentation. Le besoin est de pouvoir projeter une ROI sur les maxima A-scan par colonne, avec un choix operateur entre premier et second pic.
+
+**Decisions techniques :**
+1. Centraliser le calcul A-scan dans le service (`AnnotationService`) pour garder la View sans logique metier et respecter MVC.
+2. Rendre le mode A-scan configurable via l etat partage (`ViewStateModel`) afin d avoir un comportement coherent entre interactions locales, recompute et application volume.
+3. Desactiver le seuillage ROI quand le mode A-scan est actif, puis appliquer le masque bloque en aval pour conserver les regles d exclusion existantes.
+
