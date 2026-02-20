@@ -3090,3 +3090,23 @@ Le changement de slice sur la 2e Endview ne deplacait pas la ligne verticale de 
 1. Reutiliser `_update_ascan_trace` comme point d'orchestration pour eviter de dupliquer la logique de propagation du crosshair entre vues.
 2. Conserver `_sync_secondary_endview_state` pour le cas no-op (`current_x == clamped`) afin de limiter les refresh inutiles.
 3. Garder un fallback `current_y` au centre quand aucun point actif n'est disponible, pour garantir une synchro deterministe.
+
+### **2026-02-20** - Edition ancree du profil corrosion dans Endview avec commit Apply ROI
+**Tags :** `#branch:annotation`, `#controllers/corrosion_profile_controller.py`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#services/corrosion_profile_edit_service.py`, `#services/cscan_corrosion_service.py`, `#views/endview_view_corrosion.py`, `#corrosion`, `#endview`, `#anchors`, `#apply-roi`, `#mvc`
+
+**Actions effectuees :**
+- Ajout de `CorrosionProfileEditService` pour gerer le contexte des peak maps A/B, les points d ancrage, le drag, l ajout d ancrage au double clic, le preview overlay temporaire et le commit avec recalcul de projection.
+- Ajout de `CorrosionProfileController` pour orchestrer l edition en mode corrosion (selection label A/B, drag start/move/end, double clic, synchronisation des ancrages, commit des edits sur Apply ROI).
+- Extension de `EndviewController` avec une API d integration profile editing (binding des signaux de la vue corrosion, push de l overlay preview, set/clear des anchor points).
+- Extension de `EndviewViewCorrosion` avec les signaux `profile_drag_*` et `profile_double_clicked`, un `eventFilter` souris sans modifieurs et le rendu graphique des anchor points.
+- Integration dans `MasterController` : instanciation du service/controller, reroutage de `apply_roi_requested` vers un commit conditionnel, reset du service aux transitions de workflow corrosion, synchro des ancrages aux changements de slice et refresh overlay.
+- Extension de `CScanCorrosionService` avec `interpolate_peak_map_1d` et des wrappers publics pour rebuild overlay/distance map, puis application de l interpolation des peak maps avant le calcul de projection corrosion.
+
+**Contexte :**
+Diff staged du 2026-02-20 sur 6 fichiers (`controllers/corrosion_profile_controller.py`, `controllers/endview_controller.py`, `controllers/master_controller.py`, `services/corrosion_profile_edit_service.py`, `services/cscan_corrosion_service.py`, `views/endview_view_corrosion.py`) avec 1003 insertions et 7 suppressions. Le besoin etait de permettre une edition interactive du profil corrosion (lignes A/B) directement dans l Endview, avec validation explicite via Apply ROI et recalcul coherent de l overlay/projection.
+
+**Decisions techniques :**
+1. Garder la capture d interaction et le rendu des ancrages dans la View, l orchestration dans les Controllers, et l edition/recalcul des donnees dans les Services pour respecter le MVC strict.
+2. Utiliser un etat `pending edits` dans le service d edition et rediriger Apply ROI vers un commit uniquement en mode corrosion, afin de conserver le comportement ROI existant hors corrosion.
+3. Interpoler les trous (`-1`) des peak maps avant commit/projection pour stabiliser les lignes et limiter les artefacts dans l overlay et la carte de distance.
+4. Exposer des wrappers publics dans `CScanCorrosionService` plutot que d appeler des methodes privees depuis les composants d edition.

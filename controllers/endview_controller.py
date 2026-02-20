@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Sequence, Tuple
 
 import numpy as np
 from PyQt6.QtWidgets import QStackedLayout
 
+from models.overlay_data import OverlayData
 from models.view_state_model import ViewStateModel
 from views.endview_view import EndviewView
 
@@ -124,6 +125,74 @@ class EndviewController:
             self.secondary_view.set_display_size(int(width), int(height))
         if self.secondary_corrosion_view is not None:
             self.secondary_corrosion_view.set_display_size(int(width), int(height))
+
+    # --- Corrosion profile interaction ---------------------------------------------
+    def bind_corrosion_profile_signals(
+        self,
+        *,
+        on_drag_started: Callable[[Any], None],
+        on_drag_moved: Callable[[Any], None],
+        on_drag_finished: Callable[[Any], None],
+        on_double_clicked: Callable[[Any], None],
+    ) -> None:
+        """Connect corrosion profile edit signals when the view supports them."""
+        view = self.corrosion_view
+        if view is None:
+            return
+
+        started = getattr(view, "profile_drag_started", None)
+        moved = getattr(view, "profile_drag_moved", None)
+        finished = getattr(view, "profile_drag_finished", None)
+        double_clicked = getattr(view, "profile_double_clicked", None)
+        if started is not None:
+            started.connect(on_drag_started)
+        if moved is not None:
+            moved.connect(on_drag_moved)
+        if finished is not None:
+            finished.connect(on_drag_finished)
+        if double_clicked is not None:
+            double_clicked.connect(on_double_clicked)
+
+    def set_corrosion_profile_preview_overlay(
+        self,
+        mask_volume: np.ndarray,
+        *,
+        palette: dict[int, tuple[int, int, int, int]],
+        visible_labels: Optional[set[int]] = None,
+    ) -> None:
+        """Push temporary profile edit overlay to the corrosion endview only."""
+        view = self.corrosion_view
+        if view is None:
+            return
+        overlay = OverlayData(
+            mask_volume=np.asarray(mask_volume),
+            palette=dict(palette),
+            label_volumes=None,
+        )
+        view.set_overlay(overlay, visible_labels=visible_labels)
+
+    def clear_corrosion_profile_anchors(self) -> None:
+        """Hide corrosion profile anchors when the view supports them."""
+        view = self.corrosion_view
+        if view is None:
+            return
+        clear_anchors = getattr(view, "clear_anchor_points", None)
+        if callable(clear_anchors):
+            clear_anchors()
+
+    def set_corrosion_profile_anchors(
+        self,
+        points: Sequence[tuple[int, int]],
+        *,
+        active: bool,
+    ) -> None:
+        """Show corrosion profile anchors when the view supports them."""
+        view = self.corrosion_view
+        if view is None:
+            return
+        set_anchors = getattr(view, "set_anchor_points", None)
+        if callable(set_anchors):
+            set_anchors(list(points), active=bool(active))
 
     # --- Input/state helpers --------------------------------------------------------
     def on_point_selected(self, pos: Any) -> Optional[Tuple[int, int]]:

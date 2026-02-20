@@ -23,6 +23,7 @@ from config.constants import MASK_COLORS_BGRA
 from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
+from controllers.corrosion_profile_controller import CorrosionProfileController
 from controllers.dock_layout_controller import DockLayoutController
 from controllers.endview_controller import EndviewController
 from models.annotation_model import AnnotationModel
@@ -42,6 +43,7 @@ from services.endview_export import EndviewExportService
 from services.split_service import SplitFlawNoflawService
 from services.nde_loader import NdeLoader
 from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
+from services.corrosion_profile_edit_service import CorrosionProfileEditService
 from services.corrosion_label_service import CorrosionLabelService
 from ui_mainwindow import Ui_MainWindow
 from views.annotation_view import AnnotationView
@@ -84,6 +86,7 @@ class MasterController:
         self.corrosion_workflow_service = CorrosionWorkflowService(
             cscan_corrosion_service=self.cscan_corrosion_service
         )
+        self.corrosion_profile_edit_service = CorrosionProfileEditService()
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
         self.nde_settings_view = NdeSettingsView(self.main_window)
         self.corrosion_settings_view = CorrosionSettingsView(self.main_window)
@@ -190,6 +193,19 @@ class MasterController:
             set_cscan_crosshair=self.cscan_controller.set_crosshair,
             set_endview_crosshair=self.endview_controller.set_crosshair,
         )
+        self.corrosion_profile_controller = CorrosionProfileController(
+            view_state_model=self.view_state_model,
+            annotation_model=self.annotation_model,
+            endview_controller=self.endview_controller,
+            annotation_controller=self.annotation_controller,
+            cscan_controller=self.cscan_controller,
+            cscan_corrosion_service=self.cscan_corrosion_service,
+            corrosion_profile_edit_service=self.corrosion_profile_edit_service,
+            get_volume=self._current_volume,
+            set_position_label=self.tools_panel.set_position_label,
+            status_message=self.status_message,
+            apply_roi_fallback=self.annotation_controller.on_apply_temp_mask_requested,
+        )
 
         self._connect_actions()
         self._connect_signals()
@@ -289,8 +305,13 @@ class MasterController:
         self.tools_panel.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
         self.tools_panel.previous_requested.connect(self._on_previous_slice)
         self.tools_panel.next_requested.connect(self._on_next_slice)
-        self.tools_panel.apply_roi_requested.connect(self.annotation_controller.on_apply_temp_mask_requested)
+        self.tools_panel.apply_roi_requested.connect(
+            self.corrosion_profile_controller.on_apply_roi_requested
+        )
         self.tools_panel.label_selected.connect(self.annotation_controller.on_label_selected)
+        self.tools_panel.label_selected.connect(
+            self.corrosion_profile_controller.on_active_label_changed
+        )
 
         self.annotation_view.slice_changed.connect(self._on_slice_changed)
         self.annotation_view.mouse_clicked.connect(self.annotation_controller.on_annotation_mouse_clicked)
@@ -306,7 +327,7 @@ class MasterController:
         self.annotation_view.point_selected.connect(self._on_endview_point_selected)
         self.annotation_view.drag_update.connect(self._on_endview_drag_update)
         self.annotation_view.apply_roi_requested.connect(
-            self.annotation_controller.on_apply_temp_mask_requested
+            self.corrosion_profile_controller.on_apply_roi_requested
         )
         self.annotation_view.previous_requested.connect(self._on_previous_slice)
         self.annotation_view.next_requested.connect(self._on_next_slice)
@@ -318,6 +339,12 @@ class MasterController:
         if self.annotation_view_corrosion is not None:
             self.annotation_view_corrosion.point_selected.connect(self._on_endview_point_selected)
             self.annotation_view_corrosion.drag_update.connect(self._on_endview_drag_update)
+        self.endview_controller.bind_corrosion_profile_signals(
+            on_drag_started=self.corrosion_profile_controller.on_drag_started,
+            on_drag_moved=self.corrosion_profile_controller.on_drag_moved,
+            on_drag_finished=self.corrosion_profile_controller.on_drag_finished,
+            on_double_clicked=self.corrosion_profile_controller.on_double_clicked,
+        )
 
         if self.cscan_view is not None:
             self.cscan_view.crosshair_changed.connect(self._on_cscan_crosshair_changed)
@@ -727,6 +754,7 @@ class MasterController:
 
     def _on_run_corrosion_analysis(self) -> None:
         """Capture active session state before launching corrosion analysis."""
+        self.corrosion_profile_edit_service.reset()
         active_id = self.session_manager._active_id  # noqa: SLF001
         if active_id is not None:
             try:
@@ -855,6 +883,7 @@ class MasterController:
         self.volume_view.set_slice_index(clamped, update_slider=True)
         self._update_ascan_trace()
         self._update_endview_label()
+        self.corrosion_profile_controller.sync_anchors()
 
     def _on_previous_slice(self) -> None:
         """Navigate to the previous slice via buttons/shortcuts."""
@@ -1244,12 +1273,14 @@ class MasterController:
         self.annotation_controller.apply_overlay_opacity()
         # Rafraîchir le volume puis réappliquer l'overlay pour forcer le push 3D
         self._refresh_views()
+        self.corrosion_profile_controller.sync_anchors()
 
     # ------------------------------------------------------------------ #
     # Corrosion completion handling
     # ------------------------------------------------------------------ #
     def _on_corrosion_completed(self, result) -> None:
         """Crée une session interpolée sans écraser l'état brut."""
+        self.corrosion_profile_edit_service.reset()
         # 1) Met à jour la session active avec le résultat brut (projection déjà active)
         self.view_state_model.corrosion_interpolated_projection = None
         self.view_state_model.corrosion_overlay_volume = result.overlay_volume

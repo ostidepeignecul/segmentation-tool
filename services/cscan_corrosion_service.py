@@ -110,11 +110,19 @@ class CScanCorrosionService(CScanService):
         self._logger.info("[Corrosion] Carte distance calculée en %.2f s", time.perf_counter() - t0)
         self._log_progress(0.5, "Carte distance")
         t_overlay = time.perf_counter()
+        peak_index_map_a = self.interpolate_peak_map_1d(
+            peak_index_map_a,
+            height=mask_stack.shape[1],
+        )
+        peak_index_map_b = self.interpolate_peak_map_1d(
+            peak_index_map_b,
+            height=mask_stack.shape[1],
+        )
         distance_results: Dict = {}
 
         color_A = int(class_A_id)
         color_B = int(class_B_id)
-        lines_overlay = self._build_overlay_from_peak_maps(
+        lines_overlay = self.build_overlay_from_peak_maps(
             peak_map_a=peak_index_map_a,
             peak_map_b=peak_index_map_b,
             image_shape=mask_stack.shape[1:],
@@ -132,7 +140,7 @@ class CScanCorrosionService(CScanService):
         else:
             value_range = (0.0, 0.0)
 
-        interpolated_distance_map = self._build_interpolated_distance_map(
+        interpolated_distance_map = self.build_interpolated_distance_map(
             overlay=lines_overlay,
             class_A_value=color_A,
             class_B_value=color_B,
@@ -268,6 +276,94 @@ class CScanCorrosionService(CScanService):
         np.savez_compressed(npz_path, arr_0=overlay)
         self._logger.info("Overlay corrosion sauvegardé: %s", npz_path)
         return npz_path
+
+    def interpolate_peak_map_1d(
+        self,
+        peak_map: np.ndarray,
+        *,
+        height: Optional[int] = None,
+    ) -> np.ndarray:
+        """Fill missing Y peaks (-1) along X for each slice using linear interpolation."""
+        data = np.asarray(peak_map, dtype=np.int32)
+        if data.ndim != 2:
+            raise ValueError(f"Peak map attendu 2D (Z,W), reÃ§u shape {data.shape}")
+
+        interpolated = np.array(data, dtype=np.int32, copy=True)
+        if interpolated.size == 0:
+            return interpolated
+
+        width = interpolated.shape[1]
+        x_all = np.arange(width, dtype=np.float32)
+        max_y = int(height) - 1 if height is not None else None
+
+        for z in range(interpolated.shape[0]):
+            row = interpolated[z]
+            valid = row >= 0
+            if np.count_nonzero(valid) < 2:
+                if max_y is not None and np.any(valid):
+                    row[valid] = np.clip(row[valid], 0, max_y)
+                continue
+
+            x_valid = x_all[valid]
+            y_valid = row[valid].astype(np.float32)
+            first = int(x_valid[0])
+            last = int(x_valid[-1])
+            if last <= first:
+                continue
+
+            x_segment = np.arange(first, last + 1, dtype=np.float32)
+            y_segment = np.rint(np.interp(x_segment, x_valid, y_valid)).astype(np.int32)
+            if max_y is not None:
+                y_segment = np.clip(y_segment, 0, max_y)
+
+            window = row[first : last + 1]
+            missing = window < 0
+            if np.any(missing):
+                window[missing] = y_segment[missing]
+                row[first : last + 1] = window
+
+            if max_y is not None:
+                row[row >= 0] = np.clip(row[row >= 0], 0, max_y)
+
+        return interpolated
+
+    def build_overlay_from_peak_maps(
+        self,
+        *,
+        peak_map_a: np.ndarray,
+        peak_map_b: np.ndarray,
+        image_shape: Tuple[int, int],
+        class_A_id: int,
+        class_B_id: int,
+        line_thickness: int = 1,
+    ) -> np.ndarray:
+        """Public wrapper to rebuild BW/FW overlay lines from peak maps."""
+        return self._build_overlay_from_peak_maps(
+            peak_map_a=peak_map_a,
+            peak_map_b=peak_map_b,
+            image_shape=image_shape,
+            class_A_id=class_A_id,
+            class_B_id=class_B_id,
+            line_thickness=line_thickness,
+        )
+
+    def build_interpolated_distance_map(
+        self,
+        *,
+        overlay: np.ndarray,
+        class_A_value: int,
+        class_B_value: int,
+        use_mm: bool,
+        resolution_ultrasound_mm: float,
+    ) -> np.ndarray:
+        """Public wrapper to recompute corrosion distances from BW/FW line overlay."""
+        return self._build_interpolated_distance_map(
+            overlay=overlay,
+            class_A_value=class_A_value,
+            class_B_value=class_B_value,
+            use_mm=use_mm,
+            resolution_ultrasound_mm=resolution_ultrasound_mm,
+        )
 
     def _build_interpolated_distance_map(
         self,
