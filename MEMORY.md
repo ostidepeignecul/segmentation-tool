@@ -3073,3 +3073,20 @@ La demande etait de conserver la disposition des docks entre deux sessions. Un b
 2. Utiliser des objectName explicites par dock (dock_tools, dock_ucoordinate, dock_vcoordinate, dock_cscan, dock_ascan, dock_volume) pour garantir une restauration deterministe.
 3. Versionner le state (2) afin d ignorer les snapshots precedents incompatibles et repartir proprement sans intervention manuelle.
 4. Purger la cle de state si le type persiste est invalide ou si restoreState echoue, pour eviter les redemarrages casses repetes.
+
+### **2026-02-20** - Sync slice secondaire vers croix C-scan
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#secondary-slice`, `#cscan`, `#ascan`, `#endview`, `#crosshair`, `#mvc`
+
+**Actions effectuees :**
+- Etendu `_on_secondary_slice_changed` pour recuperer le point courant et calculer un `current_y` de secours (centre vertical) si aucun point n'est actif.
+- Ajoute un garde pour conserver le chemin existant (`_sync_secondary_endview_state`) quand `current_x` est deja aligne avec la slice secondaire.
+- Branche la synchro de changement X via `_update_ascan_trace(point=(clamped, current_y))` afin de propager la mise a jour a l'Endview principal, au C-scan et a l'A-scan par le pipeline centralise.
+- Met a jour le label de position outils avec le point effectivement synchronise (ou fallback local).
+
+**Contexte :**
+Le changement de slice sur la 2e Endview ne deplacait pas la ligne verticale de la croix dans le C-scan. Le flux secondaire mettait a jour la vue secondaire et le slider 3D, mais ne passait pas par le chemin de synchro crosshair C-scan.
+
+**Decisions techniques :**
+1. Reutiliser `_update_ascan_trace` comme point d'orchestration pour eviter de dupliquer la logique de propagation du crosshair entre vues.
+2. Conserver `_sync_secondary_endview_state` pour le cas no-op (`current_x == clamped`) afin de limiter les refresh inutiles.
+3. Garder un fallback `current_y` au centre quand aucun point actif n'est disponible, pour garantir une synchro deterministe.

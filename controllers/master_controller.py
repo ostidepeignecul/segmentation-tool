@@ -884,7 +884,24 @@ class MasterController:
         self.view_state_model.set_secondary_slice(index)
         clamped = self.view_state_model.secondary_slice
         self.volume_view.set_secondary_slice_index(clamped, update_slider=True, emit=False)
-        self._sync_secondary_endview_state()
+        current_point = self.view_state_model.current_point
+        current_x = int(current_point[0]) if current_point is not None else None
+        current_y = (
+            int(current_point[1])
+            if current_point is not None
+            else int(volume.shape[1]) // 2
+        )
+        if current_x == clamped:
+            self._sync_secondary_endview_state()
+            return
+
+        # Keep A-scan/C-scan/Main endview in sync when X changes from the secondary view.
+        self._update_ascan_trace(point=(clamped, current_y))
+        synced_point = self.view_state_model.current_point
+        if synced_point is not None:
+            self.tools_panel.set_position_label(synced_point[0], synced_point[1])
+        else:
+            self.tools_panel.set_position_label(clamped, current_y)
 
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
