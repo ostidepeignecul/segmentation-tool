@@ -3054,3 +3054,22 @@ Ajuster la disposition initiale ADS pour obtenir une structure visuelle plus pre
 **Decisions techniques :**
 1. Utiliser `QTimer.singleShot(0, ...)` pour differer l'application des tailles apres construction complete des `dockAreaWidget`, afin d'eviter des tailles ignorees au premier rendu.
 2. Conserver des ratios `1:1` sur les splits internes droite haute/basse pour une symetrie lisible, tout en imposant `20/50/30` sur le split racine pour prioriser la zone centrale.
+
+### **2026-02-20** - Persistance robuste de la disposition des docks ADS
+**Tags :** `#branch:annotation`, `#controllers/dock_layout_controller.py`, `#controllers/master_controller.py`, `#ads`, `#qsettings`, `#dock-layout`, `#state-persistence`
+
+**Actions effectuees :**
+- Ajout de la persistance du layout ADS via QSettings dans DockLayoutController avec saveState/restoreState versionnes.
+- Initialisation du layout au demarrage avec tentative de restauration puis fallback automatique sur les proportions par defaut.
+- Connexion de QApplication.aboutToQuit dans MasterController pour sauvegarder systematiquement la disposition a la fermeture.
+- Correction du bug de restauration partielle en attribuant un objectName unique et stable a chaque dock ADS.
+- Invalidation des anciens snapshots de layout incompatibles (version 2) et purge defensive des etats invalides/corrompus.
+
+**Contexte :**
+La demande etait de conserver la disposition des docks entre deux sessions. Un bug est apparu apres deplacement du C-Scan: au redemarrage, seuls Tools et C-Scan restaient visibles. L analyse des changements staged montrait des objectName dupliques (DockWidget) qui rendaient restoreState ambigu.
+
+**Decisions techniques :**
+1. Utiliser CDockManager.saveState/restoreState avec QSettings cote controller de layout pour respecter MVC et centraliser la logique UI docking.
+2. Utiliser des objectName explicites par dock (dock_tools, dock_ucoordinate, dock_vcoordinate, dock_cscan, dock_ascan, dock_volume) pour garantir une restauration deterministe.
+3. Versionner le state (2) afin d ignorer les snapshots precedents incompatibles et repartir proprement sans intervention manuelle.
+4. Purger la cle de state si le type persiste est invalide ou si restoreState echoue, pour eviter les redemarrages casses repetes.

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 import PyQt6Ads as ads
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QByteArray, QSettings, QTimer
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMainWindow, QStackedLayout, QWidget
 
@@ -30,6 +30,11 @@ class DockLayoutController:
     _DEFAULT_ROOT_SPLITTER_SIZES = [200, 500, 300]  # 20% | 50% | 30%
     _DEFAULT_RIGHT_TOP_SPLITTER_SIZES = [1, 1]  # V-Coord | Volume
     _DEFAULT_RIGHT_BOTTOM_SPLITTER_SIZES = [1, 1]  # A-Scan | C-Scan
+    _LAYOUT_STATE_VERSION = 2
+    _SETTINGS_ORGANIZATION = "Evident"
+    _SETTINGS_APPLICATION = "SegmentationTool"
+    _SETTINGS_GROUP = "dock_layout"
+    _SETTINGS_STATE_KEY = "ads_state"
 
     def __init__(self, *, main_window: QMainWindow) -> None:
         self.main_window = main_window
@@ -79,10 +84,10 @@ class DockLayoutController:
 
         self._configure_docks()
         self._build_default_layout()
-        QTimer.singleShot(0, self._apply_default_splitter_sizes)
         self._build_corrosion_stacks()
         self.tools_dock.viewToggled.connect(self._on_tools_view_toggled)
         self.volume_dock.topLevelChanged.connect(self._on_volume_top_level_changed)
+        QTimer.singleShot(0, self._initialize_layout_state)
 
     def bind_tools_toggle_action(self, action: QAction) -> None:
         """Bind menu action to ADS tools dock visibility."""
@@ -103,12 +108,17 @@ class DockLayoutController:
         self.tools_dock.toggleView(bool(visible))
 
     def _configure_docks(self) -> None:
+        self.ucoordinate_dock.setObjectName("dock_ucoordinate")
         self.ucoordinate_dock.setWindowTitle("U-Coordinate")
+        self.vcoordinate_dock.setObjectName("dock_vcoordinate")
         self.vcoordinate_dock.setWindowTitle("V-Coordinate")
+        self.cscan_dock.setObjectName("dock_cscan")
         self.cscan_dock.setWindowTitle("C-Scan")
+        self.ascan_dock.setObjectName("dock_ascan")
         self.ascan_dock.setWindowTitle("A-Scan")
+        self.volume_dock.setObjectName("dock_volume")
         self.volume_dock.setWindowTitle("Volume")
-        self.tools_dock.setObjectName("dockWidget_2")
+        self.tools_dock.setObjectName("dock_tools")
         self.tools_dock.setWindowTitle("Tools")
         self.tools_dock.setFeatures(ads.CDockWidget.DockWidgetFeature.DefaultDockWidgetFeatures)
 
@@ -154,7 +164,56 @@ class DockLayoutController:
             self.cscan_dock,
             right_bottom_area,
         )
+
+    def _initialize_layout_state(self) -> None:
+        """Restore previous dock layout when available, fallback to defaults."""
+        if self.restore_layout_state():
+            return
         self._apply_default_splitter_sizes()
+
+    def _settings(self) -> QSettings:
+        return QSettings(self._SETTINGS_ORGANIZATION, self._SETTINGS_APPLICATION)
+
+    def save_layout_state(self) -> None:
+        """Persist ADS dock layout for next application launch."""
+        state = self.dock_manager.saveState(self._LAYOUT_STATE_VERSION)
+        settings = self._settings()
+        settings.beginGroup(self._SETTINGS_GROUP)
+        settings.setValue(self._SETTINGS_STATE_KEY, state)
+        settings.endGroup()
+        settings.sync()
+
+    def _clear_saved_layout_state(self, settings: QSettings) -> None:
+        settings.beginGroup(self._SETTINGS_GROUP)
+        settings.remove(self._SETTINGS_STATE_KEY)
+        settings.endGroup()
+        settings.sync()
+
+    def restore_layout_state(self) -> bool:
+        """Restore ADS dock layout from previous application launch."""
+        settings = self._settings()
+        settings.beginGroup(self._SETTINGS_GROUP)
+        raw_state = settings.value(self._SETTINGS_STATE_KEY, None)
+        settings.endGroup()
+        if raw_state is None:
+            return False
+
+        state: QByteArray | bytes
+        if isinstance(raw_state, QByteArray):
+            state = raw_state
+        elif isinstance(raw_state, (bytes, bytearray, memoryview)):
+            state = bytes(raw_state)
+        else:
+            self._clear_saved_layout_state(settings)
+            return False
+
+        restored = bool(self.dock_manager.restoreState(state, self._LAYOUT_STATE_VERSION))
+        if restored:
+            return True
+
+        # Drop stale/incompatible state to avoid repeated broken restores.
+        self._clear_saved_layout_state(settings)
+        return False
 
     def _apply_default_splitter_sizes(self) -> None:
         """Tune default dock proportions for initial startup layout."""

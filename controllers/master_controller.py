@@ -8,6 +8,7 @@ import numpy as np
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QDialog,
     QInputDialog,
@@ -101,6 +102,9 @@ class MasterController:
         self._annotation_axis_mode: str = "Auto"
         self._annotation_axis_name: str = "UCoordinate"
         self._secondary_axis_name: str = "VCoordinate"
+        self._app = QApplication.instance()
+        if self._app is not None:
+            self._app.aboutToQuit.connect(self._on_app_about_to_quit)
 
         # References to Designer-created views.
         self.annotation_view: AnnotationView = self.dock_layout_controller.annotation_view
@@ -765,6 +769,13 @@ class MasterController:
     def _on_quit(self) -> None:
         """Quit the application."""
         self.main_window.close()
+
+    def _on_app_about_to_quit(self) -> None:
+        """Persist UI docking layout before Qt application shutdown."""
+        try:
+            self.dock_layout_controller.save_layout_state()
+        except Exception:
+            self.logger.exception("Unable to save dock layout state.")
 
     def _on_endview_colormap_changed(self, name: str) -> None:
         lut = self._get_colormap_lut(name)
