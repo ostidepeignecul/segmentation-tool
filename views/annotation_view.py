@@ -6,8 +6,8 @@ from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
-from PyQt6.QtGui import QCursor, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
-from PyQt6.QtWidgets import QFileDialog, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem
+from PyQt6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtWidgets import QFileDialog, QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem
 
 from config.constants import MASK_COLORS_BGRA
 from views.endview_view import EndviewView
@@ -23,6 +23,10 @@ class AnnotationView(EndviewView):
     apply_roi_requested = pyqtSignal()
     line_drawn = pyqtSignal(object)
     restriction_rect_changed = pyqtSignal(object)
+    mod_drag_started = pyqtSignal(object)
+    mod_drag_moved = pyqtSignal(object)
+    mod_drag_finished = pyqtSignal(object)
+    mod_double_clicked = pyqtSignal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -69,6 +73,13 @@ class AnnotationView(EndviewView):
         self._roi_point_pen = QPen(Qt.GlobalColor.white)
         self._roi_point_pen.setWidth(1)
         self._roi_point_pen.setCosmetic(True)
+        self._mod_anchor_items: list[QGraphicsEllipseItem] = []
+        self._mod_anchor_pen_active = QPen(Qt.GlobalColor.cyan)
+        self._mod_anchor_pen_active.setWidth(1)
+        self._mod_anchor_pen_active.setCosmetic(True)
+        self._mod_anchor_pen_inactive = QPen(Qt.GlobalColor.gray)
+        self._mod_anchor_pen_inactive.setWidth(1)
+        self._mod_anchor_pen_inactive.setCosmetic(True)
         self._tool_mode: Optional[str] = None
         self._paint_cursor: Optional[QCursor] = None
         self._paint_cursor_radius: int = 8
@@ -227,6 +238,38 @@ class AnnotationView(EndviewView):
         self._apply_tool_cursor()
         if prev_mode != mode:
             self.clear_temp_shapes()
+            if prev_mode == "mod" and mode != "mod":
+                self.clear_mod_anchor_points()
+
+    def set_mod_anchor_points(
+        self,
+        points: list[tuple[int, int]],
+        *,
+        active: bool = True,
+        active_index: Optional[int] = None,
+    ) -> None:
+        """Display anchor points for mask modification mode."""
+        self.clear_mod_anchor_points()
+        if not points:
+            return
+        size = 1.0
+        half = size / 2.0
+        for idx, (x, y) in enumerate(points):
+            is_active = bool(active) and (active_index is None or int(active_index) == int(idx))
+            pen = self._mod_anchor_pen_active if is_active else self._mod_anchor_pen_inactive
+            brush = QColor(pen.color())
+            brush.setAlpha(min(255, pen.color().alpha() + 20))
+            item = QGraphicsEllipseItem(float(x) + 0.5 - half, float(y) + 0.5 - half, size, size)
+            item.setPen(pen)
+            item.setBrush(brush)
+            item.setZValue(9)
+            self._scene.addItem(item)
+            self._mod_anchor_items.append(item)
+
+    def clear_mod_anchor_points(self) -> None:
+        for item in self._mod_anchor_items:
+            self._scene.removeItem(item)
+        self._mod_anchor_items.clear()
 
     def _apply_tool_cursor(self) -> None:
         """Set a cursor matching the active tool (paint shows a hollow circle)."""
@@ -280,6 +323,47 @@ class AnnotationView(EndviewView):
     def eventFilter(self, obj: Any, event) -> bool:
         if obj is self._view.viewport():
             if isinstance(event, QMouseEvent):
+                if self._tool_mode == "mod":
+                    coords = self._clamped_scene_coords_from_event(event)
+                    has_modifier = bool(
+                        event.modifiers()
+                        & (
+                            Qt.KeyboardModifier.ShiftModifier
+                            | Qt.KeyboardModifier.ControlModifier
+                            | Qt.KeyboardModifier.AltModifier
+                        )
+                    )
+                    if (
+                        event.type() == QEvent.Type.MouseButtonPress
+                        and event.button() == Qt.MouseButton.LeftButton
+                        and coords is not None
+                        and not has_modifier
+                    ):
+                        self.mod_drag_started.emit(coords)
+                        return True
+                    if (
+                        event.type() == QEvent.Type.MouseMove
+                        and (event.buttons() & Qt.MouseButton.LeftButton)
+                        and coords is not None
+                        and not has_modifier
+                    ):
+                        self.mod_drag_moved.emit(coords)
+                        return True
+                    if (
+                        event.type() == QEvent.Type.MouseButtonRelease
+                        and event.button() == Qt.MouseButton.LeftButton
+                        and not has_modifier
+                    ):
+                        self.mod_drag_finished.emit(coords)
+                        return True
+                    if (
+                        event.type() == QEvent.Type.MouseButtonDblClick
+                        and event.button() == Qt.MouseButton.LeftButton
+                        and coords is not None
+                        and not has_modifier
+                    ):
+                        self.mod_double_clicked.emit(coords)
+                        return True
                 if event.type() == QMouseEvent.Type.MouseButtonPress:
                     if (
                         event.modifiers() & Qt.KeyboardModifier.AltModifier

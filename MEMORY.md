@@ -3110,3 +3110,23 @@ Diff staged du 2026-02-20 sur 6 fichiers (`controllers/corrosion_profile_control
 2. Utiliser un etat `pending edits` dans le service d edition et rediriger Apply ROI vers un commit uniquement en mode corrosion, afin de conserver le comportement ROI existant hors corrosion.
 3. Interpoler les trous (`-1`) des peak maps avant commit/projection pour stabiliser les lignes et limiter les artefacts dans l overlay et la carte de distance.
 4. Exposer des wrappers publics dans `CScanCorrosionService` plutot que d appeler des methodes privees depuis les composants d edition.
+
+
+### **2026-02-23** - Mode Mod masque ancre (edition locale + reactivation double-clic)
+**Tags :** `#branch:annotation`, `#controllers/mask_modification_controller.py`, `#controllers/master_controller.py`, `#services/mask_modification_service.py`, `#views/annotation_view.py`, `#views/tools_panel.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#mvc`, `#pyqt6`, `#opencv`, `#mask-editing`
+
+**Actions effectuees :**
+- Ajout du mode outil `mod` dans le panneau d'outils (UI Qt + wrapper `ToolsPanel`) avec emission de `tool_mode_changed("mod")`.
+- Integration d'un controleur dedie `MaskModificationController` pour orchestrer selection de composant, drag d'ancrages, preview overlay pending, apply/cancel et synchro UI.
+- Integration d'un service metier `MaskModificationService` pour gerer l'etat pending, extraction de contour de composant, ancrages, deformation/drag et commit/cancel des masques.
+- Extension de `AnnotationView` avec signaux d'interaction `mod_*`, rendu des points d'ancrage, et capture d'evenements souris en mode `mod`.
+- Cablage dans `MasterController` (instanciation, connexions des signaux, reset sur changements d'etat/session/corrosion, apply/cancel via flux existant).
+- Ajustements iteratifs du comportement d'ancrage: densite, suppression de doublons, restrictions de drag, puis reactivation du double-clic pour insertion d'ancrage sur segment apres deformation.
+
+**Contexte :**
+Objectif: etendre a l'annotation masque le paradigme d'edition ancree du profil corrosion. Les masques etant des polygones complexes, le flux a ete adapte pour permettre une edition locale controlee avec previsualisation avant application globale. Un probleme d'usage apparaissait apres agrandissement du polygone: de nouveaux espaces visuels ne permettaient pas toujours de recreer des ancrages par double-clic.
+
+**Decisions techniques :**
+1. Isoler la logique d'edition masque dans un service/controleur dedies pour preserver la separation MVC et eviter de surcharger `AnnotationController`.
+2. Conserver un workflow pending non destructif (preview + commit/cancel) pour securiser l'edition interactive avant application finale au volume masque.
+3. Baser l'ajout d'ancrage au double-clic sur la projection sur segment de contour (pas seulement sur sommets existants) afin de pouvoir recreer des ancrages dans les zones etirees apres drag.

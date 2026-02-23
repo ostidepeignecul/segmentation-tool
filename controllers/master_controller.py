@@ -26,6 +26,7 @@ from controllers.cscan_controller import CScanController
 from controllers.corrosion_profile_controller import CorrosionProfileController
 from controllers.dock_layout_controller import DockLayoutController
 from controllers.endview_controller import EndviewController
+from controllers.mask_modification_controller import MaskModificationController
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
@@ -45,6 +46,7 @@ from services.nde_loader import NdeLoader
 from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
 from services.corrosion_profile_edit_service import CorrosionProfileEditService
 from services.corrosion_label_service import CorrosionLabelService
+from services.mask_modification_service import MaskModificationService
 from ui_mainwindow import Ui_MainWindow
 from views.annotation_view import AnnotationView
 from views.corrosion_settings_view import CorrosionSettingsView
@@ -87,6 +89,7 @@ class MasterController:
             cscan_corrosion_service=self.cscan_corrosion_service
         )
         self.corrosion_profile_edit_service = CorrosionProfileEditService()
+        self.mask_modification_service = MaskModificationService()
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
         self.nde_settings_view = NdeSettingsView(self.main_window)
         self.corrosion_settings_view = CorrosionSettingsView(self.main_window)
@@ -168,6 +171,19 @@ class MasterController:
             logger=self.logger,
             get_volume=self._current_volume,
         )
+        self.mask_modification_controller = MaskModificationController(
+            view_state_model=self.view_state_model,
+            annotation_model=self.annotation_model,
+            annotation_view=self.annotation_view,
+            mask_modification_service=self.mask_modification_service,
+            refresh_overlay=self.annotation_controller.refresh_overlay,
+            restore_overlay=lambda: self.annotation_controller.refresh_overlay(
+                defer_volume=True,
+                rebuild=False,
+            ),
+            set_position_label=self.tools_panel.set_position_label,
+            status_message=self.status_message,
+        )
 
         self.cscan_controller = CScanController(
             standard_view=self.cscan_view,
@@ -204,7 +220,7 @@ class MasterController:
             get_volume=self._current_volume,
             set_position_label=self.tools_panel.set_position_label,
             status_message=self.status_message,
-            apply_roi_fallback=self.annotation_controller.on_apply_temp_mask_requested,
+            apply_roi_fallback=self._apply_roi_non_corrosion,
         )
 
         self._connect_actions()
@@ -266,6 +282,7 @@ class MasterController:
             grow_radio=self._tools_ui.radioButton_3,
             line_radio=self._tools_ui.radioButton_5,
             paint_radio=self._tools_ui.radioButton_4,
+            mod_radio=self._tools_ui.radioButton_6,
             paint_slider=self._tools_ui.horizontalSlider_3,
             nde_label=self._tools_ui.label,
             endview_label=self._tools_ui.label_5,
@@ -293,6 +310,7 @@ class MasterController:
         self.tools_panel.slice_changed.connect(self._on_slice_changed)
         self.tools_panel.goto_requested.connect(self._on_goto_requested)
         self.tools_panel.tool_mode_changed.connect(self.annotation_controller.on_tool_mode_changed)
+        self.tools_panel.tool_mode_changed.connect(self.mask_modification_controller.on_tool_mode_changed)
         self.tools_panel.paint_size_changed.connect(self.annotation_controller.on_paint_size_changed)
         self.tools_panel.threshold_changed.connect(self.annotation_controller.on_threshold_changed)
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
@@ -302,7 +320,7 @@ class MasterController:
         self.tools_panel.roi_persistence_toggled.connect(self.annotation_controller.on_roi_persistence_toggled)
         self.tools_panel.roi_recompute_requested.connect(self.annotation_controller.on_roi_recompute_requested)
         self.tools_panel.roi_delete_requested.connect(self.annotation_controller.on_roi_delete_requested)
-        self.tools_panel.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
+        self.tools_panel.selection_cancel_requested.connect(self._on_selection_cancel_requested)
         self.tools_panel.previous_requested.connect(self._on_previous_slice)
         self.tools_panel.next_requested.connect(self._on_next_slice)
         self.tools_panel.apply_roi_requested.connect(
@@ -312,6 +330,9 @@ class MasterController:
         self.tools_panel.label_selected.connect(
             self.corrosion_profile_controller.on_active_label_changed
         )
+        self.tools_panel.label_selected.connect(
+            self.mask_modification_controller.on_active_label_changed
+        )
 
         self.annotation_view.slice_changed.connect(self._on_slice_changed)
         self.annotation_view.mouse_clicked.connect(self.annotation_controller.on_annotation_mouse_clicked)
@@ -320,10 +341,14 @@ class MasterController:
         self.annotation_view.freehand_completed.connect(self.annotation_controller.on_annotation_freehand_completed)
         self.annotation_view.line_drawn.connect(self.annotation_controller.on_annotation_line_drawn)
         self.annotation_view.box_drawn.connect(self.annotation_controller.on_annotation_box_drawn)
+        self.annotation_view.mod_drag_started.connect(self.mask_modification_controller.on_drag_started)
+        self.annotation_view.mod_drag_moved.connect(self.mask_modification_controller.on_drag_moved)
+        self.annotation_view.mod_drag_finished.connect(self.mask_modification_controller.on_drag_finished)
+        self.annotation_view.mod_double_clicked.connect(self.mask_modification_controller.on_double_clicked)
         self.annotation_view.restriction_rect_changed.connect(
             self.annotation_controller.on_restriction_rect_changed
         )
-        self.annotation_view.selection_cancel_requested.connect(self.annotation_controller.on_selection_cancel_requested)
+        self.annotation_view.selection_cancel_requested.connect(self._on_selection_cancel_requested)
         self.annotation_view.point_selected.connect(self._on_endview_point_selected)
         self.annotation_view.drag_update.connect(self._on_endview_drag_update)
         self.annotation_view.apply_roi_requested.connect(
@@ -393,7 +418,7 @@ class MasterController:
             (QKeySequence(Qt.Key.Key_A), self._on_previous_slice),
             (QKeySequence(Qt.Key.Key_D), self._on_next_slice),
             (QKeySequence(Qt.Key.Key_W), self.annotation_controller.on_apply_temp_mask_requested),
-            (QKeySequence(Qt.Key.Key_Escape), self.annotation_controller.on_selection_cancel_requested),
+            (QKeySequence(Qt.Key.Key_Escape), self._on_selection_cancel_requested),
             (QKeySequence(Qt.Key.Key_Return), self.annotation_controller.on_apply_all_temp_masks_requested),
             (QKeySequence(Qt.Key.Key_Enter), self.annotation_controller.on_apply_all_temp_masks_requested),
         ]
@@ -458,6 +483,7 @@ class MasterController:
             self.roi_model.clear()
             self.annotation_controller.sync_overlay_settings()
             self.cscan_controller.reset_corrosion()
+            self.mask_modification_controller.reset()
 
             # Réinitialise les sessions pour éviter les incohérences de shape
             self.session_manager.reset_for_new_dataset(
@@ -524,6 +550,7 @@ class MasterController:
             mask_volume = self.overlay_loader.load(file_path, target_shape=volume.shape)
             self.annotation_model.set_mask_volume(mask_volume, preserve_labels=True)
             self.cscan_controller.reset_corrosion()
+            self.mask_modification_controller.reset()
             self.annotation_controller.sync_overlay_settings()
             self.annotation_controller.refresh_overlay()
             self._sync_tools_labels()
@@ -567,6 +594,7 @@ class MasterController:
             def _apply() -> None:
                 try:
                     self.annotation_controller.reset_overlay_state()
+                    self.mask_modification_controller.reset()
                     self.annotation_model.clear()
                     self.annotation_model.set_mask_volume(result.mask)
                     labels = (
@@ -755,6 +783,7 @@ class MasterController:
     def _on_run_corrosion_analysis(self) -> None:
         """Capture active session state before launching corrosion analysis."""
         self.corrosion_profile_edit_service.reset()
+        self.mask_modification_controller.reset(restore_overlay=True)
         active_id = self.session_manager._active_id  # noqa: SLF001
         if active_id is not None:
             try:
@@ -843,6 +872,18 @@ class MasterController:
         except Exception:
             self.view_state_model.set_roi_thin_line_max_width(0)
 
+    def _apply_roi_non_corrosion(self) -> None:
+        """Apply pending mask edits first, then fallback to ROI/temp apply."""
+        if self.mask_modification_controller.commit_pending_edits():
+            return
+        self.annotation_controller.on_apply_temp_mask_requested()
+
+    def _on_selection_cancel_requested(self) -> None:
+        """Cancel mod pending edits first, then fallback to ROI/temp cancel."""
+        if self.mask_modification_controller.on_selection_cancel_requested():
+            return
+        self.annotation_controller.on_selection_cancel_requested()
+
     def _get_colormap_lut(self, name: str) -> Optional[np.ndarray]:
         """Return LUT (256x3 float) for known colormap names."""
         if str(name).lower() != "omniscan":
@@ -879,6 +920,7 @@ class MasterController:
         self.tools_panel.set_slice_value(clamped)
         self.endview_controller.set_slice(clamped)
         self.annotation_controller.on_slice_changed(clamped)
+        self.mask_modification_controller.on_slice_changed(clamped)
         self.cscan_controller.highlight_slice(clamped)
         self.volume_view.set_slice_index(clamped, update_slider=True)
         self._update_ascan_trace()
@@ -972,6 +1014,7 @@ class MasterController:
         self.tools_panel.set_slice_value(clamped_slice)
         self.endview_controller.set_slice(clamped_slice)
         self.annotation_controller.on_slice_changed(clamped_slice)
+        self.mask_modification_controller.on_slice_changed(clamped_slice)
         self._update_ascan_trace(point=point)
         if point is not None:
             self._on_secondary_slice_changed(point[0])
@@ -1029,6 +1072,7 @@ class MasterController:
             current = None
         self.view_state_model.set_active_label(current)
         self.tools_panel.set_labels(labels, current=current)
+        self.mask_modification_controller.on_active_label_changed(-1 if current is None else int(current))
         self._sync_erase_label_choices()
         self._sync_corrosion_label_choices()
 
@@ -1170,6 +1214,7 @@ class MasterController:
         self.endview_controller.set_slice(slice_idx)
         self.endview_controller.set_secondary_slice(secondary_slice_idx)
         self.annotation_controller.on_slice_changed(slice_idx)
+        self.mask_modification_controller.on_slice_changed(slice_idx)
         self.annotation_controller.ensure_restriction_rect(
             shape=(volume.shape[1], volume.shape[2])
         )
@@ -1259,6 +1304,7 @@ class MasterController:
         """Synchronise l'état du modèle actif vers les vues."""
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
+        self.mask_modification_controller.reset()
         self.endview_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
@@ -1282,6 +1328,7 @@ class MasterController:
         """Crée une session interpolée sans écraser l'état brut."""
         self.corrosion_profile_edit_service.reset()
         # 1) Met à jour la session active avec le résultat brut (projection déjà active)
+        self.mask_modification_controller.reset()
         self.view_state_model.corrosion_interpolated_projection = None
         self.view_state_model.corrosion_overlay_volume = result.overlay_volume
         self.view_state_model.corrosion_overlay_palette = result.overlay_palette

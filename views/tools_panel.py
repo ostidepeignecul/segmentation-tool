@@ -55,6 +55,7 @@ class ToolsPanel(QFrame):
         self._grow_radio: Optional[QRadioButton] = None
         self._line_radio: Optional[QRadioButton] = None
         self._paint_radio: Optional[QRadioButton] = None
+        self._mod_radio: Optional[QRadioButton] = None
         self._paint_size_slider: Optional[QSlider] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
@@ -90,6 +91,7 @@ class ToolsPanel(QFrame):
         line_radio: QRadioButton,
         paint_radio: QRadioButton,
         paint_slider: QSlider,
+        mod_radio: Optional[QRadioButton] = None,
         nde_label: QLabel,
         endview_label: QLabel,
         position_label: QLabel,
@@ -123,6 +125,7 @@ class ToolsPanel(QFrame):
         self._grow_radio = grow_radio
         self._line_radio = line_radio
         self._paint_radio = paint_radio
+        self._mod_radio = mod_radio
         self._paint_size_slider = paint_slider
         self._overlay_checkbox = overlay_checkbox
         self._cross_checkbox = cross_checkbox
@@ -174,6 +177,10 @@ class ToolsPanel(QFrame):
         self._paint_radio.toggled.connect(
             lambda checked: checked and self.tool_mode_changed.emit("paint")
         )
+        if self._mod_radio is not None:
+            self._mod_radio.toggled.connect(
+                lambda checked: checked and self.tool_mode_changed.emit("mod")
+            )
         if self._paint_size_slider is not None:
             self._paint_size_slider.setMinimum(1)
             self._paint_size_slider.setMaximum(50)
@@ -279,6 +286,7 @@ class ToolsPanel(QFrame):
             "grow": self._grow_radio,
             "line": self._line_radio,
             "paint": self._paint_radio,
+            "mod": self._mod_radio,
         }
         target = mapping.get(mode)
         if not target:
