@@ -99,6 +99,20 @@ class CScanController:
         if self.standard_view is not None:
             self.standard_view.set_colormap(name, lut)
 
+    def reset_display_size(self) -> None:
+        if self.standard_view is not None:
+            self.standard_view.reset_display_size()
+        if self.corrosion_view is not None:
+            self.corrosion_view.reset_display_size()
+
+    def set_display_size(self, width: int, height: int) -> None:
+        w = int(width)
+        h = int(height)
+        if self.standard_view is not None:
+            self.standard_view.set_display_size(w, h)
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_display_size(w, h)
+
     def on_crosshair_changed(
         self,
         *,

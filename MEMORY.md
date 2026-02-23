@@ -3130,3 +3130,23 @@ Objectif: etendre a l'annotation masque le paradigme d'edition ancree du profil 
 1. Isoler la logique d'edition masque dans un service/controleur dedies pour preserver la separation MVC et eviter de surcharger `AnnotationController`.
 2. Conserver un workflow pending non destructif (preview + commit/cancel) pour securiser l'edition interactive avant application finale au volume masque.
 3. Baser l'ajout d'ancrage au double-clic sur la projection sur segment de contour (pas seulement sur sommets existants) afin de pouvoir recreer des ancrages dans les zones etirees apres drag.
+
+
+### **2026-02-23** - Resize multi-vues et Piece3D basee distance avec switch legacy
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#controllers/cscan_controller.py`, `#services/cscan_corrosion_service.py`, `#views/cscan_view.py`, `#views/volume_view.py`, `#views/piece3d_view.py`, `#resize`, `#cscan`, `#volume3d`, `#piece3d`, `#distance-map`, `#prism`, `#vispy`, `#mvc`
+
+**Actions effectuees :**
+- Extension du resize Affichage pour appliquer la deformation visuelle aussi a C-scan et a VolumeView, avec reset/apply centralises dans MasterController.
+- Ajout dans CScanView et CScanController de get/set/reset display size pour harmoniser le comportement avec Endview.
+- Ajout dans VolumeView de la deformation XY basee display size (factors X/Y), propagation dans les transforms VisPy et rescale de camera pour conserver la navigation.
+- Remplacement de la geometrie Piece3D par un volume prismatique construit uniquement depuis distance_map et interpolated_distance_map.
+- Conservation du pipeline legacy BW/FW en parallele (raw/interpole) et propagation des deux familles de volumes dans les resultats corrosion/workflow.
+- Refactor de Piece3DView avec menu contextuel Geometrie pour switcher entre Prisme distance et Volume BW/FW, tout en conservant le toggle brut/interpole.
+
+**Contexte :**
+Le rendu Piece3D base sur la peinture BW/FW donnait une impression de shift geometrique liee aux masques traces. L objectif est de representer la piece depuis les distances mesurees (logique inspection), tout en gardant une comparaison directe avec le rendu legacy via un switch de source.
+
+**Decisions techniques :**
+1. Definir la geometrie par defaut de Piece3D sur un prisme distance (hauteur derivee de max distance, remplissage colonne par colonne, NaN converti a 0) pour decoupler la forme du trace masque.
+2. Garder les volumes legacy BW/FW dans le workflow et exposer un switch contextuel dans Piece3DView pour valider visuellement les ecarts et limiter le risque de regression terrain.
+3. Conserver le bouton brut/interpole independamment de la source geometrique et un calcul d ancre tolerant (premier volume non vide) pour stabiliser le recentrage camera.

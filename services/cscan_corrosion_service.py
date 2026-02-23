@@ -35,6 +35,8 @@ class CorrosionAnalysisResult:
     overlay_npz_path: Optional[str]
     piece_volume_raw: Optional[np.ndarray] = None
     piece_volume_interpolated: Optional[np.ndarray] = None
+    piece_volume_legacy_raw: Optional[np.ndarray] = None
+    piece_volume_legacy_interpolated: Optional[np.ndarray] = None
     piece_anchor: Optional[Tuple[float, float, float]] = None
 
 
@@ -169,17 +171,24 @@ class CScanCorrosionService(CScanService):
             color_B: tuple(int(c) for c in color_b_bgra),
         }
 
-        piece_volume_raw = self._build_solid_volume(
+        piece_volume_legacy_raw = self._build_solid_volume(
             mask_stack=mask_stack,
             class_A_id=class_A_id,
             class_B_id=class_B_id,
         )
-        piece_volume_interpolated = self._build_solid_volume(
+        piece_volume_legacy_interpolated = self._build_solid_volume(
             mask_stack=lines_overlay,
             class_A_id=color_A,
             class_B_id=color_B,
         )
-        piece_anchor = self._compute_piece_anchor(piece_volume_raw, piece_volume_interpolated)
+        piece_volume_raw = self._build_prismatic_piece_from_distance_map(distance_map)
+        piece_volume_interpolated = self._build_prismatic_piece_from_distance_map(interpolated_distance_map)
+        piece_anchor = self._compute_piece_anchor(
+            piece_volume_interpolated,
+            piece_volume_raw,
+            piece_volume_legacy_interpolated,
+            piece_volume_legacy_raw,
+        )
 
         self._logger.info("=== ANALYSE CORROSION : terminée ===")
         self._log_progress(1.0, "Terminé")
@@ -198,6 +207,8 @@ class CScanCorrosionService(CScanService):
             overlay_npz_path=None,
             piece_volume_raw=piece_volume_raw,
             piece_volume_interpolated=piece_volume_interpolated,
+            piece_volume_legacy_raw=piece_volume_legacy_raw,
+            piece_volume_legacy_interpolated=piece_volume_legacy_interpolated,
             piece_anchor=piece_anchor,
         )
 
@@ -530,6 +541,32 @@ class CScanCorrosionService(CScanService):
         bar = "#" * filled + "-" * (20 - filled)
         self._logger.info("[Corrosion][%3d%%] [%s] %s", int(frac * 100), bar, label)
 
+    def _build_prismatic_piece_from_distance_map(
+        self,
+        distance_map: np.ndarray,
+    ) -> np.ndarray:
+        """Build a rectangular prism volume from a (Z, X) distance map only."""
+        data = np.asarray(distance_map, dtype=np.float32)
+        if data.ndim != 2:
+            raise ValueError(f"Distance map attendu 2D (Z,W), recu shape {data.shape}")
+
+        depth, width = data.shape
+        finite = data[np.isfinite(data)]
+        finite = finite[finite > 0.0]
+        if finite.size == 0:
+            return np.zeros((depth, 1, width), dtype=np.float32)
+
+        height = max(1, int(np.ceil(float(np.max(finite)))))
+        clipped = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
+        clipped = np.maximum(clipped, 0.0)
+        column_heights = np.ceil(clipped).astype(np.int32)
+        column_heights = np.clip(column_heights, 0, height)
+
+        # For each (z, x), fill y in [0, column_heights[z, x]).
+        y_indices = np.arange(height, dtype=np.int32)[None, :, None]
+        solid = (y_indices < column_heights[:, None, :]).astype(np.float32)
+        return solid
+
     def _build_solid_volume(
         self,
         *,
@@ -618,14 +655,14 @@ class CScanCorrosionService(CScanService):
 
     def _compute_piece_anchor(
         self,
-        primary: Optional[np.ndarray],
-        fallback: Optional[np.ndarray],
+        *candidates: Optional[np.ndarray],
     ) -> Optional[Tuple[float, float, float]]:
-        """Compute anchor from the primary solid volume, fallback to interpolated."""
-        anchor = self._compute_center_of_mass(primary)
-        if anchor is None:
-            anchor = self._compute_center_of_mass(fallback)
-        return anchor
+        """Compute anchor from first non-empty candidate volume."""
+        for volume in candidates:
+            anchor = self._compute_center_of_mass(volume)
+            if anchor is not None:
+                return anchor
+        return None
 
 
 @dataclass
@@ -647,6 +684,8 @@ class CorrosionWorkflowResult:
     overlay_palette: Optional[Dict[int, Tuple[int, int, int, int]]] = None
     piece_volume_raw: Optional[np.ndarray] = None
     piece_volume_interpolated: Optional[np.ndarray] = None
+    piece_volume_legacy_raw: Optional[np.ndarray] = None
+    piece_volume_legacy_interpolated: Optional[np.ndarray] = None
     piece_anchor: Optional[Tuple[float, float, float]] = None
 
 
@@ -797,6 +836,8 @@ class CorrosionWorkflowService:
                 overlay_palette=result.overlay_palette,
                 piece_volume_raw=result.piece_volume_raw,
                 piece_volume_interpolated=result.piece_volume_interpolated,
+                piece_volume_legacy_raw=result.piece_volume_legacy_raw,
+                piece_volume_legacy_interpolated=result.piece_volume_legacy_interpolated,
                 piece_anchor=result.piece_anchor,
             )
 

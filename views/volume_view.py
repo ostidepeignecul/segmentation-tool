@@ -195,6 +195,7 @@ class VolumeView(QFrame):
         self._overlay_timer.timeout.connect(self._apply_pending_overlay_volume)
         self._pending_overlay_apply = False
         self._pending_overlay_labels: Optional[set[int]] = None
+        self._display_size: Optional[Tuple[int, int]] = None
         # Rebuild scene after dock/undock transitions to avoid stale GL state.
         self._dock_rebuild_timer = QTimer(self)
         self._dock_rebuild_timer.setSingleShot(True)
@@ -282,6 +283,27 @@ class VolumeView(QFrame):
             self._volume_visual.cmap = self._base_colormap
         # self._slice_image uses direct RGBA, so no colormap needed.
         pass
+
+    def get_display_size(self) -> Tuple[int, int]:
+        """Return requested display size or current viewport size."""
+        if self._display_size is not None:
+            return self._display_size
+        size = self._canvas.native.size()
+        return size.width(), size.height()
+
+    def set_display_size(self, width: int, height: int) -> None:
+        """Apply visual deformation in XY without changing underlying volume data."""
+        width = max(1, int(width))
+        height = max(1, int(height))
+        previous_scale = self._display_scale_factors()
+        self._display_size = (width, height)
+        self._on_display_scale_changed(previous_scale=previous_scale)
+
+    def reset_display_size(self) -> None:
+        """Reset 3D display deformation to default proportions."""
+        previous_scale = self._display_scale_factors()
+        self._display_size = None
+        self._on_display_scale_changed(previous_scale=previous_scale)
 
     def notify_dock_topology_changed(self) -> None:
         """Schedule a scene rebuild after docking/floating transitions."""
@@ -661,13 +683,16 @@ class VolumeView(QFrame):
         # Just update transform to place it at the correct Z
         height = self._volume.shape[1]
         width = self._volume.shape[2]
+        scale_x, scale_y = self._display_scale_factors()
+        width_scaled = float(width) * float(scale_x)
+        height_scaled = float(height) * float(scale_y)
         # Scale the 1x1 pixel to cover the full width/height
         # scale=(-width, -height) because of the existing flip logic
         self._slice_image.transform = STTransform(
-            scale=(-float(width), -float(height), 1.0),
+            scale=(-width_scaled, -height_scaled, 1.0),
             translate=(
-                float(width),
-                float(height),
+                width_scaled,
+                height_scaled,
                 float(self._current_slice),
             ),
         )
@@ -819,17 +844,94 @@ class VolumeView(QFrame):
         # Extract the 2D plane: shape (height, width)
         return self._norm_volume[clamped]
 
+    def _display_scale_factors(self) -> Tuple[float, float]:
+        """Compute XY deformation factors from the requested display size."""
+        if self._volume is None or self._display_size is None:
+            return (1.0, 1.0)
+        target_w, target_h = self._display_size
+        base_w = max(1.0, float(self._volume.shape[2]))
+        base_h = max(1.0, float(self._volume.shape[1]))
+        return (float(target_w) / base_w, float(target_h) / base_h)
+
+    def _on_display_scale_changed(self, *, previous_scale: Tuple[float, float]) -> None:
+        if self._volume is None:
+            return
+        new_scale = self._display_scale_factors()
+        self._apply_visual_transform()
+        self._rescale_camera_for_display_scale(
+            previous_scale=previous_scale,
+            new_scale=new_scale,
+        )
+        self._update_overlay_image()
+        try:
+            self._canvas.update()
+        except Exception:
+            pass
+
+    def _rescale_camera_for_display_scale(
+        self,
+        *,
+        previous_scale: Tuple[float, float],
+        new_scale: Tuple[float, float],
+    ) -> None:
+        if self._view.camera is None or self._volume is None:
+            return
+        depth, height, width = self._volume.shape[:3]
+        new_x_max = float(width) * float(new_scale[0])
+        new_y_max = float(height) * float(new_scale[1])
+        if new_x_max <= 0.0 or new_y_max <= 0.0:
+            return
+
+        prev_x = max(1e-6, float(previous_scale[0]))
+        prev_y = max(1e-6, float(previous_scale[1]))
+        ratio_x = float(new_scale[0]) / prev_x
+        ratio_y = float(new_scale[1]) / prev_y
+
+        center = getattr(self._view.camera, "center", None)
+        if center is None:
+            cx = new_x_max / 2.0
+            cy = new_y_max / 2.0
+            cz = float(max(0, min(depth - 1, int(self._current_slice))))
+        else:
+            try:
+                cx = float(center[0]) * ratio_x
+                cy = float(center[1]) * ratio_y
+                cz = float(center[2])
+            except Exception:
+                cx = new_x_max / 2.0
+                cy = new_y_max / 2.0
+                cz = float(max(0, min(depth - 1, int(self._current_slice))))
+        cx = max(0.0, min(new_x_max, cx))
+        cy = max(0.0, min(new_y_max, cy))
+        cz = max(0.0, min(float(depth - 1), cz))
+
+        try:
+            self._view.camera.set_range(
+                x=(0.0, new_x_max),
+                y=(0.0, new_y_max),
+                z=(0.0, float(depth)),
+            )
+        except Exception:
+            return
+        try:
+            self._view.camera.center = (cx, cy, cz)
+        except Exception:
+            pass
+
     def _configure_camera(self, depth: int, height: int, width: int) -> None:
         """Configure the camera so that slices face the user and the volume fills the view."""
         if self._view.camera is None:
             return
+        scale_x, scale_y = self._display_scale_factors()
+        width_scaled = float(width) * float(scale_x)
+        height_scaled = float(height) * float(scale_y)
         # Centre initial: milieu du volume, avec z sur la slice courante
-        center = (width / 2.0, height / 2.0, float(self._current_slice))
+        center = (width_scaled / 2.0, height_scaled / 2.0, float(self._current_slice))
         self._view.camera.up = "+y"
         # Set the ranges along each axis
         self._view.camera.set_range(
-            x=(0.0, float(width)),
-            y=(0.0, float(height)),
+            x=(0.0, width_scaled),
+            y=(0.0, height_scaled),
             z=(0.0, float(depth)),
         )
         # Centre the view on the middle slice
@@ -842,11 +944,14 @@ class VolumeView(QFrame):
         if self._view.camera is None or self._volume is None:
             return
         depth, height, width = self._volume.shape[:3]
+        scale_x, scale_y = self._display_scale_factors()
+        width_scaled = float(width) * float(scale_x)
+        height_scaled = float(height) * float(scale_y)
         # Focus : centre de la slice courante (x/y au centre, z = index de slice)
         z_focus = max(0, min(depth - 1, int(self._current_slice)))
         self._view.camera.center = (
-            width / 2.0,
-            height / 2.0,
+            width_scaled / 2.0,
+            height_scaled / 2.0,
             float(z_focus),
         )
 
@@ -856,9 +961,12 @@ class VolumeView(QFrame):
             return
         height = self._volume.shape[1]
         width = self._volume.shape[2]
+        scale_x, scale_y = self._display_scale_factors()
+        width_scaled = float(width) * float(scale_x)
+        height_scaled = float(height) * float(scale_y)
         flip = STTransform(
-            scale=(-1.0, -1.0, 1.0),
-            translate=(float(width), float(height), 0.0),
+            scale=(-float(scale_x), -float(scale_y), 1.0),
+            translate=(width_scaled, height_scaled, 0.0),
         )
         if self._volume_visual is not None:
             self._volume_visual.transform = flip
@@ -872,10 +980,10 @@ class VolumeView(QFrame):
         if self._slice_image is not None:
             # Scale 1x1 pixel to full size
             self._slice_image.transform = STTransform(
-                scale=(-float(width), -float(height), 1.0),
+                scale=(-width_scaled, -height_scaled, 1.0),
                 translate=(
-                    float(width),
-                    float(height),
+                    width_scaled,
+                    height_scaled,
                     float(self._current_slice),
                 ),
             )
@@ -890,11 +998,14 @@ class VolumeView(QFrame):
             return STTransform()
         height = self._volume.shape[1]
         width = self._volume.shape[2]
+        scale_x, scale_y = self._display_scale_factors()
+        width_scaled = float(width) * float(scale_x)
+        height_scaled = float(height) * float(scale_y)
         return STTransform(
-            scale=(-1.0, -1.0, 1.0),
+            scale=(-float(scale_x), -float(scale_y), 1.0),
             translate=(
-                float(width),
-                float(height),
+                width_scaled,
+                height_scaled,
                 float(self._current_slice),
             ),
         )

@@ -39,6 +39,7 @@ class CScanView(QFrame):
         self._value_scale_mm: Optional[float] = None
         self._panning: bool = False
         self._pan_last = QPointF()
+        self._display_size: Optional[Tuple[int, int]] = None
 
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
@@ -47,6 +48,10 @@ class CScanView(QFrame):
         self._view.viewport().installEventFilter(self)
         self._view.setMouseTracking(True)
         self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self._default_view_min_size = self._view.minimumSize()
+        self._default_view_max_size = self._view.maximumSize()
+        self._default_self_min_size = self.minimumSize()
+        self._default_self_max_size = self.maximumSize()
 
         self._pixmap_item = QGraphicsPixmapItem()
         self._scene.addItem(self._pixmap_item)
@@ -117,6 +122,7 @@ class CScanView(QFrame):
             projection.shape[1] // 2,
         )
         self._render_pixmap()
+        self._apply_display_scale()
         self._update_cursor(*self._current_crosshair)
 
         if colormaps:
@@ -255,6 +261,54 @@ class CScanView(QFrame):
         """Show or hide the crosshair lines."""
         self._cursor_h.setVisible(visible)
         self._cursor_v.setVisible(visible)
+
+    def get_display_size(self) -> Tuple[int, int]:
+        """Return the requested display size, defaults to current viewport size."""
+        if self._display_size is not None:
+            return self._display_size
+        size = self._view.viewport().size()
+        return size.width(), size.height()
+
+    def set_display_size(self, width: int, height: int) -> None:
+        """Apply visual stretch on the C-scan view without changing underlying data."""
+        width = max(1, int(width))
+        height = max(1, int(height))
+        self._display_size = (width, height)
+        self._view.setMinimumSize(self._default_view_min_size)
+        self._view.setMaximumSize(self._default_view_max_size)
+        self.setMinimumSize(self._default_self_min_size)
+        self.setMaximumSize(self._default_self_max_size)
+        self.updateGeometry()
+        self._apply_display_scale()
+
+    def reset_display_size(self) -> None:
+        """Reset visual stretch and return to default transform."""
+        self._display_size = None
+        self._view.setMinimumSize(self._default_view_min_size)
+        self._view.setMaximumSize(self._default_view_max_size)
+        self.setMinimumSize(self._default_self_min_size)
+        self.setMaximumSize(self._default_self_max_size)
+        self.updateGeometry()
+        self._view.setTransform(QTransform())
+        if self._projection is not None:
+            self._view.centerOn(self._pixmap_item)
+
+    def _apply_display_scale(self) -> None:
+        if self._display_size is None:
+            return
+        rect = self._pixmap_item.boundingRect()
+        if rect.isEmpty():
+            return
+        target_w, target_h = self._display_size
+        base_w = max(1.0, rect.width())
+        base_h = max(1.0, rect.height())
+        scale_x = float(target_w) / base_w
+        scale_y = float(target_h) / base_h
+        if abs(scale_x) < 1e-6 or abs(scale_y) < 1e-6:
+            return
+        self._view.setTransform(QTransform())
+        self._view.scale(scale_x, scale_y)
+        self._view.centerOn(rect.center())
 
     def _update_status(self, z: int, x: int) -> None:
         """Refresh header label with current coordinates and pixel value."""

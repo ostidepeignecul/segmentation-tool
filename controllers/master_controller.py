@@ -98,6 +98,8 @@ class MasterController:
         self._piece_toggle_btn: Optional[QPushButton] = None
         self._piece_volume_raw: Optional[np.ndarray] = None
         self._piece_volume_interpolated: Optional[np.ndarray] = None
+        self._piece_volume_legacy_raw: Optional[np.ndarray] = None
+        self._piece_volume_legacy_interpolated: Optional[np.ndarray] = None
         self._piece_anchor: Optional[tuple[float, float, float]] = None
         self._piece_show_interpolated: bool = True
         self._shortcuts: list[QShortcut] = []
@@ -429,7 +431,7 @@ class MasterController:
             self._shortcuts.append(sc)
 
     def _on_resize_endview(self) -> None:
-        """Open a dialog to resize only the displayed endview viewport."""
+        """Open a dialog to resize displayed endview, C-scan, and 3D volume views."""
         if self.annotation_view is None:
             return
         current_size = self.annotation_view.get_display_size()
@@ -438,9 +440,15 @@ class MasterController:
         if result == QDialog.DialogCode.Accepted:
             if dialog.wants_reset():
                 self.endview_controller.reset_display_size()
+                self.cscan_controller.reset_display_size()
+                if self.volume_view is not None:
+                    self.volume_view.reset_display_size()
             else:
                 width, height = dialog.get_size()
                 self.endview_controller.set_display_size(width, height)
+                self.cscan_controller.set_display_size(width, height)
+                if self.volume_view is not None:
+                    self.volume_view.set_display_size(width, height)
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
@@ -1404,13 +1412,24 @@ class MasterController:
 
         self._after_session_switch()
         self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
-        if (result.piece_volume_raw is not None and result.piece_volume_raw.size > 0) or (
+        has_distance = (
+            result.piece_volume_raw is not None and result.piece_volume_raw.size > 0
+        ) or (
             result.piece_volume_interpolated is not None and result.piece_volume_interpolated.size > 0
-        ):
+        )
+        has_legacy = (
+            result.piece_volume_legacy_raw is not None and result.piece_volume_legacy_raw.size > 0
+        ) or (
+            result.piece_volume_legacy_interpolated is not None
+            and result.piece_volume_legacy_interpolated.size > 0
+        )
+        if has_distance or has_legacy:
             self._piece_anchor = result.piece_anchor
             self._show_piece3d_volume(
                 raw_volume=result.piece_volume_raw,
                 interpolated_volume=result.piece_volume_interpolated,
+                legacy_raw_volume=result.piece_volume_legacy_raw,
+                legacy_interpolated_volume=result.piece_volume_legacy_interpolated,
             )
 
     def _current_volume(self) -> Optional[Any]:
@@ -1443,7 +1462,7 @@ class MasterController:
         self._piece3d_window.finished.connect(self._on_piece3d_window_closed)
         layout = QVBoxLayout(self._piece3d_window)
         self._piece3d_view = Piece3DView(parent=self._piece3d_window)
-        self._piece_toggle_btn = QPushButton("Montrer volume interpolé", parent=self._piece3d_window)
+        self._piece_toggle_btn = QPushButton("Afficher version brute", parent=self._piece3d_window)
         self._piece_toggle_btn.clicked.connect(self._toggle_piece_volume)
         layout.addWidget(self._piece3d_view)
         layout.addWidget(self._piece_toggle_btn)
@@ -1454,22 +1473,29 @@ class MasterController:
         if self._piece3d_view is None or self._piece3d_window is None:
             return
 
-        volume = None
-        if self._piece_show_interpolated and self._piece_volume_interpolated is not None:
-            volume = self._piece_volume_interpolated
-        elif (not self._piece_show_interpolated) and self._piece_volume_raw is not None:
-            volume = self._piece_volume_raw
-        elif self._piece_volume_interpolated is not None:
+        has_interp = (
+            self._piece_volume_interpolated is not None and self._piece_volume_interpolated.size > 0
+        ) or (
+            self._piece_volume_legacy_interpolated is not None
+            and self._piece_volume_legacy_interpolated.size > 0
+        )
+        has_raw = (self._piece_volume_raw is not None and self._piece_volume_raw.size > 0) or (
+            self._piece_volume_legacy_raw is not None and self._piece_volume_legacy_raw.size > 0
+        )
+        if has_interp:
             self._piece_show_interpolated = True
-            volume = self._piece_volume_interpolated
-        elif self._piece_volume_raw is not None:
+        elif has_raw:
             self._piece_show_interpolated = False
-            volume = self._piece_volume_raw
 
-        if volume is not None:
-            self._piece3d_view.set_anchor_point(self._piece_anchor)
-            self._piece3d_view.set_piece_volume(volume)
-            self._update_piece_toggle_label()
+        self._piece3d_view.set_piece_volume_sources(
+            distance_raw=self._piece_volume_raw,
+            distance_interpolated=self._piece_volume_interpolated,
+            legacy_raw=self._piece_volume_legacy_raw,
+            legacy_interpolated=self._piece_volume_legacy_interpolated,
+        )
+        self._piece3d_view.set_piece_show_interpolated(self._piece_show_interpolated)
+        self._piece3d_view.set_anchor_point(self._piece_anchor)
+        self._update_piece_toggle_label()
 
         self._piece3d_window.show()
         self._piece3d_window.raise_()
@@ -1491,6 +1517,8 @@ class MasterController:
         *,
         raw_volume: Optional[np.ndarray],
         interpolated_volume: Optional[np.ndarray],
+        legacy_raw_volume: Optional[np.ndarray],
+        legacy_interpolated_volume: Optional[np.ndarray],
     ) -> None:
         """Affiche ou met à jour la fenêtre flottante de la pièce 3D corrosion."""
         self._ensure_piece3d_window()
@@ -1501,46 +1529,61 @@ class MasterController:
         self._piece_volume_interpolated = (
             interpolated_volume.astype(np.float32) if interpolated_volume is not None else None
         )
+        self._piece_volume_legacy_raw = (
+            legacy_raw_volume.astype(np.float32) if legacy_raw_volume is not None else None
+        )
+        self._piece_volume_legacy_interpolated = (
+            legacy_interpolated_volume.astype(np.float32)
+            if legacy_interpolated_volume is not None
+            else None
+        )
 
-        # Choix initial : interpolé si disponible, sinon brut
-        if self._piece_volume_interpolated is not None:
+        has_interp = (
+            self._piece_volume_interpolated is not None and self._piece_volume_interpolated.size > 0
+        ) or (
+            self._piece_volume_legacy_interpolated is not None
+            and self._piece_volume_legacy_interpolated.size > 0
+        )
+        has_raw = (self._piece_volume_raw is not None and self._piece_volume_raw.size > 0) or (
+            self._piece_volume_legacy_raw is not None and self._piece_volume_legacy_raw.size > 0
+        )
+        if has_interp:
             self._piece_show_interpolated = True
-            current = self._piece_volume_interpolated
-        else:
+        elif has_raw:
             self._piece_show_interpolated = False
-            current = self._piece_volume_raw
 
-        if current is not None:
-            self._piece3d_view.set_anchor_point(self._piece_anchor)
-            self._piece3d_view.set_piece_volume(current)
-            self._update_piece_toggle_label()
-            self._show_piece3d_window()
+        self._show_piece3d_window()
 
     def _toggle_piece_volume(self) -> None:
         """Bascule entre volume brut et volume interpolé si les deux sont disponibles."""
         if self._piece3d_view is None:
             return
 
-        has_interp = self._piece_volume_interpolated is not None and self._piece_volume_interpolated.size > 0
-        has_raw = self._piece_volume_raw is not None and self._piece_volume_raw.size > 0
+        has_interp = (
+            self._piece_volume_interpolated is not None and self._piece_volume_interpolated.size > 0
+        ) or (
+            self._piece_volume_legacy_interpolated is not None
+            and self._piece_volume_legacy_interpolated.size > 0
+        )
+        has_raw = (self._piece_volume_raw is not None and self._piece_volume_raw.size > 0) or (
+            self._piece_volume_legacy_raw is not None and self._piece_volume_legacy_raw.size > 0
+        )
         if not (has_interp and has_raw):
             return
 
         self._piece_show_interpolated = not self._piece_show_interpolated
-        volume = self._piece_volume_interpolated if self._piece_show_interpolated else self._piece_volume_raw
-        if volume is not None:
-            self._piece3d_view.set_anchor_point(self._piece_anchor)
-            self._piece3d_view.set_piece_volume(volume)
-            self._update_piece_toggle_label()
+        self._piece3d_view.set_piece_show_interpolated(self._piece_show_interpolated)
+        self._piece3d_view.set_anchor_point(self._piece_anchor)
+        self._update_piece_toggle_label()
 
     def _update_piece_toggle_label(self) -> None:
         """Met à jour le texte du bouton selon le volume affiché."""
         if self._piece_toggle_btn is None:
             return
         if self._piece_show_interpolated:
-            self._piece_toggle_btn.setText("Afficher volume brut BW/FW")
+            self._piece_toggle_btn.setText("Afficher version brute")
         else:
-            self._piece_toggle_btn.setText("Afficher volume interpolé BW/FW")
+            self._piece_toggle_btn.setText("Afficher version interpolee")
 
     def _update_nde_label(self) -> None:
         """Reflect the opened NDE file into the tools panel label."""
@@ -1575,4 +1618,3 @@ class MasterController:
             point=point,
         )
         self._sync_secondary_endview_state()
-
