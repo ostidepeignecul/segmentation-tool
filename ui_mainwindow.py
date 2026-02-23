@@ -71,6 +71,8 @@ class Ui_MainWindow(object):
         self.actionAfficher_solide_3d.setObjectName("actionAfficher_solide_3d")
         self.actionParam_tres_3 = QtGui.QAction(parent=MainWindow)
         self.actionParam_tres_3.setObjectName("actionParam_tres_3")
+        self.actionR_initialisation_docks = QtGui.QAction(parent=MainWindow)
+        self.actionR_initialisation_docks.setObjectName("actionR_initialisation_docks")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addAction(self.actionSauvegarder)
         self.menuFichier.addSeparator()
@@ -89,6 +91,7 @@ class Ui_MainWindow(object):
         self.menuInference.addAction(self.actionnnunet)
         self.menuAffichage.addAction(self.actionToggle_tools_panel)
         self.menuAffichage.addAction(self.actionResize_endview)
+        self.menuAffichage.addAction(self.actionR_initialisation_docks)
         self.menuSession.addAction(self.actionSession_selector)
         self.menubar.addAction(self.menuFichier.menuAction())
         self.menubar.addAction(self.menuAffichage.menuAction())
@@ -126,6 +129,7 @@ class Ui_MainWindow(object):
         self.actionResize_endview.setText(_translate("MainWindow", "Resize endview"))
         self.actionAfficher_solide_3d.setText(_translate("MainWindow", "Afficher solide 3d"))
         self.actionParam_tres_3.setText(_translate("MainWindow", "Paramètres"))
+        self.actionR_initialisation_docks.setText(_translate("MainWindow", "Réinitialisation docks"))
 
 
 if __name__ == "__main__":

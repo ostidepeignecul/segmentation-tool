@@ -81,6 +81,7 @@ class DockLayoutController:
         self.annotation_stack: Optional[QStackedLayout] = None
         self.secondary_annotation_stack: Optional[QStackedLayout] = None
         self._tools_toggle_action: Optional[QAction] = None
+        self._default_layout_state: Optional[QByteArray] = None
 
         self._configure_docks()
         self._build_default_layout()
@@ -167,8 +168,40 @@ class DockLayoutController:
 
     def _initialize_layout_state(self) -> None:
         """Restore previous dock layout when available, fallback to defaults."""
+        self._apply_default_splitter_sizes()
+        self._default_layout_state = self.dock_manager.saveState(self._LAYOUT_STATE_VERSION)
         if self.restore_layout_state():
             return
+
+    def _all_docks(self) -> tuple[ads.CDockWidget, ...]:
+        return (
+            self.tools_dock,
+            self.ucoordinate_dock,
+            self.vcoordinate_dock,
+            self.ascan_dock,
+            self.cscan_dock,
+            self.volume_dock,
+        )
+
+    def reset_layout_to_default(self) -> None:
+        """Restore the default dock arrangement and reopen closed docks."""
+        settings = self._settings()
+        self._clear_saved_layout_state(settings)
+
+        if self._default_layout_state is None:
+            self._apply_default_splitter_sizes()
+            self._default_layout_state = self.dock_manager.saveState(self._LAYOUT_STATE_VERSION)
+
+        if self._default_layout_state is not None:
+            self.dock_manager.restoreState(self._default_layout_state, self._LAYOUT_STATE_VERSION)
+
+        for dock in self._all_docks():
+            if dock.isClosed():
+                dock.toggleView(True)
+
+        # Keep menu action in sync if the tools dock changed visibility.
+        self._on_tools_view_toggled(not self.tools_dock.isClosed())
+
         self._apply_default_splitter_sizes()
 
     def _settings(self) -> QSettings:

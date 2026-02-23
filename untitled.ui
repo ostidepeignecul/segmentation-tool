@@ -67,6 +67,7 @@
     </property>
     <addaction name="actionToggle_tools_panel"/>
     <addaction name="actionResize_endview"/>
+    <addaction name="actionR_initialisation_docks"/>
    </widget>
    <widget class="QMenu" name="menuSession">
     <property name="title">
@@ -165,6 +166,11 @@
   <action name="actionParam_tres_3">
    <property name="text">
     <string>Paramètres</string>
+   </property>
+  </action>
+  <action name="actionR_initialisation_docks">
+   <property name="text">
+    <string>Réinitialisation docks</string>
    </property>
   </action>
  </widget>

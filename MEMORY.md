@@ -3150,3 +3150,20 @@ Le rendu Piece3D base sur la peinture BW/FW donnait une impression de shift geom
 1. Definir la geometrie par defaut de Piece3D sur un prisme distance (hauteur derivee de max distance, remplissage colonne par colonne, NaN converti a 0) pour decoupler la forme du trace masque.
 2. Garder les volumes legacy BW/FW dans le workflow et exposer un switch contextuel dans Piece3DView pour valider visuellement les ecarts et limiter le risque de regression terrain.
 3. Conserver le bouton brut/interpole independamment de la source geometrique et un calcul d ancre tolerant (premier volume non vide) pour stabiliser le recentrage camera.
+
+### **2026-02-23** - Reinitialisation manuelle des docks ADS depuis le menu Affichage
+**Tags :** `#branch:annotation`, `#controllers/dock_layout_controller.py`, `#controllers/master_controller.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#ads`, `#dock-layout`, `#qsettings`, `#qt-actions`, `#mvc`
+
+**Actions effectuees :**
+- Ajout dans `DockLayoutController` d un snapshot `_default_layout_state` capture apres construction du layout par defaut.
+- Ajout de `reset_layout_to_default()` pour purger l etat persiste, restaurer la disposition par defaut, rouvrir les docks fermes et resynchroniser l action du panneau outils.
+- Cablage dans `MasterController` de l action menu `actionR_initialisation_docks` vers `dock_layout_controller.reset_layout_to_default`.
+- Mise a jour de `ui_mainwindow.py` et `untitled.ui` pour declarer et exposer l action `Reinitialisation docks` dans le menu Affichage.
+
+**Contexte :**
+Les changements staged du 2026-02-23 introduisent un moyen explicite de revenir a une disposition docks saine apres des manipulations utilisateur, sans dependre d une fermeture/reouverture de l application ni d un nettoyage manuel de `QSettings`.
+
+**Decisions techniques :**
+1. Reutiliser la mecanique ADS `saveState/restoreState` plutot que reconstruire les docks pour garder un reset rapide et coherent avec la persistance existante.
+2. Purger d abord l etat persiste (`_clear_saved_layout_state`) pour eviter qu une restauration ulterieure recharge un layout stale.
+3. Garder la logique strictement UI/controleur (`DockLayoutController` + `MasterController` + actions Qt) afin de respecter le perimetre MVC sans impact Model.

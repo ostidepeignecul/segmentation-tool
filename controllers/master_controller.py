@@ -265,6 +265,11 @@ class MasterController:
             self.dock_layout_controller.bind_tools_toggle_action(self.ui.actionToggle_tools_panel)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
+        if hasattr(self.ui, "actionR_initialisation_docks"):
+            self.ui.actionR_initialisation_docks.setText("Réinitialisation docks")
+            self.ui.actionR_initialisation_docks.triggered.connect(
+                self.dock_layout_controller.reset_layout_to_default
+            )
         if hasattr(self.ui, "actionAfficher_solide_3d"):
             action = self.ui.actionAfficher_solide_3d
             action.setCheckable(True)
