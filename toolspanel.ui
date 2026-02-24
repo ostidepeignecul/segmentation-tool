@@ -142,6 +142,13 @@
         </widget>
        </item>
        <item>
+        <widget class="QRadioButton" name="radioButton_7">
+         <property name="text">
+          <string>Peak</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QLabel" name="label_6">
          <property name="text">
           <string>Paint zise : </string>
@@ -259,8 +266,8 @@
            <rect>
             <x>0</x>
             <y>0</y>
-            <width>356</width>
-            <height>104</height>
+            <width>344</width>
+            <height>75</height>
            </rect>
           </property>
           <property name="minimumSize">

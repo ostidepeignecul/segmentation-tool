@@ -360,6 +360,7 @@ class AnnotationController:
                 blocked_mask_provider=blocked_mask_provider,
                 blocked_mask_for_label_provider=blocked_mask_for_label_provider,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
             )
             self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
         else:
@@ -579,21 +580,21 @@ class AnnotationController:
 
     def on_annotation_freehand_started(self, pos: Any) -> None:
         """Handle free-hand start."""
-        if self.view_state_model.tool_mode != "free_hand":
+        if self.view_state_model.tool_mode not in ("free_hand", "peak"):
             return
         if not isinstance(pos, (tuple, list)) or len(pos) != 2:
             return
 
     def on_annotation_freehand_point_added(self, pos: Any) -> None:
         """Handle free-hand point addition."""
-        if self.view_state_model.tool_mode != "free_hand":
+        if self.view_state_model.tool_mode not in ("free_hand", "peak"):
             return
         if not isinstance(pos, (tuple, list)) or len(pos) != 2:
             return
 
     def on_annotation_freehand_completed(self, points: Any) -> None:
         """Handle free-hand completion."""
-        if self.view_state_model.tool_mode != "free_hand":
+        if self.view_state_model.tool_mode not in ("free_hand", "peak"):
             return
         if self.view_state_model.active_label is None:
             return
@@ -635,6 +636,7 @@ class AnnotationController:
             blocked_mask = self._build_blocked_mask(slice_idx, shape, include_temp=True)
         palette = self.annotation_model.get_label_palette()
 
+        peak_mode = self.view_state_model.tool_mode == "peak"
         if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
             depth, _ = self._resolve_volume_dimensions()
             if depth is None:
@@ -649,38 +651,73 @@ class AnnotationController:
                 blocked_mask_provider = lambda idx, _shape=shape: self._build_blocked_mask(
                     idx, _shape, include_temp=True
                 )
-            self.annotation_service.apply_free_hand_roi_to_range(
-                start_idx=start_idx,
-                end_idx=end_idx,
-                points=clean_points,
-                shape=shape,
-                label=label,
-                threshold=self.view_state_model.threshold,
-                persistent=self.view_state_model.roi_persistence,
-                roi_model=self.roi_model,
-                temp_mask_model=self.temp_mask_model,
-                palette=palette,
-                slice_data_provider=self._slice_data,
-                restriction_mask=restriction_mask,
-                blocked_mask_provider=blocked_mask_provider,
-                use_box_percentiles=self.view_state_model.threshold_auto,
-            )
+            if peak_mode:
+                self.annotation_service.apply_peak_roi_to_range(
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    points=clean_points,
+                    shape=shape,
+                    label=label,
+                    threshold=self.view_state_model.threshold,
+                    prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
+                    persistent=self.view_state_model.roi_persistence,
+                    roi_model=self.roi_model,
+                    temp_mask_model=self.temp_mask_model,
+                    palette=palette,
+                    slice_data_provider=self._slice_data,
+                    restriction_mask=restriction_mask,
+                    blocked_mask_provider=blocked_mask_provider,
+                )
+            else:
+                self.annotation_service.apply_free_hand_roi_to_range(
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    points=clean_points,
+                    shape=shape,
+                    label=label,
+                    threshold=self.view_state_model.threshold,
+                    persistent=self.view_state_model.roi_persistence,
+                    roi_model=self.roi_model,
+                    temp_mask_model=self.temp_mask_model,
+                    palette=palette,
+                    slice_data_provider=self._slice_data,
+                    restriction_mask=restriction_mask,
+                    blocked_mask_provider=blocked_mask_provider,
+                    use_box_percentiles=self.view_state_model.threshold_auto,
+                )
         else:
-            free_hand_mask = self.annotation_service.apply_free_hand_roi(
-                slice_idx=slice_idx,
-                points=clean_points,
-                shape=shape,
-                label=label,
-                threshold=self.view_state_model.threshold,
-                persistent=self.view_state_model.roi_persistence,
-                roi_model=self.roi_model,
-                temp_mask_model=self.temp_mask_model,
-                palette=palette,
-                slice_data=slice_data,
-                restriction_mask=restriction_mask,
-                blocked_mask=blocked_mask,
-                use_box_percentiles=self.view_state_model.threshold_auto,
-            )
+            if peak_mode:
+                free_hand_mask = self.annotation_service.apply_peak_roi(
+                    slice_idx=slice_idx,
+                    points=clean_points,
+                    shape=shape,
+                    label=label,
+                    threshold=self.view_state_model.threshold,
+                    prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
+                    persistent=self.view_state_model.roi_persistence,
+                    roi_model=self.roi_model,
+                    temp_mask_model=self.temp_mask_model,
+                    palette=palette,
+                    slice_data=slice_data,
+                    restriction_mask=restriction_mask,
+                    blocked_mask=blocked_mask,
+                )
+            else:
+                free_hand_mask = self.annotation_service.apply_free_hand_roi(
+                    slice_idx=slice_idx,
+                    points=clean_points,
+                    shape=shape,
+                    label=label,
+                    threshold=self.view_state_model.threshold,
+                    persistent=self.view_state_model.roi_persistence,
+                    roi_model=self.roi_model,
+                    temp_mask_model=self.temp_mask_model,
+                    palette=palette,
+                    slice_data=slice_data,
+                    restriction_mask=restriction_mask,
+                    blocked_mask=blocked_mask,
+                    use_box_percentiles=self.view_state_model.threshold_auto,
+                )
             if free_hand_mask is None:
                 return
 
@@ -894,6 +931,7 @@ class AnnotationController:
                 blocked_mask_provider=blocked_mask_provider,
                 blocked_mask_for_label_provider=blocked_mask_for_label_provider,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
             )
             if prev_temp is not None and prev_cov is not None:
                 new_temp = self.temp_mask_model.get_mask_volume()
@@ -1333,6 +1371,7 @@ class AnnotationController:
             blocked_mask=blocked_mask,
             blocked_mask_for_label=blocked_mask_for_label,
             use_box_percentiles=self.view_state_model.threshold_auto,
+            prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
         )
 
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)

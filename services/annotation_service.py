@@ -228,6 +228,175 @@ class AnnotationService:
         norm = (data - dmin) / (dmax - dmin) * 255.0
         return norm.astype(np.uint8)
 
+    def _normalize_slice_to_float32(self, slice_data: np.ndarray) -> Optional[np.ndarray]:
+        """Normalize arbitrary slice data to a float32 2D array."""
+        try:
+            data = np.asarray(slice_data, dtype=np.float32)
+        except Exception:
+            return None
+        if data.ndim == 3 and data.shape[2] in (3, 4):
+            data = data[..., 0]
+        if data.ndim != 2 or data.size == 0:
+            return None
+        return data
+
+    def build_ascan_max_mask(
+        self,
+        roi_mask: np.ndarray,
+        slice_data: np.ndarray,
+        *,
+        prefer_second_peak: bool = False,
+    ) -> np.ndarray:
+        """Keep one A-scan peak per X column inside an ROI mask."""
+        try:
+            mask_bool = np.asarray(roi_mask, dtype=bool)
+        except Exception:
+            return np.zeros((0, 0), dtype=np.uint8)
+        if mask_bool.ndim != 2:
+            return np.zeros_like(mask_bool, dtype=np.uint8)
+        if not np.any(mask_bool):
+            return np.zeros(mask_bool.shape, dtype=np.uint8)
+
+        data = self._normalize_slice_to_float32(slice_data)
+        if data is None or data.shape != mask_bool.shape:
+            return np.zeros(mask_bool.shape, dtype=np.uint8)
+
+        ys, xs = np.nonzero(mask_bool)
+        if ys.size == 0:
+            return np.zeros(mask_bool.shape, dtype=np.uint8)
+
+        values = data[ys, xs]
+        finite = np.isfinite(values)
+        if not np.any(finite):
+            return np.zeros(mask_bool.shape, dtype=np.uint8)
+
+        ys = ys[finite]
+        xs = xs[finite]
+        values = values[finite]
+
+        out = np.zeros(mask_bool.shape, dtype=np.uint8)
+        for x in np.unique(xs):
+            col = xs == x
+            ys_col = ys[col]
+            vals_col = values[col]
+            if ys_col.size == 0:
+                continue
+
+            y_order = np.argsort(ys_col, kind="stable")
+            ys_sorted = ys_col[y_order]
+            vals_sorted = vals_col[y_order]
+            n = int(vals_sorted.size)
+            if n <= 0:
+                continue
+            if n == 1:
+                out[int(ys_sorted[0]), int(x)] = 1
+                continue
+
+            val_min = float(np.min(vals_sorted))
+            val_max = float(np.max(vals_sorted))
+            if (val_max - val_min) <= 1e-12:
+                continue
+
+            vals_work = vals_sorted.astype(np.float32, copy=False)
+            vals_smooth = vals_work.copy()
+            vals_smooth[1:-1] = (vals_work[:-2] + vals_work[1:-1] + vals_work[2:]) / 3.0
+
+            peak_candidates: list[int] = []
+            if float(vals_smooth[0]) > float(vals_smooth[1]):
+                peak_candidates.append(0)
+            for i in range(1, n - 1):
+                left = float(vals_smooth[i - 1])
+                right = float(vals_smooth[i + 1])
+                cur = float(vals_smooth[i])
+                is_peak = (cur >= left and cur > right) or (cur > left and cur >= right)
+                if is_peak:
+                    peak_candidates.append(i)
+            if float(vals_smooth[n - 1]) > float(vals_smooth[n - 2]):
+                peak_candidates.append(n - 1)
+
+            if not peak_candidates:
+                peak_candidates = [int(np.argmax(vals_smooth))]
+
+            top_by_amp = sorted(
+                peak_candidates,
+                key=lambda idx: (float(vals_sorted[idx]), -int(ys_sorted[idx])),
+                reverse=True,
+            )[:2]
+            top_by_depth = sorted(top_by_amp, key=lambda idx: int(ys_sorted[idx]))
+            strongest_idx = top_by_amp[0]
+            if len(top_by_amp) >= 2:
+                amp_1 = float(vals_sorted[top_by_amp[0]])
+                amp_2 = float(vals_sorted[top_by_amp[1]])
+                y_1 = int(ys_sorted[top_by_amp[0]])
+                y_2 = int(ys_sorted[top_by_amp[1]])
+                y_gap = abs(y_1 - y_2)
+                denom = max(abs(amp_1), 1e-12)
+                relative_gap = (amp_1 - amp_2) / denom
+                if (not prefer_second_peak) and y_gap > 30:
+                    chosen_idx = strongest_idx
+                elif relative_gap > 0.70:
+                    chosen_idx = strongest_idx
+                elif prefer_second_peak:
+                    chosen_idx = top_by_depth[1]
+                else:
+                    chosen_idx = top_by_depth[0]
+            else:
+                chosen_idx = strongest_idx
+
+            out[int(ys_sorted[chosen_idx]), int(x)] = 1
+        return out
+
+    def _build_vertical_peak_growth_mask(
+        self,
+        *,
+        peak_mask: np.ndarray,
+        roi_mask: np.ndarray,
+        slice_data: np.ndarray,
+        threshold: Optional[float],
+        blocked_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Grow from each peak seed along Y only, constrained by threshold/ROI/blocked masks."""
+        try:
+            peak_bool = np.asarray(peak_mask, dtype=bool)
+            roi_bool = np.asarray(roi_mask, dtype=bool)
+        except Exception:
+            return np.zeros((0, 0), dtype=np.uint8)
+        if peak_bool.ndim != 2 or roi_bool.ndim != 2 or peak_bool.shape != roi_bool.shape:
+            return np.zeros_like(peak_bool, dtype=np.uint8)
+
+        norm = self._normalize_slice_to_uint8(slice_data)
+        if norm is None or norm.shape != peak_bool.shape:
+            return np.zeros(peak_bool.shape, dtype=np.uint8)
+
+        h, _w = peak_bool.shape
+        thr = float(threshold) if threshold is not None else 0.0
+        grow_valid = (norm >= thr) & roi_bool
+
+        blocked = self._normalize_blocked_mask(blocked_mask, peak_bool.shape)
+        if blocked is not None:
+            grow_valid &= ~blocked
+
+        # Peak selection is independent from threshold: threshold only controls vertical growth.
+        seeds = peak_bool & roi_bool
+        if blocked is not None:
+            seeds &= ~blocked
+        out = np.zeros(peak_bool.shape, dtype=np.uint8)
+        if not np.any(seeds):
+            return out
+
+        ys, xs = np.nonzero(seeds)
+        for y0, x in zip(ys, xs):
+            out[y0, x] = 1
+            y = int(y0) - 1
+            while y >= 0 and grow_valid[y, x]:
+                out[y, x] = 1
+                y -= 1
+            y = int(y0) + 1
+            while y < h and grow_valid[y, x]:
+                out[y, x] = 1
+                y += 1
+        return out
+
     def _prune_thin_lines(self, mask: np.ndarray, *, max_width: int = 2) -> np.ndarray:
         """Remove pixels thinner than or equal to max_width in horizontal or vertical direction."""
         try:
@@ -618,6 +787,72 @@ class AnnotationService:
         )
         return mask_to_apply
 
+    def apply_peak_roi(
+        self,
+        *,
+        slice_idx: int,
+        points: Sequence[Tuple[int, int]],
+        shape: Tuple[int, int],
+        label: int,
+        threshold: Optional[float],
+        prefer_second_peak: bool,
+        persistent: bool,
+        roi_model: RoiModel,
+        temp_mask_model: TempMaskModel,
+        palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
+        slice_data: Optional[np.ndarray] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask: Optional[np.ndarray] = None,
+    ) -> Optional[np.ndarray]:
+        """Freehand Peak ROI: one peak per column, then vertical growth from peaks."""
+        poly_mask = self.build_free_hand_mask(shape, points)
+        if poly_mask is None:
+            return None
+        if slice_data is None:
+            return None
+
+        restriction = self._normalize_restriction_mask(restriction_mask, shape)
+        if restriction is not None:
+            poly_mask = np.where(restriction, poly_mask, 0)
+            if not np.any(poly_mask):
+                return None
+
+        color = None
+        if palette is not None:
+            color = palette.get(label)
+        if color is None:
+            color = MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
+
+        roi_model.add_peak(
+            slice_idx,
+            points,
+            label=label,
+            threshold=threshold,
+            persistent=persistent,
+        )
+        temp_mask_model.ensure_label(label, color, visible=True)
+
+        peak_mask = self.build_ascan_max_mask(
+            poly_mask,
+            slice_data,
+            prefer_second_peak=prefer_second_peak,
+        )
+        mask_to_apply = self._build_vertical_peak_growth_mask(
+            peak_mask=peak_mask,
+            roi_mask=poly_mask,
+            slice_data=slice_data,
+            threshold=threshold,
+            blocked_mask=blocked_mask,
+        )
+        self.apply_temp_box(
+            temp_mask_model,
+            slice_idx,
+            mask_to_apply,
+            label,
+            persistent=persistent,
+        )
+        return mask_to_apply
+
     def rebuild_temp_masks_for_slice(
         self,
         *,
@@ -633,6 +868,7 @@ class AnnotationService:
         blocked_mask: Optional[np.ndarray] = None,
         blocked_mask_for_label: Optional[Callable[[int], Optional[np.ndarray]]] = None,
         use_box_percentiles: bool = False,
+        prefer_second_peak: bool = False,
     ) -> list[Tuple[int, int, int, int]]:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
@@ -719,6 +955,42 @@ class AnnotationService:
                 temp_mask_model,
                 slice_idx,
                 mask_to_apply,
+                label,
+                persistent=getattr(roi, "persistent", False),
+            )
+        # Peak ROIs (freehand + per-column peak + vertical growth)
+        for roi in rois:
+            if getattr(roi, "roi_type", None) != "peak" or len(getattr(roi, "points", [])) < 3:
+                continue
+            if slice_data is None:
+                continue
+            poly_mask = self.build_free_hand_mask(shape, roi.points)
+            if poly_mask is None:
+                continue
+            if restriction is not None:
+                poly_mask = np.where(restriction, poly_mask, 0)
+                if not np.any(poly_mask):
+                    continue
+            label = getattr(roi, "label", 1)
+            color = (palette or {}).get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
+            temp_mask_model.ensure_label(label, color, visible=True)
+            blocked = resolve_blocked(label)
+            peak_mask = self.build_ascan_max_mask(
+                poly_mask,
+                slice_data,
+                prefer_second_peak=prefer_second_peak,
+            )
+            peak_roi_mask = self._build_vertical_peak_growth_mask(
+                peak_mask=peak_mask,
+                roi_mask=poly_mask,
+                slice_data=slice_data,
+                threshold=getattr(roi, "threshold", None),
+                blocked_mask=blocked,
+            )
+            self.apply_temp_box(
+                temp_mask_model,
+                slice_idx,
+                peak_roi_mask,
                 label,
                 persistent=getattr(roi, "persistent", False),
             )
@@ -860,6 +1132,7 @@ class AnnotationService:
             Callable[[int, int], Optional[np.ndarray]]
         ] = None,
         use_box_percentiles: bool = False,
+        prefer_second_peak: bool = False,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -904,6 +1177,7 @@ class AnnotationService:
                 blocked_mask=blocked_mask,
                 blocked_mask_for_label=blocked_mask_for_label,
                 use_box_percentiles=use_box_percentiles,
+                prefer_second_peak=prefer_second_peak,
             )
 
     def build_thresholded_mask(
@@ -1300,6 +1574,48 @@ class AnnotationService:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 use_box_percentiles=use_box_percentiles,
+            )
+
+    def apply_peak_roi_to_range(
+        self,
+        *,
+        start_idx: int,
+        end_idx: int,
+        points: Sequence[Tuple[int, int]],
+        shape: Tuple[int, int],
+        label: int,
+        threshold: Optional[float],
+        prefer_second_peak: bool,
+        persistent: bool,
+        roi_model: RoiModel,
+        temp_mask_model: TempMaskModel,
+        palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
+        slice_data_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        restriction_mask: Optional[np.ndarray] = None,
+        blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+    ) -> None:
+        """Apply a Peak ROI across a slice range."""
+        min_idx = int(min(start_idx, end_idx))
+        max_idx = int(max(start_idx, end_idx))
+        for idx in range(min_idx, max_idx + 1):
+            slice_data = slice_data_provider(idx) if slice_data_provider is not None else None
+            blocked_mask = (
+                blocked_mask_provider(idx) if blocked_mask_provider is not None else None
+            )
+            self.apply_peak_roi(
+                slice_idx=idx,
+                points=points,
+                shape=shape,
+                label=label,
+                threshold=threshold,
+                prefer_second_peak=prefer_second_peak,
+                persistent=persistent,
+                roi_model=roi_model,
+                temp_mask_model=temp_mask_model,
+                palette=palette,
+                slice_data=slice_data,
+                restriction_mask=restriction_mask,
+                blocked_mask=blocked_mask,
             )
 
     def apply_box_roi_to_range(

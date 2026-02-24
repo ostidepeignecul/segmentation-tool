@@ -9,7 +9,7 @@ class ROI:
     """Represents a region of interest on a given slice."""
 
     id: int
-    roi_type: str  # "box", "free_hand", "grow", "line"
+    roi_type: str  # "box", "free_hand", "grow", "line", "peak"
     slice_idx: int
     points: List[Tuple[int, int]] = field(default_factory=list)
     label: int = 1
@@ -117,6 +117,28 @@ class RoiModel:
         roi = ROI(
             id=self._next_id,
             roi_type="free_hand",
+            slice_idx=int(slice_idx),
+            points=[(int(x), int(y)) for x, y in (points or [])],
+            label=int(label),
+            threshold=threshold,
+            persistent=bool(persistent),
+        )
+        self._next_id += 1
+        self._rois.append(roi)
+        return roi
+
+    def add_peak(
+        self,
+        slice_idx: int,
+        points: Sequence[Tuple[int, int]],
+        *,
+        label: int = 1,
+        threshold: Optional[float] = None,
+        persistent: bool = False,
+    ) -> ROI:
+        roi = ROI(
+            id=self._next_id,
+            roi_type="peak",
             slice_idx=int(slice_idx),
             points=[(int(x), int(y)) for x, y in (points or [])],
             label=int(label),

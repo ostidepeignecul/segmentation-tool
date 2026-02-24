@@ -289,6 +289,7 @@ class MasterController:
             grow_radio=self._tools_ui.radioButton_3,
             line_radio=self._tools_ui.radioButton_5,
             paint_radio=self._tools_ui.radioButton_4,
+            peak_radio=self._tools_ui.radioButton_7,
             mod_radio=self._tools_ui.radioButton_6,
             paint_slider=self._tools_ui.horizontalSlider_3,
             nde_label=self._tools_ui.label,
@@ -414,6 +415,9 @@ class MasterController:
         )
         self.nde_settings_view.roi_thin_line_width_changed.connect(
             self._on_roi_thin_line_width_changed
+        )
+        self.nde_settings_view.roi_peak_preference_changed.connect(
+            self._on_roi_peak_preference_changed
         )
         self.corrosion_settings_view.label_a_changed.connect(self._on_corrosion_label_a_changed)
         self.corrosion_settings_view.label_b_changed.connect(self._on_corrosion_label_b_changed)
@@ -782,6 +786,9 @@ class MasterController:
         self.nde_settings_view.set_roi_thin_line_max_width(
             self.view_state_model.roi_thin_line_max_width
         )
+        self.nde_settings_view.set_roi_peak_prefer_second(
+            self.view_state_model.roi_peak_prefer_second
+        )
         self.nde_settings_view.show()
         self.nde_settings_view.raise_()
         self.nde_settings_view.activateWindow()
@@ -884,6 +891,10 @@ class MasterController:
             self.view_state_model.set_roi_thin_line_max_width(int(value))
         except Exception:
             self.view_state_model.set_roi_thin_line_max_width(0)
+
+    def _on_roi_peak_preference_changed(self, prefer_second: bool) -> None:
+        """Handle first/second peak preference for Peak ROI mode."""
+        self.view_state_model.set_roi_peak_prefer_second(bool(prefer_second))
 
     def _apply_roi_non_corrosion(self) -> None:
         """Apply pending mask edits first, then fallback to ROI/temp apply."""

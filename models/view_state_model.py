@@ -23,6 +23,7 @@ class ViewStateModel:
         self.tool_mode: Optional[str] = None
         self.threshold: Optional[int] = 50
         self.threshold_auto: bool = False
+        self.roi_peak_prefer_second: bool = False
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
         self.active_label: Optional[int] = None
@@ -121,6 +122,10 @@ class ViewStateModel:
 
     def set_threshold_auto(self, enabled: bool) -> None:
         self.threshold_auto = bool(enabled)
+
+    def set_roi_peak_prefer_second(self, enabled: bool) -> None:
+        """Prefer second A-scan peak in Peak ROI mode."""
+        self.roi_peak_prefer_second = bool(enabled)
 
     def set_apply_volume(self, enabled: bool) -> None:
         self.apply_volume = bool(enabled)

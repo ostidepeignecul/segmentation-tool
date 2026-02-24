@@ -375,7 +375,7 @@ class AnnotationView(EndviewView):
                         handled = self._handle_line_press(event)
                         if handled:
                             return True
-                    if self._tool_mode == "free_hand":
+                    if self._tool_mode in ("free_hand", "peak"):
                         handled = self._handle_freehand_press(event)
                         if handled:
                             return True
@@ -389,7 +389,7 @@ class AnnotationView(EndviewView):
                         return True
                     if self._tool_mode == "line":
                         self._handle_line_move(event)
-                    if self._tool_mode == "free_hand":
+                    if self._tool_mode in ("free_hand", "peak"):
                         self._handle_freehand_move(event)
                     if self._tool_mode == "box":
                         self._handle_box_move(event)
@@ -406,7 +406,7 @@ class AnnotationView(EndviewView):
                         handled = self._handle_line_release(event)
                         if handled:
                             return True
-                    if self._tool_mode == "free_hand":
+                    if self._tool_mode in ("free_hand", "peak"):
                         handled = self._handle_freehand_release(event)
                         if handled:
                             return True

@@ -25,6 +25,7 @@ class NdeSettingsView(QDialog):
     apply_volume_range_changed = pyqtSignal(int, int)
     erase_label_target_changed = pyqtSignal(object)
     roi_thin_line_width_changed = pyqtSignal(int)
+    roi_peak_preference_changed = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -61,6 +62,11 @@ class NdeSettingsView(QDialog):
         self._roi_thin_line_width.setMaximum(20)
         self._roi_thin_line_width.setValue(2)
         form.addRow(QLabel("Bloquer lignes <= (px)"), self._roi_thin_line_width)
+
+        self._roi_peak_combo = QComboBox(self)
+        self._roi_peak_combo.addItem("Premier pic", False)
+        self._roi_peak_combo.addItem("Deuxieme pic", True)
+        form.addRow(QLabel("ROI Peak - choix du pic"), self._roi_peak_combo)
 
         layout.addLayout(form)
 
@@ -127,6 +133,16 @@ class NdeSettingsView(QDialog):
         self._roi_thin_line_width.setValue(width)
         self._roi_thin_line_width.blockSignals(False)
 
+    def set_roi_peak_prefer_second(self, enabled: bool) -> None:
+        """Update the Peak ROI preference without emitting signals."""
+        target = bool(enabled)
+        self._roi_peak_combo.blockSignals(True)
+        idx = self._roi_peak_combo.findData(target)
+        if idx < 0:
+            idx = 1 if target else 0
+        self._roi_peak_combo.setCurrentIndex(idx)
+        self._roi_peak_combo.blockSignals(False)
+
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -144,6 +160,7 @@ class NdeSettingsView(QDialog):
         self._apply_volume_end.valueChanged.connect(self._on_apply_volume_end_changed)
         self._erase_label_combo.currentIndexChanged.connect(self._on_erase_label_target_changed)
         self._roi_thin_line_width.valueChanged.connect(self._on_roi_thin_line_width_changed)
+        self._roi_peak_combo.currentIndexChanged.connect(self._on_roi_peak_preference_changed)
 
     def _emit_apply_volume_range(self) -> None:
         self.apply_volume_range_changed.emit(
@@ -180,6 +197,10 @@ class NdeSettingsView(QDialog):
             self.roi_thin_line_width_changed.emit(int(value))
         except Exception:
             self.roi_thin_line_width_changed.emit(0)
+
+    def _on_roi_peak_preference_changed(self, _index: int) -> None:
+        data = self._roi_peak_combo.currentData()
+        self.roi_peak_preference_changed.emit(bool(data))
 
     @staticmethod
     def _set_current(combo: QComboBox, value: str) -> None:

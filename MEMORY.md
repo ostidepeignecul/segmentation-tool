@@ -3209,3 +3209,27 @@ Le chargement NPZ echouait quand l orientation d export overlay etait differente
 1. Garder la logique d alignement strictement dans `OverlayLoader` (service) pour conserver un point unique de verite au chargement.
 2. Appliquer des permutations deterministes et bornees (`(0,2,1)` puis `(2,1,0)`) afin d eviter des heuristiques ambigues.
 3. Echouer explicitement quand aucune permutation ne matche, avec un message actionnable (shape source/cible + permutations tentees).
+
+### **2026-02-24** - Mode ROI Peak freehand avec choix 1er/2e pic et germination verticale
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/roi_model.py`, `#models/view_state_model.py`, `#services/annotation_service.py`, `#views/annotation_view.py`, `#views/nde_settings_view.py`, `#views/tools_panel.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#roi`, `#peak`, `#ascan`, `#threshold`, `#settings`, `#ui`, `#mvc`
+
+**Actions effectuees :**
+- Activation du nouveau mode outil `Peak` via `radioButton_7` et propagation du `tool_mode` dans le panel outils, la vue annotation et les controleurs.
+- Ajout dans `Fichier > Parametres` d un selecteur `Premier pic`/`Deuxieme pic`, relie au `ViewStateModel` par signal dedie.
+- Extension du `ViewStateModel` avec `roi_peak_prefer_second` pour centraliser la preference de pic.
+- Ajout du type ROI `peak` dans `RoiModel` pour conserver et reconstruire ce mode comme les autres ROIs.
+- Integration dans `AnnotationService` de `build_ascan_max_mask` (meme logique 1er/2e pic de la branche ascan-mode), `apply_peak_roi`, `apply_peak_roi_to_range` et support de rebuild slice/volume.
+- Implementation du pipeline mode Peak: zone freehand -> un pic A-scan par colonne -> germination verticale uniquement dans la ROI.
+- Correction du comportement threshold: la detection des pics est independante du threshold; le threshold controle seulement la germination verticale, en echelle normalisee 0..255.
+- Validation locale: compilation Python des fichiers modifies et smoke tests runtime sur le service de peak ROI.
+
+**Contexte :**
+Le besoin etait d ajouter un mode ROI `Peak` combinant la selection freehand, la logique A-scan 1er/2e pic et une expansion type grow uniquement verticale. Un probleme utilisateur a ensuite montre que rien n etait selectionne sauf a threshold 0; la cause etait une comparaison du threshold slider avec des valeurs de slice non normalisees.
+
+**Decisions techniques :**
+1. Garder toute la logique de selection peak/germination dans `AnnotationService` pour respecter MVC et eviter du metier dans View/Controller.
+2. Piloter la preference 1er/2e pic depuis `NdeSettingsView` vers `ViewStateModel` pour un comportement coherent entre dessin local, recompute et apply volume.
+3. Utiliser le threshold uniquement pour la pousse verticale (masque normalise 0..255) et conserver le seed peak meme si la pousse est nulle, afin d aligner le comportement avec l attente operateur.
+
+
+
