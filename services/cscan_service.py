@@ -7,8 +7,6 @@ from typing import Literal, Optional, Tuple
 
 import numpy as np
 
-from models.nde_model import NdeModel
-
 
 ReductionKind = Literal["max", "mean"]
 
@@ -69,38 +67,6 @@ class CScanService:
             reduction,
         )
         return projection, value_range
-
-    @staticmethod
-    def compute_ultrasound_resolution_mm(nde_model: Optional[NdeModel]) -> Optional[float]:
-        """Return the step (mm/px) along the ultrasound axis, if available."""
-        if nde_model is None:
-            return None
-
-        positions = nde_model.metadata.get("positions") or {}
-        axis_order = nde_model.metadata.get("axis_order") or []
-
-        target_axis = None
-        for name in axis_order:
-            if isinstance(name, str) and name.lower() == "ultrasound":
-                target_axis = name
-                break
-
-        if target_axis is None and len(axis_order) >= 2:
-            target_axis = axis_order[1]
-
-        coords = positions.get(target_axis)
-        if coords is None or len(coords) < 2:
-            return None
-
-        try:
-            diffs = np.diff(coords)
-            finite = diffs[np.isfinite(diffs)]
-            if finite.size == 0:
-                return None
-            step = float(np.median(np.abs(finite)))
-            return step if step > 0 else None
-        except Exception:
-            return None
 
     @staticmethod
     def _sanitize_range(

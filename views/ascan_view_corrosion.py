@@ -77,18 +77,16 @@ class AScanViewCorrosion(AScanView):
         self._measurement_span.setData([x_min, x_max], [y_measure, y_measure])
 
         label: str
-        if distance_px is not None and np.isfinite(distance_px):
-            if distance_mm is not None and np.isfinite(distance_mm):
-                label = f"dist={distance_mm:.2f} mm ({distance_px:.2f} px)"
-            else:
-                label = f"dist={distance_px:.2f} px"
+        if distance_mm is not None and np.isfinite(distance_mm):
+            label = f"{distance_mm:.1f} mm"
+        elif self._positions is not None and self._positions.size == self._signal.size:
+            dist_val = abs(x2 - x1)
+            label = f"{dist_val:.1f} mm"
+        elif distance_px is not None and np.isfinite(distance_px):
+            label = f"{distance_px:.1f} px"
         else:
             dist_px = abs(b_idx - a_idx)
-            if self._positions is not None and self._positions.size == self._signal.size:
-                dist_val = abs(x2 - x1)
-                label = f"dist={dist_val:.2f} mm ({dist_px} px)"
-            else:
-                label = f"dist={dist_px} px"
+            label = f"{float(dist_px):.1f} px"
 
         label_x = (x_min + x_max) / 2.0
         label_y = max(0.0, y_measure - 10.0)

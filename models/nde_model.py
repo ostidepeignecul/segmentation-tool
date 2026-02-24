@@ -111,6 +111,93 @@ class NdeModel:
                 return value
         return None
 
+    def get_axis_resolution_mm(
+        self,
+        axis_name: str,
+        *,
+        fallback_axis_index: Optional[int] = None,
+    ) -> Optional[float]:
+        """Return an axis sampling step in mm/px when available."""
+        # Preferred source: precomputed by loader.
+        axis_resolutions_mm = self.metadata.get("axis_resolutions_mm")
+        if isinstance(axis_resolutions_mm, dict):
+            direct = self._dict_get_case_insensitive(axis_resolutions_mm, axis_name)
+            if direct is not None:
+                try:
+                    value = float(direct)
+                    if np.isfinite(value) and value > 0.0:
+                        return value
+                except Exception:
+                    pass
+
+        # Secondary source: raw status info stores steps in meters.
+        status_info = self.metadata.get("status_info")
+        if isinstance(status_info, dict):
+            status_axis_key = self._status_axis_key(axis_name)
+            if status_axis_key is not None:
+                axis_info = status_info.get(status_axis_key)
+                if isinstance(axis_info, dict):
+                    try:
+                        step_m = float(axis_info.get("resolution"))
+                        if np.isfinite(step_m) and step_m > 0.0:
+                            return step_m * 1000.0
+                    except Exception:
+                        pass
+
+        # Last fallback: estimate from axis positions (stored in meters).
+        coords = self.get_axis_positions(axis_name)
+        if coords is None and fallback_axis_index is not None:
+            axis_order = self.metadata.get("axis_order") or []
+            if 0 <= int(fallback_axis_index) < len(axis_order):
+                candidate = axis_order[int(fallback_axis_index)]
+                if isinstance(candidate, str) and not candidate.lower().startswith("axis_"):
+                    coords = self.get_axis_positions(candidate)
+
+        step = self._positions_step(coords)
+        if step is None:
+            return None
+        return step * 1000.0
+
+    @staticmethod
+    def _dict_get_case_insensitive(mapping: Dict[str, Any], key: str) -> Optional[Any]:
+        if key in mapping:
+            return mapping[key]
+        lowered = key.lower()
+        for k, v in mapping.items():
+            if isinstance(k, str) and k.lower() == lowered:
+                return v
+        return None
+
+    @staticmethod
+    def _status_axis_key(axis_name: str) -> Optional[str]:
+        lowered = axis_name.lower()
+        if lowered in ("ultrasound", "wcoordinate"):
+            return "ultrasound"
+        if lowered in ("vcoordinate", "crosswise"):
+            return "crosswise"
+        if lowered in ("ucoordinate", "lengthwise"):
+            return "lengthwise"
+        return None
+
+    @staticmethod
+    def _positions_step(coords: Optional[np.ndarray]) -> Optional[float]:
+        if coords is None:
+            return None
+        arr = np.asarray(coords, dtype=np.float64).reshape(-1)
+        if arr.size < 2:
+            return None
+        try:
+            diffs = np.diff(arr)
+        except Exception:
+            return None
+        finite = diffs[np.isfinite(diffs)]
+        if finite.size == 0:
+            return None
+        step = float(np.median(np.abs(finite)))
+        if not np.isfinite(step) or step <= 0.0:
+            return None
+        return step
+
     def get_trace_along_axis(
         self,
         axis_name: str,

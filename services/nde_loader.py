@@ -1975,6 +1975,11 @@ class NdeLoader:
         # Get min/max values
         min_value = status_info.get("min_value", float(np.min(data_array)))
         max_value = status_info.get("max_value", float(np.max(data_array)))
+        axis_resolutions_mm = self._build_axis_resolutions_mm(
+            status_info=status_info,
+            axis_order=axis_order,
+            positions=positions,
+        )
         
         # Build metadata dictionary
         metadata: Dict[str, Any] = {
@@ -1983,6 +1988,7 @@ class NdeLoader:
             "group_name": status_info.get("group_name", ""),
             "axis_order": axis_order,
             "positions": positions,
+            "axis_resolutions_mm": axis_resolutions_mm,
             "min_value": min_value,
             "max_value": max_value,
             "data_type": data_type,
@@ -2058,6 +2064,66 @@ class NdeLoader:
             positions[name] = np.arange(data_shape[idx], dtype=float)
         
         return axis_order, positions
+
+    def _build_axis_resolutions_mm(
+        self,
+        *,
+        status_info: Dict[str, Any],
+        axis_order: List[str],
+        positions: Dict[str, np.ndarray],
+    ) -> Dict[str, float]:
+        """Build per-axis resolution map in mm/px."""
+        result: Dict[str, float] = {}
+        status_key_by_axis = {
+            "UCoordinate": "lengthwise",
+            "VCoordinate": "crosswise",
+            "Ultrasound": "ultrasound",
+        }
+
+        for axis_name in axis_order:
+            if not isinstance(axis_name, str):
+                continue
+            mm_step: Optional[float] = None
+            status_key = status_key_by_axis.get(axis_name)
+            if status_key is not None:
+                axis_info = status_info.get(status_key)
+                if isinstance(axis_info, dict):
+                    try:
+                        # status_info resolutions are stored in meters.
+                        step_m = float(axis_info.get("resolution"))
+                        if np.isfinite(step_m) and step_m > 0.0:
+                            mm_step = step_m * 1000.0
+                    except Exception:
+                        mm_step = None
+
+            if mm_step is None:
+                coords = positions.get(axis_name)
+                if coords is not None:
+                    step = self._positions_step(coords)
+                    if step is not None:
+                        mm_step = step * 1000.0
+
+            if mm_step is not None and np.isfinite(mm_step) and mm_step > 0.0:
+                result[axis_name] = float(mm_step)
+
+        return result
+
+    @staticmethod
+    def _positions_step(coords: np.ndarray) -> Optional[float]:
+        arr = np.asarray(coords, dtype=np.float64).reshape(-1)
+        if arr.size < 2:
+            return None
+        try:
+            diffs = np.diff(arr)
+        except Exception:
+            return None
+        finite = diffs[np.isfinite(diffs)]
+        if finite.size == 0:
+            return None
+        step = float(np.median(np.abs(finite)))
+        if not np.isfinite(step) or step <= 0.0:
+            return None
+        return step
 
     def _reorder_axes_by_metadata(
         self,

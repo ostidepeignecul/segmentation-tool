@@ -12,3 +12,4 @@ __pycache__/
 ascan_debug_log.txt
 .brv
 modification-UI.txt
+test/sample-nde-test.nde

@@ -11,7 +11,6 @@ import numpy as np
 
 from models.nde_model import NdeModel
 from services.ascan_debug_logger import ascan_debug_logger
-from services.cscan_service import CScanService
 
 
 @dataclass
@@ -362,7 +361,11 @@ class AScanService:
         if not np.isfinite(distance_px):
             return None
 
-        mm_scale = CScanService.compute_ultrasound_resolution_mm(nde_model)
+        mm_scale = (
+            nde_model.get_axis_resolution_mm("Ultrasound", fallback_axis_index=1)
+            if nde_model is not None
+            else None
+        )
         if mm_scale is not None:
             return distance_px, distance_px * float(mm_scale)
         return distance_px, None

@@ -3,7 +3,15 @@ from __future__ import annotations
 from typing import Iterable, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QComboBox, QDialog, QFormLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class CorrosionSettingsView(QDialog):

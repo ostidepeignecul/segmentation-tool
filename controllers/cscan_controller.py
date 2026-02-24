@@ -144,7 +144,11 @@ class CScanController:
             return
 
         nde_model = self.get_nde_model()
-        ultrasound_resolution_mm = self.cscan_service.compute_ultrasound_resolution_mm(nde_model)
+        ultrasound_resolution_mm = (
+            nde_model.get_axis_resolution_mm("Ultrasound", fallback_axis_index=1)
+            if nde_model is not None
+            else None
+        )
 
         use_cache = (
             self._cached_standard_projection is not None

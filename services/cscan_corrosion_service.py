@@ -109,16 +109,22 @@ class CScanCorrosionService(CScanService):
             use_mm=use_mm,
             resolution_ultrasound=resolution_ultrasound_mm,
         )
-        self._logger.info("[Corrosion] Carte distance calculée en %.2f s", time.perf_counter() - t0)
+        self._logger.info("[Corrosion] Carte distance calculee en %.2f s", time.perf_counter() - t0)
         self._log_progress(0.5, "Carte distance")
         t_overlay = time.perf_counter()
-        peak_index_map_a = self.interpolate_peak_map_1d(
+        peak_index_map_a = self.interpolate_peak_map_1d_dual_axis(
             peak_index_map_a,
             height=mask_stack.shape[1],
         )
-        peak_index_map_b = self.interpolate_peak_map_1d(
+        peak_index_map_b = self.interpolate_peak_map_1d_dual_axis(
             peak_index_map_b,
             height=mask_stack.shape[1],
+        )
+        distance_map = self._build_distance_map_from_peak_maps(
+            peak_map_a=peak_index_map_a,
+            peak_map_b=peak_index_map_b,
+            use_mm=use_mm,
+            resolution_ultrasound_mm=resolution_ultrasound_mm,
         )
         distance_results: Dict = {}
 
@@ -297,7 +303,7 @@ class CScanCorrosionService(CScanService):
         """Fill missing Y peaks (-1) along X for each slice using linear interpolation."""
         data = np.asarray(peak_map, dtype=np.int32)
         if data.ndim != 2:
-            raise ValueError(f"Peak map attendu 2D (Z,W), reÃ§u shape {data.shape}")
+            raise ValueError(f"Peak map attendu 2D (Z,W), recu shape {data.shape}")
 
         interpolated = np.array(data, dtype=np.int32, copy=True)
         if interpolated.size == 0:
@@ -337,6 +343,54 @@ class CScanCorrosionService(CScanService):
                 row[row >= 0] = np.clip(row[row >= 0], 0, max_y)
 
         return interpolated
+
+    def interpolate_peak_map_1d_dual_axis(
+        self,
+        peak_map: np.ndarray,
+        *,
+        height: Optional[int] = None,
+    ) -> np.ndarray:
+        """Apply base 1D interpolation on primary axis, then on secondary axis."""
+        primary = self.interpolate_peak_map_1d(
+            peak_map,
+            height=height,
+        )
+        if primary.ndim != 2 or primary.size == 0:
+            return primary
+
+        secondary = self.interpolate_peak_map_1d(
+            np.ascontiguousarray(primary.T),
+            height=height,
+        )
+        return np.ascontiguousarray(secondary.T)
+
+    @staticmethod
+    def _build_distance_map_from_peak_maps(
+        *,
+        peak_map_a: np.ndarray,
+        peak_map_b: np.ndarray,
+        use_mm: bool,
+        resolution_ultrasound_mm: float,
+    ) -> np.ndarray:
+        """Rebuild a (Z,X) distance map from two peak maps."""
+        data_a = np.asarray(peak_map_a, dtype=np.int32)
+        data_b = np.asarray(peak_map_b, dtype=np.int32)
+        if data_a.ndim != 2 or data_b.ndim != 2:
+            raise ValueError(
+                f"Peak maps attendus 2D (Z,W), recus {data_a.shape} et {data_b.shape}"
+            )
+        if data_a.shape != data_b.shape:
+            raise ValueError(
+                f"Peak maps incompatibles: {data_a.shape} != {data_b.shape}"
+            )
+
+        scale = float(resolution_ultrasound_mm) if bool(use_mm) else 1.0
+        distance_map = np.full(data_a.shape, np.nan, dtype=np.float32)
+        valid = (data_a >= 0) & (data_b >= 0)
+        if np.any(valid):
+            diff = np.abs(data_a.astype(np.float32) - data_b.astype(np.float32)) * scale
+            distance_map[valid] = diff[valid]
+        return distance_map
 
     def build_overlay_from_peak_maps(
         self,
@@ -440,10 +494,10 @@ class CScanCorrosionService(CScanService):
         class_B_id: int,
         line_thickness: int = 1,
     ) -> np.ndarray:
-        """Construit un overlay de lignes BW/FW Ã  partir des indices de pics (Y par X)."""
+        """Construit un overlay de lignes BW/FW �f  partir des indices de pics (Y par X)."""
         if peak_map_a.ndim != 2 or peak_map_b.ndim != 2:
             raise ValueError(
-                f"Peak maps attendus 2D (Z,W), reÃ§us {peak_map_a.shape} et {peak_map_b.shape}"
+                f"Peak maps attendus 2D (Z,W), re�f§us {peak_map_a.shape} et {peak_map_b.shape}"
             )
 
         height, width = image_shape
@@ -848,13 +902,20 @@ class CorrosionWorkflowService:
             )
 
     def _extract_resolutions(self, nde_model: Optional[NdeModel]) -> Tuple[float, float]:
-        """Get crosswise and ultrasound resolutions from metadata, defaults to 1.0."""
-        if nde_model is None:
-            return 1.0, 1.0
-        dimensions = nde_model.metadata.get("dimensions", [])
-        try:
-            cross = float(dimensions[1].get("resolution", 1.0)) if len(dimensions) >= 3 else 1.0
-            ultra = float(dimensions[2].get("resolution", 1.0)) if len(dimensions) >= 3 else 1.0
-        except Exception:
-            cross, ultra = 1.0, 1.0
-        return cross, ultra
+        """Get crosswise and ultrasound resolutions in mm/px, defaults to 1.0."""
+        cross = (
+            nde_model.get_axis_resolution_mm("VCoordinate", fallback_axis_index=2)
+            if nde_model is not None
+            else None
+        )
+        ultra = (
+            nde_model.get_axis_resolution_mm("Ultrasound", fallback_axis_index=1)
+            if nde_model is not None
+            else None
+        )
+        if cross is None:
+            cross = 1.0
+        if ultra is None:
+            ultra = 1.0
+        return float(cross), float(ultra)
+

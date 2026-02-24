@@ -268,11 +268,11 @@ class CorrosionProfileEditService:
             return None
 
         height, _width = self._image_shape
-        committed_a = cscan_corrosion_service.interpolate_peak_map_1d(
+        committed_a = cscan_corrosion_service.interpolate_peak_map_1d_dual_axis(
             self._pending_peak_map_a,
             height=height,
         )
-        committed_b = cscan_corrosion_service.interpolate_peak_map_1d(
+        committed_b = cscan_corrosion_service.interpolate_peak_map_1d_dual_axis(
             self._pending_peak_map_b,
             height=height,
         )
