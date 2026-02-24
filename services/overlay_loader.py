@@ -36,20 +36,7 @@ class OverlayLoader:
         if getattr(arr, "ndim", 0) != 3:
             raise ValueError(f"Overlay attendu 3D, reçu {arr.ndim}D.")
 
-        arr_shape = tuple(arr.shape)
-        tgt_shape = tuple(target_shape)
-        if arr_shape != tgt_shape:
-            # Tolérer un swap H/W (axes 1 et 2 inversés) si profondeur identique
-            if arr_shape[0] == tgt_shape[0] and arr_shape[1] == tgt_shape[2] and arr_shape[2] == tgt_shape[1]:
-                self.logger.info(
-                    "Overlay shape %s inversé (H/W) vs volume %s, application d'un transpose (0,2,1).",
-                    arr_shape,
-                    tgt_shape,
-                )
-                arr = np.transpose(arr, (0, 2, 1))
-                arr_shape = tuple(arr.shape)
-            else:
-                raise ValueError(f"Shape overlay {arr_shape} différent du volume {tgt_shape}.")
+        arr, _ = self._align_to_target_shape(arr, target_shape=target_shape)
 
         self.mask_volume = np.array(arr, dtype=np.uint8, copy=False)
 
@@ -67,3 +54,40 @@ class OverlayLoader:
         """Efface le masque chargé."""
         self.mask_volume = None
         self.logger.info("Overlay NPZ réinitialisé")
+
+    def _align_to_target_shape(
+        self,
+        arr: np.ndarray,
+        *,
+        target_shape: Tuple[int, int, int],
+    ) -> Tuple[np.ndarray, Tuple[int, int, int]]:
+        """Align overlay shape to target volume with known axis permutations."""
+        tgt_shape = tuple(int(x) for x in target_shape)
+        arr_shape = tuple(arr.shape)
+        if arr_shape == tgt_shape:
+            return arr, arr_shape
+
+        # (0,2,1): swap H/W (legacy tolerance)
+        # (2,1,0): swap primary/secondary annotation axis (U <-> V)
+        transpose_attempts = (
+            ((0, 2, 1), "swap H/W"),
+            ((2, 1, 0), "swap U/V"),
+        )
+        for perm, reason in transpose_attempts:
+            candidate = np.transpose(arr, perm)
+            candidate_shape = tuple(candidate.shape)
+            if candidate_shape == tgt_shape:
+                self.logger.info(
+                    "Overlay shape %s vs volume %s: application transpose %s (%s).",
+                    arr_shape,
+                    tgt_shape,
+                    perm,
+                    reason,
+                )
+                return candidate, candidate_shape
+
+        attempted = ", ".join(str(perm) for perm, _ in transpose_attempts)
+        raise ValueError(
+            f"Shape overlay {arr_shape} différent du volume {tgt_shape}. "
+            f"Permutations testées: {attempted}."
+        )

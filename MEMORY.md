@@ -3190,3 +3190,22 @@ Les changements staged du 2026-02-24 couvrent 9 fichiers modifies autour du work
 3. Appliquer une interpolation dual-axis (axe principal puis transpose) avant calcul distance/projection afin d ameliorer la continuite spatiale des cartes corrosion.
 4. Recalculer la `distance_map` a partir des peak maps interpolees plutot que reutiliser la carte pre-interpolation pour garantir la coherence des resultats affiches.
 
+
+
+### **2026-02-24** - Chargement overlay NPZ tolerant au changement d axe U/V
+**Tags :** `#branch:annotation`, `#services/overlay_loader.py`, `#overlay`, `#npz`, `#ucoord`, `#vcoord`, `#transpose`, `#mvc` 
+
+**Actions effectuees :**
+- Refactor du chargement overlay pour deleguer l alignement de shape a `_align_to_target_shape(...)`.
+- Conservation du comportement existant pour les overlays deja alignes `(Z,H,W)` et pour le swap legacy H/W via transpose `(0,2,1)`.
+- Ajout d une tolerance supplementaire U/V via transpose `(2,1,0)` pour permettre l ouverture d un overlay exporte en VCoordinate depuis une session UCoordinate (et inversement).
+- Ajout d un logging explicite de la permutation appliquee et d un message d erreur enrichi listant les permutations testees.
+- Validation locale avec un test inline sur trois cas (`identity`, `swap_hw`, `swap_uv`) confirme en `ALL_OK`.
+
+**Contexte :**
+Le chargement NPZ echouait quand l orientation d export overlay etait differente entre UCoordinate et VCoordinate, car seul un swap H/W etait tolere. Les changements staged du 2026-02-24 ciblent ce point de robustesse sans changer l architecture MVC existante.
+
+**Decisions techniques :**
+1. Garder la logique d alignement strictement dans `OverlayLoader` (service) pour conserver un point unique de verite au chargement.
+2. Appliquer des permutations deterministes et bornees (`(0,2,1)` puis `(2,1,0)`) afin d eviter des heuristiques ambigues.
+3. Echouer explicitement quand aucune permutation ne matche, avec un message actionnable (shape source/cible + permutations tentees).
