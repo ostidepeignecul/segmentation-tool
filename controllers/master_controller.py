@@ -447,6 +447,7 @@ class MasterController:
         dialog = EndviewResizeDialog(current_size, parent=self.main_window)
         result = dialog.exec()
         if result == QDialog.DialogCode.Accepted:
+            force_square = dialog.is_square_locked()
             if dialog.wants_reset():
                 self.endview_controller.reset_display_size()
                 self.cscan_controller.reset_display_size()
@@ -457,7 +458,11 @@ class MasterController:
                 self.endview_controller.set_display_size(width, height)
                 self.cscan_controller.set_display_size(width, height)
                 if self.volume_view is not None:
-                    self.volume_view.set_display_size(width, height)
+                    self.volume_view.set_display_size(
+                        width,
+                        height,
+                        force_square=force_square,
+                    )
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""

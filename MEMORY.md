@@ -3233,3 +3233,26 @@ Le besoin etait d ajouter un mode ROI `Peak` combinant la selection freehand, la
 
 
 
+
+
+### **2026-02-25** - Force carre VolumeView en cube avec persistance inter-session
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#views/endview_resize_dialog.py`, `#views/volume_view.py`, `#resize`, `#force_carre`, `#volume_view`, `#vispy`, `#3d`, `#cube`, `#session`, `#mvc`
+
+**Actions effectuees :**
+- Propagation du flag `force_carre` depuis le dialog resize vers `MasterController`, puis vers `VolumeView.set_display_size(..., force_square=...)`.
+- Extension de `EndviewResizeDialog` avec `is_square_locked()` et synchronisation bidirectionnelle largeur/hauteur sous option carree via un guard anti-boucle.
+- Ajout dans `VolumeView` d un etat `force_square` et d un facteur de profondeur (`_display_depth_scale`) pour contraindre les dimensions affichees en cube (X=Y=Z).
+- Application du mode force carre sur la camera 3D (vue orthographique `fov=0`, orientation verrouillee, recentrage et ranges 3D coerents).
+- Application du scale Z dans les transforms 3D (volume principal, overlay volume, plans/lignes, image de slice et overlay de slice).
+- Ajustement du rescale camera lors des changements de display size pour prendre en compte le ratio Z en plus de X/Y.
+- Persistance du mode cube lors des rebuilds de scene (`set_volume`, changement de session) en reappliquant le preset force carre si actif.
+
+**Contexte :**
+Le mode force carre corrigeait bien la deformation XY mais ne garantissait pas un vrai cube 3D et pouvait se perdre lors d un changement de session, car la scene volume etait reconstruite sans reappliquer la contrainte force carre.
+
+**Decisions techniques :**
+1. Faire transiter explicitement l intention utilisateur `force carre` du dialog jusqu a `VolumeView` plutot que deduire cet etat implicitement.
+2. Forcer un cube via un scale profondeur derive de la taille affichee XY (`side/depth`) pour aligner le rendu 3D avec l attente operateur.
+3. Utiliser une projection orthographique uniquement en mode force carre, et restaurer la projection camera par defaut hors de ce mode.
+4. Reappliquer le preset force carre apres reconstruction de scene pour garantir un comportement stable au changement de session.
+

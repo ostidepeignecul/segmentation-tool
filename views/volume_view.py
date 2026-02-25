@@ -134,12 +134,14 @@ class VolumeView(QFrame):
         self._current_slice: int = 0
         self._secondary_slice: int = 0
         self._recenter_on_slice_change: bool = False
+        self._default_camera_fov: float = 45.0
+        self._force_square_enabled: bool = False
         # VisPy canvas and scene
         self._canvas = scene.SceneCanvas(keys="interactive", bgcolor="black", show=False)
         self._view = self._canvas.central_widget.add_view()
         # Use a turntable camera so the user can rotate/pan with the mouse
         self._view.camera = _AnchorMoveTurntableCamera(
-            fov=45,
+            fov=self._default_camera_fov,
             up="+y",
         )
         # Qt layout
@@ -270,6 +272,9 @@ class VolumeView(QFrame):
         target_slice = slice_idx if slice_idx is not None else self._current_slice
         self.set_slice_index(target_slice, update_slider=True, emit=False)
         self.set_secondary_slice_index(self._secondary_slice, update_slider=True, emit=False)
+        if self._force_square_enabled:
+            # Preserve cube mode when the scene is rebuilt (e.g., session switch).
+            self._apply_force_square_camera_preset()
 
     def set_base_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
         """Set the base volume colormap (lut expected shape (256,3) floats 0-1)."""
@@ -291,19 +296,37 @@ class VolumeView(QFrame):
         size = self._canvas.native.size()
         return size.width(), size.height()
 
-    def set_display_size(self, width: int, height: int) -> None:
+    def set_display_size(self, width: int, height: int, *, force_square: bool = False) -> None:
         """Apply visual deformation in XY without changing underlying volume data."""
         width = max(1, int(width))
         height = max(1, int(height))
         previous_scale = self._display_scale_factors()
+        previous_depth_scale = self._display_depth_scale()
+        was_force_square = self._force_square_enabled
+        self._force_square_enabled = bool(force_square)
         self._display_size = (width, height)
-        self._on_display_scale_changed(previous_scale=previous_scale)
+        self._on_display_scale_changed(
+            previous_scale=previous_scale,
+            previous_depth_scale=previous_depth_scale,
+        )
+        if force_square:
+            self._apply_force_square_camera_preset()
+        elif was_force_square:
+            self._restore_default_camera_projection()
 
     def reset_display_size(self) -> None:
         """Reset 3D display deformation to default proportions."""
         previous_scale = self._display_scale_factors()
+        previous_depth_scale = self._display_depth_scale()
+        was_force_square = self._force_square_enabled
+        self._force_square_enabled = False
         self._display_size = None
-        self._on_display_scale_changed(previous_scale=previous_scale)
+        self._on_display_scale_changed(
+            previous_scale=previous_scale,
+            previous_depth_scale=previous_depth_scale,
+        )
+        if was_force_square:
+            self._restore_default_camera_projection()
 
     def notify_dock_topology_changed(self) -> None:
         """Schedule a scene rebuild after docking/floating transitions."""
@@ -684,8 +707,10 @@ class VolumeView(QFrame):
         height = self._volume.shape[1]
         width = self._volume.shape[2]
         scale_x, scale_y = self._display_scale_factors()
+        scale_z = self._display_depth_scale()
         width_scaled = float(width) * float(scale_x)
         height_scaled = float(height) * float(scale_y)
+        z_scaled = float(self._current_slice) * float(scale_z)
         # Scale the 1x1 pixel to cover the full width/height
         # scale=(-width, -height) because of the existing flip logic
         self._slice_image.transform = STTransform(
@@ -693,7 +718,7 @@ class VolumeView(QFrame):
             translate=(
                 width_scaled,
                 height_scaled,
-                float(self._current_slice),
+                z_scaled,
             ),
         )
         self._update_overlay_image()
@@ -853,14 +878,90 @@ class VolumeView(QFrame):
         base_h = max(1.0, float(self._volume.shape[1]))
         return (float(target_w) / base_w, float(target_h) / base_h)
 
-    def _on_display_scale_changed(self, *, previous_scale: Tuple[float, float]) -> None:
+    def _display_depth_scale(self) -> float:
+        """Return Z scaling factor; force-square mode enforces a cube."""
+        if self._volume is None:
+            return 1.0
+        if not self._force_square_enabled:
+            return 1.0
+        depth = max(1.0, float(self._volume.shape[0]))
+        scale_x, scale_y = self._display_scale_factors()
+        width_scaled = float(self._volume.shape[2]) * float(scale_x)
+        height_scaled = float(self._volume.shape[1]) * float(scale_y)
+        side = max(width_scaled, height_scaled)
+        if side <= 0.0:
+            return 1.0
+        return side / depth
+
+    def _scaled_volume_extents(self) -> Tuple[float, float, float]:
+        if self._volume is None:
+            return (1.0, 1.0, 1.0)
+        scale_x, scale_y = self._display_scale_factors()
+        scale_z = self._display_depth_scale()
+        width_scaled = float(self._volume.shape[2]) * float(scale_x)
+        height_scaled = float(self._volume.shape[1]) * float(scale_y)
+        depth_scaled = float(self._volume.shape[0]) * float(scale_z)
+        return (width_scaled, height_scaled, depth_scaled)
+
+    def _restore_default_camera_projection(self) -> None:
+        if self._view.camera is None:
+            return
+        if hasattr(self._view.camera, "fov"):
+            self._view.camera.fov = float(self._default_camera_fov)
+        try:
+            self._canvas.update()
+        except Exception:
+            pass
+
+    def _apply_force_square_camera_preset(self) -> None:
+        if self._view.camera is None or self._volume is None:
+            return
+        width_scaled, height_scaled, depth_scaled = self._scaled_volume_extents()
+        if hasattr(self._view.camera, "azimuth"):
+            self._view.camera.azimuth = 90.0
+        if hasattr(self._view.camera, "elevation"):
+            self._view.camera.elevation = 0.0
+        if hasattr(self._view.camera, "roll"):
+            self._view.camera.roll = 0.0
+        if hasattr(self._view.camera, "fov"):
+            self._view.camera.fov = 0.0
+        try:
+            self._view.camera.set_range(
+                x=(0.0, width_scaled),
+                y=(0.0, height_scaled),
+                z=(0.0, depth_scaled),
+            )
+        except Exception:
+            pass
+        try:
+            self._view.camera.center = (
+                width_scaled / 2.0,
+                height_scaled / 2.0,
+                depth_scaled / 2.0,
+            )
+        except Exception:
+            pass
+        try:
+            self._canvas.update()
+        except Exception:
+            pass
+
+    def _on_display_scale_changed(
+        self,
+        *,
+        previous_scale: Tuple[float, float],
+        previous_depth_scale: float,
+    ) -> None:
         if self._volume is None:
             return
         new_scale = self._display_scale_factors()
+        new_depth_scale = self._display_depth_scale()
         self._apply_visual_transform()
         self._rescale_camera_for_display_scale(
             previous_scale=previous_scale,
             new_scale=new_scale,
+            previous_depth_scale=previous_depth_scale,
+            new_depth_scale=new_depth_scale,
         )
         self._update_overlay_image()
         try:
@@ -873,43 +974,48 @@ class VolumeView(QFrame):
         *,
         previous_scale: Tuple[float, float],
         new_scale: Tuple[float, float],
+        previous_depth_scale: float,
+        new_depth_scale: float,
     ) -> None:
         if self._view.camera is None or self._volume is None:
             return
         depth, height, width = self._volume.shape[:3]
         new_x_max = float(width) * float(new_scale[0])
         new_y_max = float(height) * float(new_scale[1])
-        if new_x_max <= 0.0 or new_y_max <= 0.0:
+        new_z_max = float(depth) * float(new_depth_scale)
+        if new_x_max <= 0.0 or new_y_max <= 0.0 or new_z_max <= 0.0:
             return
 
         prev_x = max(1e-6, float(previous_scale[0]))
         prev_y = max(1e-6, float(previous_scale[1]))
+        prev_z = max(1e-6, float(previous_depth_scale))
         ratio_x = float(new_scale[0]) / prev_x
         ratio_y = float(new_scale[1]) / prev_y
+        ratio_z = float(new_depth_scale) / prev_z
 
         center = getattr(self._view.camera, "center", None)
         if center is None:
             cx = new_x_max / 2.0
             cy = new_y_max / 2.0
-            cz = float(max(0, min(depth - 1, int(self._current_slice))))
+            cz = new_z_max / 2.0
         else:
             try:
                 cx = float(center[0]) * ratio_x
                 cy = float(center[1]) * ratio_y
-                cz = float(center[2])
+                cz = float(center[2]) * ratio_z
             except Exception:
                 cx = new_x_max / 2.0
                 cy = new_y_max / 2.0
-                cz = float(max(0, min(depth - 1, int(self._current_slice))))
+                cz = new_z_max / 2.0
         cx = max(0.0, min(new_x_max, cx))
         cy = max(0.0, min(new_y_max, cy))
-        cz = max(0.0, min(float(depth - 1), cz))
+        cz = max(0.0, min(new_z_max, cz))
 
         try:
             self._view.camera.set_range(
                 x=(0.0, new_x_max),
                 y=(0.0, new_y_max),
-                z=(0.0, float(depth)),
+                z=(0.0, new_z_max),
             )
         except Exception:
             return
@@ -922,17 +1028,20 @@ class VolumeView(QFrame):
         """Configure the camera so that slices face the user and the volume fills the view."""
         if self._view.camera is None:
             return
-        scale_x, scale_y = self._display_scale_factors()
-        width_scaled = float(width) * float(scale_x)
-        height_scaled = float(height) * float(scale_y)
+        width_scaled, height_scaled, depth_scaled = self._scaled_volume_extents()
+        depth_scale = self._display_depth_scale()
         # Centre initial: milieu du volume, avec z sur la slice courante
-        center = (width_scaled / 2.0, height_scaled / 2.0, float(self._current_slice))
+        center = (
+            width_scaled / 2.0,
+            height_scaled / 2.0,
+            float(self._current_slice) * float(depth_scale),
+        )
         self._view.camera.up = "+y"
         # Set the ranges along each axis
         self._view.camera.set_range(
             x=(0.0, width_scaled),
             y=(0.0, height_scaled),
-            z=(0.0, float(depth)),
+            z=(0.0, depth_scaled),
         )
         # Centre the view on the middle slice
         self._view.camera.center = center
@@ -944,15 +1053,14 @@ class VolumeView(QFrame):
         if self._view.camera is None or self._volume is None:
             return
         depth, height, width = self._volume.shape[:3]
-        scale_x, scale_y = self._display_scale_factors()
-        width_scaled = float(width) * float(scale_x)
-        height_scaled = float(height) * float(scale_y)
+        width_scaled, height_scaled, _ = self._scaled_volume_extents()
+        depth_scale = self._display_depth_scale()
         # Focus : centre de la slice courante (x/y au centre, z = index de slice)
         z_focus = max(0, min(depth - 1, int(self._current_slice)))
         self._view.camera.center = (
             width_scaled / 2.0,
             height_scaled / 2.0,
-            float(z_focus),
+            float(z_focus) * float(depth_scale),
         )
 
     def _apply_visual_transform(self) -> None:
@@ -962,10 +1070,11 @@ class VolumeView(QFrame):
         height = self._volume.shape[1]
         width = self._volume.shape[2]
         scale_x, scale_y = self._display_scale_factors()
+        scale_z = self._display_depth_scale()
         width_scaled = float(width) * float(scale_x)
         height_scaled = float(height) * float(scale_y)
         flip = STTransform(
-            scale=(-float(scale_x), -float(scale_y), 1.0),
+            scale=(-float(scale_x), -float(scale_y), float(scale_z)),
             translate=(width_scaled, height_scaled, 0.0),
         )
         if self._volume_visual is not None:
@@ -984,7 +1093,7 @@ class VolumeView(QFrame):
                 translate=(
                     width_scaled,
                     height_scaled,
-                    float(self._current_slice),
+                    float(self._current_slice) * float(scale_z),
                 ),
             )
         if self._slice_overlay is not None:
@@ -999,6 +1108,7 @@ class VolumeView(QFrame):
         height = self._volume.shape[1]
         width = self._volume.shape[2]
         scale_x, scale_y = self._display_scale_factors()
+        scale_z = self._display_depth_scale()
         width_scaled = float(width) * float(scale_x)
         height_scaled = float(height) * float(scale_y)
         return STTransform(
@@ -1006,6 +1116,6 @@ class VolumeView(QFrame):
             translate=(
                 width_scaled,
                 height_scaled,
-                float(self._current_slice),
+                float(self._current_slice) * float(scale_z),
             ),
         )
