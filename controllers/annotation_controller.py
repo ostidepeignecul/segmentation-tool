@@ -361,6 +361,9 @@ class AnnotationController:
                 blocked_mask_for_label_provider=blocked_mask_for_label_provider,
                 use_box_percentiles=self.view_state_model.threshold_auto,
                 prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
+                ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
+                vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
+                vertical_max_length=self.view_state_model.roi_peak_vertical_max_length,
             )
             self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
         else:
@@ -660,6 +663,9 @@ class AnnotationController:
                     label=label,
                     threshold=self.view_state_model.threshold,
                     prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
+                    ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
+                    vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
+                    vertical_max_length=self.view_state_model.roi_peak_vertical_max_length,
                     persistent=self.view_state_model.roi_persistence,
                     roi_model=self.roi_model,
                     temp_mask_model=self.temp_mask_model,
@@ -694,6 +700,9 @@ class AnnotationController:
                     label=label,
                     threshold=self.view_state_model.threshold,
                     prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
+                    ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
+                    vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
+                    vertical_max_length=self.view_state_model.roi_peak_vertical_max_length,
                     persistent=self.view_state_model.roi_persistence,
                     roi_model=self.roi_model,
                     temp_mask_model=self.temp_mask_model,
@@ -1348,6 +1357,9 @@ class AnnotationController:
             blocked_mask_for_label=blocked_mask_for_label,
             use_box_percentiles=self.view_state_model.threshold_auto,
             prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
+            ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
+            vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
+            vertical_max_length=self.view_state_model.roi_peak_vertical_max_length,
         )
 
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)

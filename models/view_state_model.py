@@ -24,6 +24,9 @@ class ViewStateModel:
         self.threshold: Optional[int] = 50
         self.threshold_auto: bool = False
         self.roi_peak_prefer_second: bool = False
+        self.roi_peak_ignore_position: bool = False
+        self.roi_peak_vertical_min_length: int = 1
+        self.roi_peak_vertical_max_length: int = 0
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
         self.active_label: Optional[int] = None
@@ -126,6 +129,30 @@ class ViewStateModel:
     def set_roi_peak_prefer_second(self, enabled: bool) -> None:
         """Prefer second A-scan peak in Peak ROI mode."""
         self.roi_peak_prefer_second = bool(enabled)
+
+    def set_roi_peak_ignore_position(self, enabled: bool) -> None:
+        """Force strongest A-scan peak selection regardless of depth position."""
+        self.roi_peak_ignore_position = bool(enabled)
+
+    def set_roi_peak_vertical_min_length(self, value: int) -> None:
+        """Set minimum vertical length kept for Peak ROI germination."""
+        try:
+            min_len = int(value)
+        except Exception:
+            min_len = 1
+        if min_len < 1:
+            min_len = 1
+        self.roi_peak_vertical_min_length = min_len
+
+    def set_roi_peak_vertical_max_length(self, value: int) -> None:
+        """Set maximum vertical length for Peak ROI germination (0 = unlimited)."""
+        try:
+            max_len = int(value)
+        except Exception:
+            max_len = 0
+        if max_len < 0:
+            max_len = 0
+        self.roi_peak_vertical_max_length = max_len
 
     def set_apply_volume(self, enabled: bool) -> None:
         self.apply_volume = bool(enabled)

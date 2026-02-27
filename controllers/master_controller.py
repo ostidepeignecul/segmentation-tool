@@ -417,6 +417,15 @@ class MasterController:
         self.nde_settings_view.roi_peak_preference_changed.connect(
             self._on_roi_peak_preference_changed
         )
+        self.nde_settings_view.roi_peak_ignore_position_changed.connect(
+            self._on_roi_peak_ignore_position_changed
+        )
+        self.nde_settings_view.roi_peak_vertical_min_changed.connect(
+            self._on_roi_peak_vertical_min_changed
+        )
+        self.nde_settings_view.roi_peak_vertical_max_changed.connect(
+            self._on_roi_peak_vertical_max_changed
+        )
         self.corrosion_settings_view.label_a_changed.connect(self._on_corrosion_label_a_changed)
         self.corrosion_settings_view.label_b_changed.connect(self._on_corrosion_label_b_changed)
 
@@ -792,6 +801,15 @@ class MasterController:
         self.nde_settings_view.set_roi_peak_prefer_second(
             self.view_state_model.roi_peak_prefer_second
         )
+        self.nde_settings_view.set_roi_peak_ignore_position(
+            self.view_state_model.roi_peak_ignore_position
+        )
+        self.nde_settings_view.set_roi_peak_vertical_min_length(
+            self.view_state_model.roi_peak_vertical_min_length
+        )
+        self.nde_settings_view.set_roi_peak_vertical_max_length(
+            self.view_state_model.roi_peak_vertical_max_length
+        )
         self.nde_settings_view.show()
         self.nde_settings_view.raise_()
         self.nde_settings_view.activateWindow()
@@ -898,6 +916,32 @@ class MasterController:
     def _on_roi_peak_preference_changed(self, prefer_second: bool) -> None:
         """Handle first/second peak preference for Peak ROI mode."""
         self.view_state_model.set_roi_peak_prefer_second(bool(prefer_second))
+
+    def _on_roi_peak_ignore_position_changed(self, enabled: bool) -> None:
+        """Handle strongest-peak-only preference for Peak ROI mode."""
+        self.view_state_model.set_roi_peak_ignore_position(bool(enabled))
+
+    def _on_roi_peak_vertical_min_changed(self, value: int) -> None:
+        """Handle minimum vertical length for Peak ROI germination."""
+        self.view_state_model.set_roi_peak_vertical_min_length(int(value))
+        min_len = self.view_state_model.roi_peak_vertical_min_length
+        max_len = self.view_state_model.roi_peak_vertical_max_length
+        if max_len > 0 and min_len > max_len:
+            self.view_state_model.set_roi_peak_vertical_max_length(min_len)
+            self.nde_settings_view.set_roi_peak_vertical_max_length(
+                self.view_state_model.roi_peak_vertical_max_length
+            )
+
+    def _on_roi_peak_vertical_max_changed(self, value: int) -> None:
+        """Handle maximum vertical length for Peak ROI germination."""
+        self.view_state_model.set_roi_peak_vertical_max_length(int(value))
+        max_len = self.view_state_model.roi_peak_vertical_max_length
+        min_len = self.view_state_model.roi_peak_vertical_min_length
+        if max_len > 0 and max_len < min_len:
+            self.view_state_model.set_roi_peak_vertical_min_length(max_len)
+            self.nde_settings_view.set_roi_peak_vertical_min_length(
+                self.view_state_model.roi_peak_vertical_min_length
+            )
 
     def _apply_roi_non_corrosion(self) -> None:
         """Apply all temporary masks through the standard pipeline."""

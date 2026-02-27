@@ -3297,3 +3297,25 @@ Le mode peak et le commit des modifications de profil corrosion etaient perçus c
 2. Garder la parite fonctionnelle du mode peak (tie-break, `prefer_second_peak`) tout en limitant les boucles Python par colonne.
 3. Eviter la reconstruction du polygone peak sur chaque slice en apply-range pour reduire le temps cumule en volume.
 4. En mode apply-volume annotation, appliquer strictement ce qui est deja present dans `TempMaskModel` afin d eliminer le rebuild ROI global au moment du apply.
+
+### **2026-02-27** - Parametres Peak sans position et germination verticale min/max
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_service.py`, `#views/nde_settings_view.py`, `#peak`, `#roi`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute un mode de selection Peak Plus fort sans position dans les Parametres ROI Peak.
+- Ajoute deux parametres de germination verticale Peak : minimum et maximum (0 = illimite).
+- Propage ces parametres du ViewStateModel vers MasterController et AnnotationController pour tous les flux Peak (slice courante, range volume, recompute).
+- Etend AnnotationService pour supporter ignore_peak_position dans la selection du pic par colonne.
+- Etend _build_vertical_peak_growth_mask pour limiter la longueur verticale par colonne (max) et supprimer les segments trop courts (min).
+- Verifie la validite des changements par compilation Python ciblee sur les fichiers modifies.
+
+**Contexte :**
+L'objectif etait d'ameliorer le mode Peak ROI: d'abord permettre de prendre le pic le plus fort sans contrainte de position, puis controler la germination verticale avec des bornes min/max pour reduire le bruit (pixels isoles) et caper la croissance. Une demande d'application globale des ROI a aussi ete clarifiee: le raccourci Enter applique deja a tout le volume.
+
+**Decisions techniques :**
+1. Conserver une separation MVC stricte : View (widgets/signaux), Model (etat), Controller (orchestration), Service (logique Peak).
+2. Garder la retro-compatibilite via des valeurs par defaut (min=1, max=0) qui preservent le comportement historique.
+3. Appliquer max sur la longueur verticale totale du segment par colonne en restant centre autour du seed quand possible.
+4. Appliquer min comme filtre final de segment vertical: tout segment plus court est ignore.
+5. Ne pas changer le workflow d'application globale par bouton: Enter reste l'action globale pour eviter un cout de rafraichissement overlay inutile sur les edits slice uniques.
+

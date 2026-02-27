@@ -246,6 +246,7 @@ class AnnotationService:
         slice_data: np.ndarray,
         *,
         prefer_second_peak: bool = False,
+        ignore_peak_position: bool = False,
     ) -> np.ndarray:
         """Keep one A-scan peak per X column inside an ROI mask."""
         try:
@@ -325,7 +326,9 @@ class AnnotationService:
             amp_rank = np.lexsort((ys_candidates, -amps))
             top_by_amp = peak_candidates[amp_rank[:2]]
             strongest_idx = int(top_by_amp[0])
-            if top_by_amp.size >= 2:
+            if bool(ignore_peak_position):
+                chosen_idx = strongest_idx
+            elif top_by_amp.size >= 2:
                 amp_1 = float(vals_col[int(top_by_amp[0])])
                 amp_2 = float(vals_col[int(top_by_amp[1])])
                 y_1 = int(ys_col[int(top_by_amp[0])])
@@ -357,18 +360,24 @@ class AnnotationService:
         slice_data: np.ndarray,
         threshold: Optional[float],
         prefer_second_peak: bool,
+        ignore_peak_position: bool = False,
+        vertical_min_length: int = 1,
+        vertical_max_length: int = 0,
         blocked_mask: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         peak_mask = self.build_ascan_max_mask(
             poly_mask,
             slice_data,
             prefer_second_peak=prefer_second_peak,
+            ignore_peak_position=ignore_peak_position,
         )
         return self._build_vertical_peak_growth_mask(
             peak_mask=peak_mask,
             roi_mask=poly_mask,
             slice_data=slice_data,
             threshold=threshold,
+            vertical_min_length=vertical_min_length,
+            vertical_max_length=vertical_max_length,
             blocked_mask=blocked_mask,
         )
 
@@ -379,6 +388,8 @@ class AnnotationService:
         roi_mask: np.ndarray,
         slice_data: np.ndarray,
         threshold: Optional[float],
+        vertical_min_length: int = 1,
+        vertical_max_length: int = 0,
         blocked_mask: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """Grow from each peak seed along Y only, constrained by threshold/ROI/blocked masks."""
@@ -402,6 +413,19 @@ class AnnotationService:
         if blocked is not None:
             grow_valid &= ~blocked
 
+        try:
+            min_len = int(vertical_min_length)
+        except Exception:
+            min_len = 1
+        if min_len < 1:
+            min_len = 1
+        try:
+            max_len = int(vertical_max_length)
+        except Exception:
+            max_len = 0
+        if max_len < 0:
+            max_len = 0
+
         # Peak selection is independent from threshold: threshold only controls vertical growth.
         seeds = peak_bool & roi_bool
         if blocked is not None:
@@ -412,15 +436,41 @@ class AnnotationService:
 
         ys, xs = np.nonzero(seeds)
         for y0, x in zip(ys, xs):
-            out[y0, x] = 1
+            segment: list[int] = [int(y0)]
+
             y = int(y0) - 1
             while y >= 0 and grow_valid[y, x]:
-                out[y, x] = 1
+                segment.insert(0, int(y))
                 y -= 1
+
             y = int(y0) + 1
             while y < h and grow_valid[y, x]:
-                out[y, x] = 1
+                segment.append(int(y))
                 y += 1
+
+            if max_len > 0 and len(segment) > max_len:
+                center = segment.index(int(y0))
+                half = max_len // 2
+                start = max(0, center - half)
+                end = start + max_len
+                if end > len(segment):
+                    end = len(segment)
+                    start = end - max_len
+                segment = segment[start:end]
+                if int(y0) not in segment:
+                    nearest = int(np.argmin(np.abs(np.asarray(segment, dtype=np.int32) - int(y0))))
+                    start = max(0, nearest - half)
+                    end = start + max_len
+                    if end > len(segment):
+                        end = len(segment)
+                        start = end - max_len
+                    segment = segment[start:end]
+
+            if len(segment) < min_len:
+                continue
+
+            for y in segment:
+                out[y, x] = 1
         return out
 
     def _prune_thin_lines(self, mask: np.ndarray, *, max_width: int = 2) -> np.ndarray:
@@ -830,6 +880,9 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
         precomputed_poly_mask: Optional[np.ndarray] = None,
+        ignore_peak_position: bool = False,
+        vertical_min_length: int = 1,
+        vertical_max_length: int = 0,
     ) -> Optional[np.ndarray]:
         """Freehand Peak ROI: one peak per column, then vertical growth from peaks."""
         if precomputed_poly_mask is not None:
@@ -874,6 +927,9 @@ class AnnotationService:
             slice_data=slice_data,
             threshold=threshold,
             prefer_second_peak=prefer_second_peak,
+            ignore_peak_position=ignore_peak_position,
+            vertical_min_length=vertical_min_length,
+            vertical_max_length=vertical_max_length,
             blocked_mask=blocked_mask,
         )
         self.apply_temp_box(
@@ -901,6 +957,9 @@ class AnnotationService:
         blocked_mask_for_label: Optional[Callable[[int], Optional[np.ndarray]]] = None,
         use_box_percentiles: bool = False,
         prefer_second_peak: bool = False,
+        ignore_peak_position: bool = False,
+        vertical_min_length: int = 1,
+        vertical_max_length: int = 0,
     ) -> list[Tuple[int, int, int, int]]:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
@@ -1011,12 +1070,15 @@ class AnnotationService:
                 poly_mask,
                 slice_data,
                 prefer_second_peak=prefer_second_peak,
+                ignore_peak_position=ignore_peak_position,
             )
             peak_roi_mask = self._build_vertical_peak_growth_mask(
                 peak_mask=peak_mask,
                 roi_mask=poly_mask,
                 slice_data=slice_data,
                 threshold=getattr(roi, "threshold", None),
+                vertical_min_length=vertical_min_length,
+                vertical_max_length=vertical_max_length,
                 blocked_mask=blocked,
             )
             self.apply_temp_box(
@@ -1165,6 +1227,9 @@ class AnnotationService:
         ] = None,
         use_box_percentiles: bool = False,
         prefer_second_peak: bool = False,
+        ignore_peak_position: bool = False,
+        vertical_min_length: int = 1,
+        vertical_max_length: int = 0,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -1210,6 +1275,9 @@ class AnnotationService:
                 blocked_mask_for_label=blocked_mask_for_label,
                 use_box_percentiles=use_box_percentiles,
                 prefer_second_peak=prefer_second_peak,
+                ignore_peak_position=ignore_peak_position,
+                vertical_min_length=vertical_min_length,
+                vertical_max_length=vertical_max_length,
             )
 
     def build_thresholded_mask(
@@ -1625,6 +1693,9 @@ class AnnotationService:
         slice_data_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        ignore_peak_position: bool = False,
+        vertical_min_length: int = 1,
+        vertical_max_length: int = 0,
     ) -> None:
         """Apply a Peak ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -1661,6 +1732,9 @@ class AnnotationService:
                 restriction_mask=None,
                 blocked_mask=blocked_mask,
                 precomputed_poly_mask=poly_mask,
+                ignore_peak_position=ignore_peak_position,
+                vertical_min_length=vertical_min_length,
+                vertical_max_length=vertical_max_length,
             )
 
     def apply_box_roi_to_range(

@@ -26,6 +26,9 @@ class NdeSettingsView(QDialog):
     erase_label_target_changed = pyqtSignal(object)
     roi_thin_line_width_changed = pyqtSignal(int)
     roi_peak_preference_changed = pyqtSignal(bool)
+    roi_peak_ignore_position_changed = pyqtSignal(bool)
+    roi_peak_vertical_min_changed = pyqtSignal(int)
+    roi_peak_vertical_max_changed = pyqtSignal(int)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -67,6 +70,24 @@ class NdeSettingsView(QDialog):
         self._roi_peak_combo.addItem("Premier pic", False)
         self._roi_peak_combo.addItem("Deuxieme pic", True)
         form.addRow(QLabel("ROI Peak - choix du pic"), self._roi_peak_combo)
+
+        self._roi_peak_ignore_combo = QComboBox(self)
+        self._roi_peak_ignore_combo.addItem("Avec position", False)
+        self._roi_peak_ignore_combo.addItem("Plus fort (sans position)", True)
+        form.addRow(QLabel("ROI Peak - mode du pic"), self._roi_peak_ignore_combo)
+
+        self._roi_peak_vertical_min = QSpinBox(self)
+        self._roi_peak_vertical_min.setMinimum(1)
+        self._roi_peak_vertical_min.setMaximum(999)
+        self._roi_peak_vertical_min.setValue(1)
+        form.addRow(QLabel("ROI Peak - min vertical"), self._roi_peak_vertical_min)
+
+        self._roi_peak_vertical_max = QSpinBox(self)
+        self._roi_peak_vertical_max.setMinimum(0)
+        self._roi_peak_vertical_max.setMaximum(999)
+        self._roi_peak_vertical_max.setValue(0)
+        self._roi_peak_vertical_max.setSpecialValueText("Illimite")
+        form.addRow(QLabel("ROI Peak - max vertical"), self._roi_peak_vertical_max)
 
         layout.addLayout(form)
 
@@ -143,6 +164,40 @@ class NdeSettingsView(QDialog):
         self._roi_peak_combo.setCurrentIndex(idx)
         self._roi_peak_combo.blockSignals(False)
 
+    def set_roi_peak_ignore_position(self, enabled: bool) -> None:
+        """Update strongest-peak-only mode without emitting signals."""
+        target = bool(enabled)
+        self._roi_peak_ignore_combo.blockSignals(True)
+        idx = self._roi_peak_ignore_combo.findData(target)
+        if idx < 0:
+            idx = 1 if target else 0
+        self._roi_peak_ignore_combo.setCurrentIndex(idx)
+        self._roi_peak_ignore_combo.blockSignals(False)
+
+    def set_roi_peak_vertical_min_length(self, value: int) -> None:
+        """Update minimum vertical peak length without emitting signals."""
+        try:
+            min_len = int(value)
+        except Exception:
+            min_len = 1
+        if min_len < 1:
+            min_len = 1
+        self._roi_peak_vertical_min.blockSignals(True)
+        self._roi_peak_vertical_min.setValue(min_len)
+        self._roi_peak_vertical_min.blockSignals(False)
+
+    def set_roi_peak_vertical_max_length(self, value: int) -> None:
+        """Update maximum vertical peak length without emitting signals (0 = unlimited)."""
+        try:
+            max_len = int(value)
+        except Exception:
+            max_len = 0
+        if max_len < 0:
+            max_len = 0
+        self._roi_peak_vertical_max.blockSignals(True)
+        self._roi_peak_vertical_max.setValue(max_len)
+        self._roi_peak_vertical_max.blockSignals(False)
+
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -161,6 +216,11 @@ class NdeSettingsView(QDialog):
         self._erase_label_combo.currentIndexChanged.connect(self._on_erase_label_target_changed)
         self._roi_thin_line_width.valueChanged.connect(self._on_roi_thin_line_width_changed)
         self._roi_peak_combo.currentIndexChanged.connect(self._on_roi_peak_preference_changed)
+        self._roi_peak_ignore_combo.currentIndexChanged.connect(
+            self._on_roi_peak_ignore_position_changed
+        )
+        self._roi_peak_vertical_min.valueChanged.connect(self._on_roi_peak_vertical_min_changed)
+        self._roi_peak_vertical_max.valueChanged.connect(self._on_roi_peak_vertical_max_changed)
 
     def _emit_apply_volume_range(self) -> None:
         self.apply_volume_range_changed.emit(
@@ -201,6 +261,33 @@ class NdeSettingsView(QDialog):
     def _on_roi_peak_preference_changed(self, _index: int) -> None:
         data = self._roi_peak_combo.currentData()
         self.roi_peak_preference_changed.emit(bool(data))
+
+    def _on_roi_peak_ignore_position_changed(self, _index: int) -> None:
+        data = self._roi_peak_ignore_combo.currentData()
+        self.roi_peak_ignore_position_changed.emit(bool(data))
+
+    def _on_roi_peak_vertical_min_changed(self, value: int) -> None:
+        min_len = max(1, int(value))
+        max_len = int(self._roi_peak_vertical_max.value())
+        if max_len > 0 and min_len > max_len:
+            self._roi_peak_vertical_max.blockSignals(True)
+            self._roi_peak_vertical_max.setValue(min_len)
+            self._roi_peak_vertical_max.blockSignals(False)
+            max_len = min_len
+        self.roi_peak_vertical_min_changed.emit(min_len)
+        if max_len > 0:
+            self.roi_peak_vertical_max_changed.emit(max_len)
+
+    def _on_roi_peak_vertical_max_changed(self, value: int) -> None:
+        max_len = max(0, int(value))
+        min_len = int(self._roi_peak_vertical_min.value())
+        if max_len > 0 and max_len < min_len:
+            self._roi_peak_vertical_min.blockSignals(True)
+            self._roi_peak_vertical_min.setValue(max_len)
+            self._roi_peak_vertical_min.blockSignals(False)
+            min_len = max_len
+            self.roi_peak_vertical_min_changed.emit(min_len)
+        self.roi_peak_vertical_max_changed.emit(max_len)
 
     @staticmethod
     def _set_current(combo: QComboBox, value: str) -> None:
