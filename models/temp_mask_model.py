@@ -74,6 +74,27 @@ class TempMaskModel:
         self.mask_volume[slice_idx] = updated
         self.coverage_volume[slice_idx] = np.logical_or(coverage_slice, coverage)
 
+    def set_slice_data(self, slice_idx: int, slice_mask: Any, coverage: Any) -> bool:
+        """
+        Replace a full temporary slice and its explicit coverage map.
+
+        Returns True when the data was accepted and written.
+        """
+        if self.mask_volume is None:
+            return False
+        idx = max(0, min(self.mask_volume.shape[0] - 1, int(slice_idx)))
+        mask_arr = np.asarray(slice_mask, dtype=np.uint8)
+        if mask_arr.shape != self.mask_volume[idx].shape:
+            return False
+        cov_arr = np.asarray(coverage, dtype=bool)
+        if cov_arr.shape != self.mask_volume[idx].shape:
+            return False
+        if self.coverage_volume is None:
+            self.coverage_volume = np.zeros_like(self.mask_volume, dtype=bool)
+        self.mask_volume[idx] = mask_arr
+        self.coverage_volume[idx] = cov_arr
+        return True
+
     def clear_slice(self, slice_idx: int) -> None:
         """Clear a slice in the temporary mask volume."""
         if self.mask_volume is None:

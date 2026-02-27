@@ -2,19 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Optional
 
 import cv2
 import numpy as np
-
-
-@dataclass
-class MaskModificationCommitPayload:
-    """Committed payload for mask modification mode."""
-
-    mask_volume: np.ndarray
-    changed_slices: set[int]
 
 
 class MaskModificationService:
@@ -27,14 +18,13 @@ class MaskModificationService:
         self.reset()
 
     def reset(self) -> None:
-        self._base_mask_volume: Optional[np.ndarray] = None
-        self._pending_mask_volume: Optional[np.ndarray] = None
         self._image_shape: Optional[tuple[int, int]] = None
         self._dirty_slices: set[int] = set()
         self._drag_active = False
         self._drag_anchor_list_idx: Optional[int] = None
         self._active_slice_idx: Optional[int] = None
         self._active_label: Optional[int] = None
+        self._active_slice_mask: Optional[np.ndarray] = None
         self._other_label_mask: Optional[np.ndarray] = None
         self._working_component_mask: Optional[np.ndarray] = None
         self._contour_points: Optional[np.ndarray] = None  # float32 (N,2), x/y
@@ -43,33 +33,22 @@ class MaskModificationService:
     def has_pending_edits(self) -> bool:
         return bool(self._dirty_slices)
 
+    def dirty_slices(self) -> set[int]:
+        """Return the set of slices currently marked as modified in pending mode."""
+        return {int(idx) for idx in self._dirty_slices}
+
     def ensure_loaded(self, mask_volume: np.ndarray) -> bool:
         data = np.asarray(mask_volume, dtype=np.uint8)
         if data.ndim != 3:
             return False
-        if self._pending_mask_volume is None or self._pending_mask_volume.shape != data.shape:
-            return self.load_from_mask(data)
-        if (
-            not self._dirty_slices
-            and self._base_mask_volume is not None
-            and self._base_mask_volume.shape == data.shape
-            and not np.array_equal(self._base_mask_volume, data)
-        ):
-            return self.load_from_mask(data)
+        shape = (int(data.shape[1]), int(data.shape[2]))
+        if self._image_shape != shape:
+            self._image_shape = shape
+            self.clear_active_component()
         return True
 
     def load_from_mask(self, mask_volume: np.ndarray) -> bool:
-        data = np.asarray(mask_volume, dtype=np.uint8)
-        if data.ndim != 3:
-            return False
-        self._base_mask_volume = np.array(data, dtype=np.uint8, copy=True)
-        self._pending_mask_volume = np.array(data, dtype=np.uint8, copy=True)
-        self._image_shape = (int(data.shape[1]), int(data.shape[2]))
-        self._dirty_slices.clear()
-        self._clear_active_component()
-        self._drag_active = False
-        self._drag_anchor_list_idx = None
-        return True
+        return self.ensure_loaded(mask_volume)
 
     def clear_active_component(self) -> None:
         self._clear_active_component()
@@ -131,10 +110,17 @@ class MaskModificationService:
         label: int,
         x_pos: int,
         y_pos: int,
+        slice_mask: np.ndarray,
     ) -> bool:
         if label <= 0:
             return False
-        if self._pending_mask_volume is None or self._image_shape is None:
+        slice_arr = np.asarray(slice_mask, dtype=np.uint8)
+        if slice_arr.ndim != 2:
+            return False
+        shape = (int(slice_arr.shape[0]), int(slice_arr.shape[1]))
+        if self._image_shape is None:
+            self._image_shape = shape
+        elif self._image_shape != shape:
             return False
 
         z = int(slice_idx)
@@ -145,8 +131,15 @@ class MaskModificationService:
             or self._contour_points is None
             or self._working_component_mask is None
             or self._other_label_mask is None
+            or self._active_slice_mask is None
         ):
-            if not self._select_component(slice_idx=z, label=lbl, x_pos=x_pos, y_pos=y_pos):
+            if not self._select_component(
+                slice_idx=z,
+                label=lbl,
+                x_pos=x_pos,
+                y_pos=y_pos,
+                slice_mask=slice_arr,
+            ):
                 return False
 
         if self._contour_points is None or not self._anchor_indices:
@@ -163,29 +156,31 @@ class MaskModificationService:
         self._drag_anchor_list_idx = int(anchor_list_idx)
         return True
 
-    def drag_to(self, *, slice_idx: int, x_pos: int, y_pos: int) -> bool:
+    def drag_to(self, *, slice_idx: int, x_pos: int, y_pos: int) -> Optional[np.ndarray]:
         if not self._drag_active:
-            return False
+            return None
         if self._drag_anchor_list_idx is None:
-            return False
-        if self._pending_mask_volume is None or self._image_shape is None:
-            return False
+            return None
+        if self._image_shape is None:
+            return None
         if self._active_slice_idx is None or self._active_label is None:
-            return False
+            return None
         if self._contour_points is None or self._working_component_mask is None or self._other_label_mask is None:
-            return False
+            return None
+        if self._active_slice_mask is None:
+            return None
         if int(slice_idx) != int(self._active_slice_idx):
-            return False
+            return None
         if not self._anchor_indices:
-            return False
+            return None
 
         anchor_list_idx = int(max(0, min(len(self._anchor_indices) - 1, self._drag_anchor_list_idx)))
         anchor_point_idx = int(self._anchor_indices[anchor_list_idx])
         contour = np.array(self._contour_points, dtype=np.float32, copy=True)
         if contour.ndim != 2 or contour.shape[0] < 3:
-            return False
+            return None
         if anchor_point_idx < 0 or anchor_point_idx >= contour.shape[0]:
-            return False
+            return None
 
         height, width = self._image_shape
         x_new = float(max(0, min(width - 1, int(x_pos))))
@@ -193,7 +188,7 @@ class MaskModificationService:
         x_old = float(contour[anchor_point_idx, 0])
         y_old = float(contour[anchor_point_idx, 1])
         if abs(x_new - x_old) < 0.01 and abs(y_new - y_old) < 0.01:
-            return False
+            return None
 
         # Move only the selected anchor vertex: no neighborhood deformation.
         contour[anchor_point_idx, 0] = x_new
@@ -204,30 +199,29 @@ class MaskModificationService:
         contour[:, 1] = np.clip(contour[:, 1], 0.0, float(height - 1))
         contour = self._normalize_contour_points(np.rint(contour).astype(np.float32))
         if contour.shape[0] < 3:
-            return False
+            return None
 
         contour_int = np.rint(contour).astype(np.int32)
         if np.unique(contour_int, axis=0).shape[0] < 3:
-            return False
+            return None
 
         component_mask = np.zeros((height, width), dtype=np.uint8)
         cv2.fillPoly(component_mask, [contour_int.reshape((-1, 1, 2))], 1)
         if not np.any(component_mask):
-            return False
+            return None
         component_bool = component_mask.astype(bool)
 
-        z = int(self._active_slice_idx)
         label = int(self._active_label)
-        updated_slice = np.array(self._pending_mask_volume[z], dtype=np.uint8, copy=True)
+        updated_slice = np.array(self._active_slice_mask, dtype=np.uint8, copy=True)
         updated_slice[self._working_component_mask] = 0
         updated_slice[self._other_label_mask] = label
         blocked = np.logical_and(updated_slice != 0, updated_slice != label)
         if np.any(blocked):
             component_bool = np.logical_and(component_bool, np.logical_not(blocked))
             if not np.any(component_bool):
-                return False
+                return None
         updated_slice[component_bool] = label
-        self._pending_mask_volume[z] = updated_slice
+        self._active_slice_mask = np.array(updated_slice, dtype=np.uint8, copy=True)
         self._working_component_mask = component_bool
         self._contour_points = contour
         self._anchor_indices = self._build_anchor_indices(contour)
@@ -237,8 +231,8 @@ class MaskModificationService:
         )
         if nearest_active is not None:
             self._drag_anchor_list_idx = int(nearest_active)
-        self._dirty_slices.add(z)
-        return True
+        self._dirty_slices.add(int(self._active_slice_idx))
+        return np.array(updated_slice, dtype=np.uint8, copy=True)
 
     def end_drag(self) -> None:
         self._drag_active = False
@@ -251,10 +245,12 @@ class MaskModificationService:
         label: int,
         x_pos: int,
         y_pos: int,
+        slice_mask: np.ndarray,
     ) -> bool:
         if label <= 0:
             return False
-        if self._pending_mask_volume is None:
+        slice_arr = np.asarray(slice_mask, dtype=np.uint8)
+        if slice_arr.ndim != 2:
             return False
 
         z = int(slice_idx)
@@ -265,8 +261,15 @@ class MaskModificationService:
             or self._contour_points is None
             or self._working_component_mask is None
             or self._other_label_mask is None
+            or self._active_slice_mask is None
         ):
-            if not self._select_component(slice_idx=z, label=lbl, x_pos=x_pos, y_pos=y_pos):
+            if not self._select_component(
+                slice_idx=z,
+                label=lbl,
+                x_pos=x_pos,
+                y_pos=y_pos,
+                slice_mask=slice_arr,
+            ):
                 return False
 
         inserted = self._insert_anchor_near_point(
@@ -277,28 +280,21 @@ class MaskModificationService:
         return inserted is not None
 
     def preview_mask_volume(self) -> Optional[np.ndarray]:
-        if self._pending_mask_volume is None or not self._dirty_slices:
-            return None
-        return np.asarray(self._pending_mask_volume)
+        return None
 
     def cancel_pending(self) -> bool:
         had_dirty = bool(self._dirty_slices)
-        if self._base_mask_volume is not None and self._pending_mask_volume is not None:
-            self._pending_mask_volume = np.array(self._base_mask_volume, dtype=np.uint8, copy=True)
         self._dirty_slices.clear()
         self.clear_active_component()
         return had_dirty
 
-    def commit(self) -> Optional[MaskModificationCommitPayload]:
-        if self._pending_mask_volume is None or not self._dirty_slices:
+    def commit(self) -> Optional[set[int]]:
+        if not self._dirty_slices:
             return None
-        committed = np.array(self._pending_mask_volume, dtype=np.uint8, copy=True)
         changed = set(int(v) for v in self._dirty_slices)
-        self._base_mask_volume = np.array(committed, dtype=np.uint8, copy=True)
-        self._pending_mask_volume = np.array(committed, dtype=np.uint8, copy=True)
         self._dirty_slices.clear()
         self.clear_active_component()
-        return MaskModificationCommitPayload(mask_volume=committed, changed_slices=changed)
+        return changed
 
     def _select_component(
         self,
@@ -307,19 +303,20 @@ class MaskModificationService:
         label: int,
         x_pos: int,
         y_pos: int,
+        slice_mask: np.ndarray,
     ) -> bool:
-        if self._pending_mask_volume is None or self._image_shape is None:
+        if self._image_shape is None:
             return False
         z = int(slice_idx)
         lbl = int(label)
-        if z < 0 or z >= self._pending_mask_volume.shape[0]:
+        slice_arr = np.asarray(slice_mask, dtype=np.uint8)
+        if slice_arr.ndim != 2:
             return False
         height, width = self._image_shape
         x = int(max(0, min(width - 1, int(x_pos))))
         y = int(max(0, min(height - 1, int(y_pos))))
 
-        slice_mask = np.asarray(self._pending_mask_volume[z], dtype=np.uint8)
-        label_binary = (slice_mask == lbl).astype(np.uint8)
+        label_binary = (slice_arr == lbl).astype(np.uint8)
         if not np.any(label_binary):
             return False
 
@@ -361,9 +358,10 @@ class MaskModificationService:
         if contour_pts.shape[0] < 3:
             return False
 
-        other_label_mask = np.logical_and(slice_mask == lbl, np.logical_not(component_bool))
+        other_label_mask = np.logical_and(slice_arr == lbl, np.logical_not(component_bool))
         self._active_slice_idx = z
         self._active_label = lbl
+        self._active_slice_mask = np.array(slice_arr, dtype=np.uint8, copy=True)
         self._other_label_mask = other_label_mask
         self._working_component_mask = component_bool
         self._contour_points = contour_pts
@@ -548,6 +546,7 @@ class MaskModificationService:
     def _clear_active_component(self) -> None:
         self._active_slice_idx = None
         self._active_label = None
+        self._active_slice_mask = None
         self._other_label_mask = None
         self._working_component_mask = None
         self._contour_points = None

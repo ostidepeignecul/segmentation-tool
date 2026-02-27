@@ -238,8 +238,6 @@ class AnnotationView(EndviewView):
         self._apply_tool_cursor()
         if prev_mode != mode:
             self.clear_temp_shapes()
-            if prev_mode == "mod" and mode != "mod":
-                self.clear_mod_anchor_points()
 
     def set_mod_anchor_points(
         self,

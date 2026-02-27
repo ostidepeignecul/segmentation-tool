@@ -3256,3 +3256,26 @@ Le mode force carre corrigeait bien la deformation XY mais ne garantissait pas u
 3. Utiliser une projection orthographique uniquement en mode force carre, et restaurer la projection camera par defaut hors de ce mode.
 4. Reappliquer le preset force carre apres reconstruction de scene pour garantir un comportement stable au changement de session.
 
+
+### **2026-02-26** - Mode mod aligne sur pipeline temp standard et source slice unique
+**Tags :** `#branch:annotation`, `#controllers/mask_modification_controller.py`, `#controllers/master_controller.py`, `#models/temp_mask_model.py`, `#services/mask_modification_service.py`, `#views/annotation_view.py`, `#mod`, `#roi`, `#temp-mask`, `#overlay`, `#mvc`
+
+**Actions effectuees :**
+- Injection de `TempMaskModel` dans `MaskModificationController` et remplacement du rafraichissement overlay global par un refresh ROI cible par slice.
+- Stockage du preview `mod` dans le pipeline temporaire standard via `TempMaskModel.set_slice_data(...)`, avec suivi `_mod_preview_base`, `_mod_preview_current` et `_mod_preview_slices`.
+- Ajout d un rebase du baseline preview `mod` pour conserver les modifications externes du temp mask quand d autres outils ecrivent sur la meme slice.
+- Suppression du clear automatique de la zone `mod` au changement de mode (controller + view), pour garder la zone tant qu il n y a pas apply/delete explicite.
+- Changement du raccourci `W` vers `_apply_roi_non_corrosion` pour appliquer via le flux standard (`commit_pending_edits` puis `on_apply_temp_mask_requested`).
+- Centralisation de la suppression ROI dans `MasterController._on_roi_delete_requested` afin de nettoyer aussi l etat pending `mod` de facon coherente.
+- Refactor `MaskModificationService` vers un mode slice-first: retrait des volumes pending/base internes, `start_drag`/`add_anchor_on_contour` prennent `slice_mask`, `drag_to` retourne la slice mise a jour, `commit` retourne les slices dirty.
+- Ajout de `TempMaskModel.set_slice_data(...)` pour remplacer explicitement masque + coverage d une slice temporaire.
+
+**Contexte :**
+L objectif etait d aligner le mode `mod` sur le comportement des autres outils ROI: conserver un temporaire visible en sortie de mode, appliquer/supprimer via le pipeline standard, et eviter les refresh overlay globaux couteux lors des bascules d outil.
+
+**Decisions techniques :**
+1. Utiliser `TempMaskModel` comme source unique de verite du temporaire visible, y compris pour `mod`, afin d uniformiser apply/delete/rebuild.
+2. Garder la logique metier `mod` dans le service mais la limiter a la slice active pour reduire les copies de volume et les risques de divergence.
+3. Faire passer les actions utilisateur (`W`, delete ROI) par les memes points d entree `MasterController` pour garantir un comportement homogene entre outils.
+4. Preserver la zone `mod` hors du mode `mod` et ne la nettoyer que sur action explicite (apply/cancel/delete), comme attendu cote ROI.
+

@@ -176,13 +176,11 @@ class MasterController:
         self.mask_modification_controller = MaskModificationController(
             view_state_model=self.view_state_model,
             annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
             annotation_view=self.annotation_view,
             mask_modification_service=self.mask_modification_service,
             refresh_overlay=self.annotation_controller.refresh_overlay,
-            restore_overlay=lambda: self.annotation_controller.refresh_overlay(
-                defer_volume=True,
-                rebuild=False,
-            ),
+            refresh_roi_overlay_for_slice=self.annotation_controller.refresh_roi_overlay_for_slice,
             set_position_label=self.tools_panel.set_position_label,
             status_message=self.status_message,
         )
@@ -327,7 +325,7 @@ class MasterController:
         self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
         self.tools_panel.roi_persistence_toggled.connect(self.annotation_controller.on_roi_persistence_toggled)
         self.tools_panel.roi_recompute_requested.connect(self.annotation_controller.on_roi_recompute_requested)
-        self.tools_panel.roi_delete_requested.connect(self.annotation_controller.on_roi_delete_requested)
+        self.tools_panel.roi_delete_requested.connect(self._on_roi_delete_requested)
         self.tools_panel.selection_cancel_requested.connect(self._on_selection_cancel_requested)
         self.tools_panel.previous_requested.connect(self._on_previous_slice)
         self.tools_panel.next_requested.connect(self._on_next_slice)
@@ -428,7 +426,7 @@ class MasterController:
         mapping = [
             (QKeySequence(Qt.Key.Key_A), self._on_previous_slice),
             (QKeySequence(Qt.Key.Key_D), self._on_next_slice),
-            (QKeySequence(Qt.Key.Key_W), self.annotation_controller.on_apply_temp_mask_requested),
+            (QKeySequence(Qt.Key.Key_W), self._apply_roi_non_corrosion),
             (QKeySequence(Qt.Key.Key_Escape), self._on_selection_cancel_requested),
             (QKeySequence(Qt.Key.Key_Return), self.annotation_controller.on_apply_all_temp_masks_requested),
             (QKeySequence(Qt.Key.Key_Enter), self.annotation_controller.on_apply_all_temp_masks_requested),
@@ -902,9 +900,8 @@ class MasterController:
         self.view_state_model.set_roi_peak_prefer_second(bool(prefer_second))
 
     def _apply_roi_non_corrosion(self) -> None:
-        """Apply pending mask edits first, then fallback to ROI/temp apply."""
-        if self.mask_modification_controller.commit_pending_edits():
-            return
+        """Apply all temporary masks through the standard pipeline."""
+        self.mask_modification_controller.commit_pending_edits()
         self.annotation_controller.on_apply_temp_mask_requested()
 
     def _on_selection_cancel_requested(self) -> None:
@@ -912,6 +909,11 @@ class MasterController:
         if self.mask_modification_controller.on_selection_cancel_requested():
             return
         self.annotation_controller.on_selection_cancel_requested()
+
+    def _on_roi_delete_requested(self) -> None:
+        """Delete ROI/temp previews and clear mod pending edits consistently."""
+        self.mask_modification_controller.on_roi_delete_requested()
+        self.annotation_controller.on_roi_delete_requested()
 
     def _get_colormap_lut(self, name: str) -> Optional[np.ndarray]:
         """Return LUT (256x3 float) for known colormap names."""
