@@ -3279,3 +3279,21 @@ L objectif etait d aligner le mode `mod` sur le comportement des autres outils R
 3. Faire passer les actions utilisateur (`W`, delete ROI) par les memes points d entree `MasterController` pour garantir un comportement homogene entre outils.
 4. Preserver la zone `mod` hors du mode `mod` et ne la nettoyer que sur action explicite (apply/cancel/delete), comme attendu cote ROI.
 
+### **2026-02-27** - Optimisation peak ROI et commit corrosion avec recalcul projection
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#services/annotation_service.py`, `#services/corrosion_profile_edit_service.py`, `#services/cscan_corrosion_service.py`, `#peak`, `#corrosion`, `#performance`, `#projection`, `#mvc`
+
+**Actions effectuees :**
+- Simplification de `on_apply_temp_mask_requested` en mode apply-volume pour appliquer directement `TempMaskModel` sans rebuild ROI global, avec garde `has_pending`.
+- Vectorisation du coeur peak dans `build_ascan_max_mask` via tri global `(x,y)` et regroupement par colonnes, en conservant les regles de choix 1er/2e pic.
+- Factorisation du pipeline peak dans `_compute_peak_roi_mask` et ajout de `precomputed_poly_mask` pour reutiliser le polygone lors des applications sur plage de slices.
+- Optimisation du commit corrosion en conservant le recalcul projection C-scan, mais en calculant la distance map directement depuis les peak maps (`build_distance_map_from_peak_maps`) plutot que via `overlay -> build_interpolated_distance_map`.
+- Ajout de `CScanCorrosionService.build_distance_map_from_peak_maps` comme wrapper public pour reutiliser la logique metier existante et eviter les chemins de calcul redondants.
+
+**Contexte :**
+Le mode peak et le commit des modifications de profil corrosion etaient perçus comme lents. Le besoin etait de maintenir le recalcul C-scan apres edition corrosion tout en supprimant les etapes de recalcul inutiles ou redondantes.
+
+**Decisions techniques :**
+1. Conserver le recalcul de projection corrosion au apply, mais baser la distance map sur les peak maps interpolees pour reduire le cout CPU.
+2. Garder la parite fonctionnelle du mode peak (tie-break, `prefer_second_peak`) tout en limitant les boucles Python par colonne.
+3. Eviter la reconstruction du polygone peak sur chaque slice en apply-range pour reduire le temps cumule en volume.
+4. En mode apply-volume annotation, appliquer strictement ce qui est deja present dans `TempMaskModel` afin d eliminer le rebuild ROI global au moment du apply.

@@ -270,81 +270,107 @@ class AnnotationService:
         if not np.any(finite):
             return np.zeros(mask_bool.shape, dtype=np.uint8)
 
-        ys = ys[finite]
-        xs = xs[finite]
-        values = values[finite]
+        ys = ys[finite].astype(np.int32, copy=False)
+        xs = xs[finite].astype(np.int32, copy=False)
+        values = values[finite].astype(np.float32, copy=False)
+
+        # Group ROI samples by X with one global sort to avoid per-column boolean masking.
+        order = np.lexsort((ys, xs))
+        ys = ys[order]
+        xs = xs[order]
+        values = values[order]
+
+        boundaries = np.flatnonzero(np.diff(xs)) + 1
+        starts = np.concatenate(([0], boundaries))
+        ends = np.concatenate((boundaries, [xs.size]))
 
         out = np.zeros(mask_bool.shape, dtype=np.uint8)
-        for x in np.unique(xs):
-            col = xs == x
-            ys_col = ys[col]
-            vals_col = values[col]
-            if ys_col.size == 0:
-                continue
-
-            y_order = np.argsort(ys_col, kind="stable")
-            ys_sorted = ys_col[y_order]
-            vals_sorted = vals_col[y_order]
-            n = int(vals_sorted.size)
+        for start, end in zip(starts, ends):
+            x = int(xs[start])
+            ys_col = ys[start:end]
+            vals_col = values[start:end]
+            n = int(vals_col.size)
             if n <= 0:
                 continue
             if n == 1:
-                out[int(ys_sorted[0]), int(x)] = 1
+                out[int(ys_col[0]), x] = 1
                 continue
 
-            val_min = float(np.min(vals_sorted))
-            val_max = float(np.max(vals_sorted))
+            val_min = float(np.min(vals_col))
+            val_max = float(np.max(vals_col))
             if (val_max - val_min) <= 1e-12:
                 continue
 
-            vals_work = vals_sorted.astype(np.float32, copy=False)
-            vals_smooth = vals_work.copy()
-            vals_smooth[1:-1] = (vals_work[:-2] + vals_work[1:-1] + vals_work[2:]) / 3.0
+            vals_smooth = np.array(vals_col, copy=True)
+            if n > 2:
+                vals_smooth[1:-1] = (vals_col[:-2] + vals_col[1:-1] + vals_col[2:]) / 3.0
 
-            peak_candidates: list[int] = []
+            peak_flags = np.zeros(n, dtype=bool)
             if float(vals_smooth[0]) > float(vals_smooth[1]):
-                peak_candidates.append(0)
-            for i in range(1, n - 1):
-                left = float(vals_smooth[i - 1])
-                right = float(vals_smooth[i + 1])
-                cur = float(vals_smooth[i])
-                is_peak = (cur >= left and cur > right) or (cur > left and cur >= right)
-                if is_peak:
-                    peak_candidates.append(i)
+                peak_flags[0] = True
+            if n > 2:
+                mid = vals_smooth[1:-1]
+                left = vals_smooth[:-2]
+                right = vals_smooth[2:]
+                peak_flags[1:-1] = ((mid >= left) & (mid > right)) | ((mid > left) & (mid >= right))
             if float(vals_smooth[n - 1]) > float(vals_smooth[n - 2]):
-                peak_candidates.append(n - 1)
+                peak_flags[n - 1] = True
 
-            if not peak_candidates:
-                peak_candidates = [int(np.argmax(vals_smooth))]
+            peak_candidates = np.flatnonzero(peak_flags)
+            if peak_candidates.size == 0:
+                peak_candidates = np.asarray([int(np.argmax(vals_smooth))], dtype=np.int32)
 
-            top_by_amp = sorted(
-                peak_candidates,
-                key=lambda idx: (float(vals_sorted[idx]), -int(ys_sorted[idx])),
-                reverse=True,
-            )[:2]
-            top_by_depth = sorted(top_by_amp, key=lambda idx: int(ys_sorted[idx]))
-            strongest_idx = top_by_amp[0]
-            if len(top_by_amp) >= 2:
-                amp_1 = float(vals_sorted[top_by_amp[0]])
-                amp_2 = float(vals_sorted[top_by_amp[1]])
-                y_1 = int(ys_sorted[top_by_amp[0]])
-                y_2 = int(ys_sorted[top_by_amp[1]])
+            amps = vals_col[peak_candidates]
+            ys_candidates = ys_col[peak_candidates]
+            amp_rank = np.lexsort((ys_candidates, -amps))
+            top_by_amp = peak_candidates[amp_rank[:2]]
+            strongest_idx = int(top_by_amp[0])
+            if top_by_amp.size >= 2:
+                amp_1 = float(vals_col[int(top_by_amp[0])])
+                amp_2 = float(vals_col[int(top_by_amp[1])])
+                y_1 = int(ys_col[int(top_by_amp[0])])
+                y_2 = int(ys_col[int(top_by_amp[1])])
                 y_gap = abs(y_1 - y_2)
                 denom = max(abs(amp_1), 1e-12)
                 relative_gap = (amp_1 - amp_2) / denom
+
+                depth_rank = np.argsort(ys_col[top_by_amp], kind="stable")
+                top_by_depth = top_by_amp[depth_rank]
                 if (not prefer_second_peak) and y_gap > 30:
                     chosen_idx = strongest_idx
                 elif relative_gap > 0.70:
                     chosen_idx = strongest_idx
                 elif prefer_second_peak:
-                    chosen_idx = top_by_depth[1]
+                    chosen_idx = int(top_by_depth[1])
                 else:
-                    chosen_idx = top_by_depth[0]
+                    chosen_idx = int(top_by_depth[0])
             else:
                 chosen_idx = strongest_idx
 
-            out[int(ys_sorted[chosen_idx]), int(x)] = 1
+            out[int(ys_col[chosen_idx]), x] = 1
         return out
+
+    def _compute_peak_roi_mask(
+        self,
+        *,
+        poly_mask: np.ndarray,
+        slice_data: np.ndarray,
+        threshold: Optional[float],
+        prefer_second_peak: bool,
+        blocked_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        peak_mask = self.build_ascan_max_mask(
+            poly_mask,
+            slice_data,
+            prefer_second_peak=prefer_second_peak,
+        )
+        return self._build_vertical_peak_growth_mask(
+            peak_mask=peak_mask,
+            roi_mask=poly_mask,
+            slice_data=slice_data,
+            threshold=threshold,
+            blocked_mask=blocked_mask,
+        )
 
     def _build_vertical_peak_growth_mask(
         self,
@@ -803,9 +829,20 @@ class AnnotationService:
         slice_data: Optional[np.ndarray] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
+        precomputed_poly_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """Freehand Peak ROI: one peak per column, then vertical growth from peaks."""
-        poly_mask = self.build_free_hand_mask(shape, points)
+        if precomputed_poly_mask is not None:
+            try:
+                poly_mask = np.asarray(precomputed_poly_mask, dtype=np.uint8)
+            except Exception:
+                return None
+            if poly_mask.ndim != 2 or poly_mask.shape != tuple(shape):
+                return None
+            if not np.any(poly_mask):
+                return None
+        else:
+            poly_mask = self.build_free_hand_mask(shape, points)
         if poly_mask is None:
             return None
         if slice_data is None:
@@ -832,16 +869,11 @@ class AnnotationService:
         )
         temp_mask_model.ensure_label(label, color, visible=True)
 
-        peak_mask = self.build_ascan_max_mask(
-            poly_mask,
-            slice_data,
-            prefer_second_peak=prefer_second_peak,
-        )
-        mask_to_apply = self._build_vertical_peak_growth_mask(
-            peak_mask=peak_mask,
-            roi_mask=poly_mask,
+        mask_to_apply = self._compute_peak_roi_mask(
+            poly_mask=poly_mask,
             slice_data=slice_data,
             threshold=threshold,
+            prefer_second_peak=prefer_second_peak,
             blocked_mask=blocked_mask,
         )
         self.apply_temp_box(
@@ -1597,8 +1629,20 @@ class AnnotationService:
         """Apply a Peak ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
         max_idx = int(max(start_idx, end_idx))
+        poly_mask = self.build_free_hand_mask(shape, points)
+        if poly_mask is None:
+            return
+
+        restriction = self._normalize_restriction_mask(restriction_mask, shape)
+        if restriction is not None:
+            poly_mask = np.where(restriction, poly_mask, 0)
+            if not np.any(poly_mask):
+                return
+
         for idx in range(min_idx, max_idx + 1):
             slice_data = slice_data_provider(idx) if slice_data_provider is not None else None
+            if slice_data is None:
+                continue
             blocked_mask = (
                 blocked_mask_provider(idx) if blocked_mask_provider is not None else None
             )
@@ -1614,8 +1658,9 @@ class AnnotationService:
                 temp_mask_model=temp_mask_model,
                 palette=palette,
                 slice_data=slice_data,
-                restriction_mask=restriction_mask,
+                restriction_mask=None,
                 blocked_mask=blocked_mask,
+                precomputed_poly_mask=poly_mask,
             )
 
     def apply_box_roi_to_range(

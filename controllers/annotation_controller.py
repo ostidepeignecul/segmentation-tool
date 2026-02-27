@@ -901,53 +901,29 @@ class AnnotationController:
     def on_apply_temp_mask_requested(self) -> None:
         """Apply the current temporary mask (free-hand/ROI) into the annotation model."""
         if self.view_state_model.apply_volume:
-            depth, mask_shape = self._resolve_volume_dimensions()
-            if depth is None or mask_shape is None:
+            depth, _ = self._resolve_volume_dimensions()
+            if depth is None:
                 return
             start_idx, end_idx = self._resolve_apply_volume_range(depth)
-            restriction_mask = self._restriction_mask(mask_shape)
-            # Preserve existing temp (e.g., paint) before rebuild from ROIs
-            prev_temp = self.temp_mask_model.get_mask_volume()
-            prev_cov = self.temp_mask_model.get_coverage_volume()
-            blocked_mask_provider = lambda idx, _shape=mask_shape: self._build_blocked_mask(
-                idx, _shape, include_temp=False
-            )
-            blocked_mask_for_label_provider = lambda idx, label_id, _shape=mask_shape: (
-                self._build_label0_blocked_mask(idx, _shape, include_temp=True)
-                if int(label_id) == 0
-                else None
-            )
-            self.annotation_service.rebuild_volume_preview_from_rois(
-                depth=depth,
-                mask_shape=mask_shape,
-                roi_model=self.roi_model,
-                temp_mask_model=self.temp_mask_model,
-                palette=self.annotation_model.get_label_palette(),
-                slice_data_provider=self._slice_data,
-                thin_line_max_width=self.view_state_model.roi_thin_line_max_width,
-                start_idx=start_idx,
-                end_idx=end_idx,
-                restriction_mask=restriction_mask,
-                blocked_mask_provider=blocked_mask_provider,
-                blocked_mask_for_label_provider=blocked_mask_for_label_provider,
-                use_box_percentiles=self.view_state_model.threshold_auto,
-                prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
-            )
-            if prev_temp is not None and prev_cov is not None:
-                new_temp = self.temp_mask_model.get_mask_volume()
-                new_cov = self.temp_mask_model.get_coverage_volume()
-                if (
-                    new_temp is not None
-                    and new_cov is not None
-                    and new_temp.shape == prev_temp.shape
-                    and new_cov.shape == prev_cov.shape
-                ):
-                    merged = np.array(new_temp, copy=True)
-                    merged_cov = np.array(new_cov, copy=True)
-                    merged[prev_cov] = prev_temp[prev_cov]
-                    merged_cov = np.logical_or(merged_cov, prev_cov)
-                    self.temp_mask_model.mask_volume = merged  # type: ignore[attr-defined]
-                    self.temp_mask_model.coverage_volume = merged_cov  # type: ignore[attr-defined]
+
+            # In apply-volume mode, apply exactly what is already present in TempMaskModel.
+            temp_volume = self.temp_mask_model.get_mask_volume()
+            if temp_volume is None:
+                return
+            coverage_volume = self.temp_mask_model.get_coverage_volume()
+            has_pending = False
+            max_idx = min(int(end_idx), int(temp_volume.shape[0]) - 1)
+            for idx in range(int(start_idx), max_idx + 1):
+                if coverage_volume is not None:
+                    if idx < coverage_volume.shape[0] and np.any(coverage_volume[idx]):
+                        has_pending = True
+                        break
+                elif np.any(temp_volume[idx]):
+                    has_pending = True
+                    break
+            if not has_pending:
+                return
+
             self.annotation_service.apply_temp_volume_to_model(
                 temp_mask_model=self.temp_mask_model,
                 annotation_model=self.annotation_model,

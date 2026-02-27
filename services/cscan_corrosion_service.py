@@ -364,6 +364,22 @@ class CScanCorrosionService(CScanService):
         )
         return np.ascontiguousarray(secondary.T)
 
+    def build_distance_map_from_peak_maps(
+        self,
+        *,
+        peak_map_a: np.ndarray,
+        peak_map_b: np.ndarray,
+        use_mm: bool,
+        resolution_ultrasound_mm: float,
+    ) -> np.ndarray:
+        """Public wrapper to rebuild a (Z,X) distance map directly from BW/FW peak maps."""
+        return self._build_distance_map_from_peak_maps(
+            peak_map_a=peak_map_a,
+            peak_map_b=peak_map_b,
+            use_mm=use_mm,
+            resolution_ultrasound_mm=resolution_ultrasound_mm,
+        )
+
     @staticmethod
     def _build_distance_map_from_peak_maps(
         *,

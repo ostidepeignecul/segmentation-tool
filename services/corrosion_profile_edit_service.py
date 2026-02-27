@@ -288,10 +288,9 @@ class CorrosionProfileEditService:
         projection: Optional[np.ndarray] = None
         value_range: Optional[Tuple[float, float]] = None
         if rebuild_projection:
-            distance_map = cscan_corrosion_service.build_interpolated_distance_map(
-                overlay=overlay,
-                class_A_value=int(self._label_ids[0]),
-                class_B_value=int(self._label_ids[1]),
+            distance_map = cscan_corrosion_service.build_distance_map_from_peak_maps(
+                peak_map_a=committed_a,
+                peak_map_b=committed_b,
                 use_mm=False,
                 resolution_ultrasound_mm=1.0,
             )
