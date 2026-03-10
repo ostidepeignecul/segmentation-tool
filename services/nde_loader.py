@@ -25,6 +25,7 @@ from scipy.interpolate import interp1d
 from scipy.ndimage import map_coordinates
 
 from models.nde_model import NdeModel
+from services.nde_signal_processing_service import NdeSignalProcessingService
 
 logger = logging.getLogger(__name__)
 
@@ -1765,6 +1766,9 @@ class NdeLoader:
     It returns NdeModel instances compatible with the application.
     """
 
+    def __init__(self) -> None:
+        self.signal_processing_service = NdeSignalProcessingService()
+
     def load(self, nde_file: str, group_idx: int = 1) -> NdeModel:
         """Load a single group from an NDE file.
         
@@ -1980,11 +1984,17 @@ class NdeLoader:
             axis_order=axis_order,
             positions=positions,
         )
-        
+        signal_transform_info = self.signal_processing_service.inspect_group_setup(
+            setup_json=json_decoded,
+            group_id=status_info.get("gr"),
+            group_idx=group_idx,
+        )
+
         # Build metadata dictionary
         metadata: Dict[str, Any] = {
             "structure": "Public" if "Public" in str(nde_path) else "auto",
             "group_idx": group_idx,
+            "group_id": status_info.get("gr"),
             "group_name": status_info.get("group_name", ""),
             "axis_order": axis_order,
             "positions": positions,
@@ -1996,7 +2006,16 @@ class NdeLoader:
                 "processes": [data_type],
             },
             "nde_version": json_decoded.get("version", "unknown"),
+            "path": str(nde_path),
             "source_file": str(nde_path),
+            "signal_transform_info": self.signal_processing_service.serialize_transform_info(
+                signal_transform_info
+            ),
+            "signal_processing_selection": {
+                "apply_hilbert": False,
+                "apply_smoothing": False,
+            },
+            "signal_processing_active": "source",
         }
         
         # Add type-specific metadata

@@ -3319,3 +3319,23 @@ L'objectif etait d'ameliorer le mode Peak ROI: d'abord permettre de prendre le p
 4. Appliquer min comme filtre final de segment vertical: tout segment plus court est ignore.
 5. Ne pas changer le workflow d'application globale par bouton: Enter reste l'action globale pour eviter un cout de rafraichissement overlay inutile sur les edits slice uniques.
 
+### **2026-03-10** - Chargement NDE avec detection de transformations et options Hilbert lissage
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#models/nde_model.py`, `#services/annotation_axis_service.py`, `#services/ascan_service.py`, `#services/nde_loader.py`, `#services/nde_signal_processing_service.py`, `#views/nde_open_options_dialog.py`, `#nde`, `#ascan`, `#hilbert`, `#smoothing`, `#rectification`, `#mvc`, `#legacy`
+
+**Actions effectuees :**
+- Ajoute `NdeSignalProcessingService` pour lire `rectification`, `digitalBandPassFilter`, `signalSource`, `smoothingFilter` et `averagingFactor` depuis les metadonnees NDE, avec fallback legacy `groups[].paut` pour les fichiers 3.x.
+- Implemente deux traitements generaux par defaut sur l axe ultrasound : enveloppe de Hilbert et lissage 1D, puis prepare des fonctions vides pour les futurs algorithmes specifiques par type de rectification et de filtre numerique.
+- Etend `NdeModel` pour conserver le volume source, un volume traite optionnel, leurs variantes normalisees et le choix de signal actif sans ecraser l acquisition d origine.
+- Adapte `AnnotationAxisService` et `AScanService` pour suivre correctement le volume actif lors des transpositions U/V et de l affichage des profils A-scan.
+- Enrichit `NdeLoader` avec `group_id`, `path`, `signal_transform_info` et l etat de traitement choisi, puis branche `MasterController` sur un nouveau dialogue d ouverture `NdeOpenOptionsDialog` qui combine le choix `Auto`/`UCoordinate`/`VCoordinate` et l application optionnelle de Hilbert/lissage.
+- Preselectionne Hilbert plus lissage general quand `rectification = None` et `digitalBandPassFilter.filterType = None`, puis verifie le comportement sur un NDE reel 3.3.0 corrosion dont les champs sont stockes sous `groups[].paut`, ainsi que par compilation Python ciblee des fichiers modifies.
+
+**Contexte :**
+Le besoin etait de detecter au chargement si un fichier NDE contient des A-scans deja transformes ou un signal RF brut, puis de permettre a l ouverture de conserver les donnees telles qu enregistrees ou d appliquer un pipeline generique Hilbert plus lissage. Un fichier reel de corrosion en version 3.3.0 a montre que certaines metadonnees attendues n etaient pas sous `groups[].processes` mais sous `groups[].paut`, ce qui expliquait les valeurs `Unknown` dans le dialogue initial.
+
+**Decisions techniques :**
+1. Centraliser la detection des transformations et le pipeline signal dans un service dedie afin de garder le loader, le modele et le controleur simples et conformes au MVC.
+2. Preserver toujours le volume source et exposer un volume traite separe dans `NdeModel` plutot que de muter les donnees chargees.
+3. Regrouper le choix du plan d annotation et le choix de traitement du signal dans un unique dialogue d ouverture pour limiter les allers-retours UI.
+4. Considerer `rectification = None` et `digitalBandPassFilter.filterType = None` comme le signal brut de reference, avec Hilbert plus lissage coches par defaut mais desactivables par l utilisateur.
+5. Supporter explicitement le schema legacy 3.x via `groups[].paut` pour lire les metadonnees reelles du fichier au lieu d inferer un etat a partir de `processes` vide.

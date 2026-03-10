@@ -72,7 +72,12 @@ class AnnotationAxisService:
                 f"(order={axis_order}). Keeping auto order."
             )
 
-        for attr in ("volume", "normalized_volume"):
+        for attr in (
+            "volume",
+            "normalized_volume",
+            "processed_volume",
+            "processed_normalized_volume",
+        ):
             data = getattr(model, attr, None)
             if data is None or getattr(data, "ndim", 0) != 3:
                 continue

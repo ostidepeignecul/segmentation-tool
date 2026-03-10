@@ -49,6 +49,11 @@ class NdeModel:
         self.volume: Optional[np.ndarray] = None
         # Normalized volume in the range 0–1 when min/max values are known
         self.normalized_volume: Optional[np.ndarray] = None
+        self.processed_volume: Optional[np.ndarray] = None
+        self.processed_normalized_volume: Optional[np.ndarray] = None
+        self.processed_min_value: Optional[float] = None
+        self.processed_max_value: Optional[float] = None
+        self.active_signal_variant: str = "source"
         # Arbitrary metadata, including axis_order and positions
         self.metadata: Dict[str, Any] = {}
 
@@ -71,26 +76,79 @@ class NdeModel:
         """
         self.volume = volume
         self.metadata = dict(metadata)
+        self.processed_volume = None
+        self.processed_normalized_volume = None
+        self.processed_min_value = None
+        self.processed_max_value = None
+        self.active_signal_variant = "source"
 
-        # Compute a normalized copy when possible
         min_val = self.metadata.get("min_value")
         max_val = self.metadata.get("max_value")
-        try:
-            if min_val is not None and max_val is not None and float(max_val) != float(min_val):
-                norm = (volume.astype(np.float32) - float(min_val)) / (float(max_val) - float(min_val))
-                self.normalized_volume = np.clip(norm, 0.0, 1.0)
-            else:
-                self.normalized_volume = None
-        except Exception:
-            # Fall back to no normalization if casting fails
-            self.normalized_volume = None
+        self.normalized_volume = self._build_normalized_volume(
+            volume,
+            min_value=min_val,
+            max_value=max_val,
+        )
+
+    def set_processed_volume(self, volume: np.ndarray) -> None:
+        """Assign a processed signal variant and its normalization."""
+        self.processed_volume = np.asarray(volume)
+        self.processed_min_value, self.processed_max_value = self._array_min_max(
+            self.processed_volume
+        )
+        self.processed_normalized_volume = self._build_normalized_volume(
+            self.processed_volume,
+            min_value=self.processed_min_value,
+            max_value=self.processed_max_value,
+        )
+
+    def clear_processed_volume(self) -> None:
+        """Remove the processed signal variant."""
+        self.processed_volume = None
+        self.processed_normalized_volume = None
+        self.processed_min_value = None
+        self.processed_max_value = None
+        if self.active_signal_variant == "processed":
+            self.active_signal_variant = "source"
+
+    def set_active_signal_variant(self, variant: str) -> None:
+        """Select which signal variant is exposed as active."""
+        requested = str(variant).strip().lower()
+        if requested == "processed" and self.processed_volume is not None:
+            self.active_signal_variant = "processed"
+            return
+        self.active_signal_variant = "source"
+
+    def get_active_raw_volume(self) -> Optional[np.ndarray]:
+        """Return the raw source or processed variant currently selected."""
+        if self.active_signal_variant == "processed" and self.processed_volume is not None:
+            return self.processed_volume
+        return self.volume
+
+    def get_active_normalized_volume(self) -> Optional[np.ndarray]:
+        """Return the normalized active variant when available."""
+        if (
+            self.active_signal_variant == "processed"
+            and self.processed_normalized_volume is not None
+        ):
+            return self.processed_normalized_volume
+        return self.normalized_volume
+
+    def get_active_min_max(self) -> Tuple[Optional[float], Optional[float]]:
+        """Return the min/max bounds for the active raw variant."""
+        if self.active_signal_variant == "processed" and self.processed_volume is not None:
+            return self.processed_min_value, self.processed_max_value
+        return self.metadata.get("min_value"), self.metadata.get("max_value")
 
     # ------------------------------------------------------------------
     # Volume accessors
     # ------------------------------------------------------------------
     def get_active_volume(self) -> Optional[np.ndarray]:
         """Return the normalized volume when available, else the raw volume."""
-        return self.normalized_volume if self.normalized_volume is not None else self.volume
+        normalized = self.get_active_normalized_volume()
+        if normalized is not None:
+            return normalized
+        return self.get_active_raw_volume()
 
     # ------------------------------------------------------------------
     # Axis utilities
@@ -256,3 +314,33 @@ class NdeModel:
         # Extract the trace
         trace = volume[tuple(indices)]
         return trace.copy() if hasattr(trace, "copy") else trace
+
+    @staticmethod
+    def _build_normalized_volume(
+        volume: np.ndarray,
+        *,
+        min_value: Any,
+        max_value: Any,
+    ) -> Optional[np.ndarray]:
+        try:
+            min_val = float(min_value)
+            max_val = float(max_value)
+        except Exception:
+            return None
+
+        if not np.isfinite(min_val) or not np.isfinite(max_val) or max_val == min_val:
+            return None
+
+        try:
+            norm = (np.asarray(volume, dtype=np.float32) - min_val) / (max_val - min_val)
+        except Exception:
+            return None
+        return np.clip(norm, 0.0, 1.0)
+
+    @staticmethod
+    def _array_min_max(volume: np.ndarray) -> Tuple[Optional[float], Optional[float]]:
+        arr = np.asarray(volume, dtype=np.float32)
+        finite = arr[np.isfinite(arr)]
+        if finite.size == 0:
+            return None, None
+        return float(np.min(finite)), float(np.max(finite))

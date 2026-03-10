@@ -43,6 +43,10 @@ from services.overlay_export import OverlayExport
 from services.endview_export import EndviewExportService
 from services.split_service import SplitFlawNoflawService
 from services.nde_loader import NdeLoader
+from services.nde_signal_processing_service import (
+    NdeSignalProcessingOptions,
+    NdeSignalProcessingService,
+)
 from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
 from services.corrosion_profile_edit_service import CorrosionProfileEditService
 from services.corrosion_label_service import CorrosionLabelService
@@ -51,6 +55,7 @@ from ui_mainwindow import Ui_MainWindow
 from views.annotation_view import AnnotationView
 from views.corrosion_settings_view import CorrosionSettingsView
 from views.nde_settings_view import NdeSettingsView
+from views.nde_open_options_dialog import NdeOpenOptionsDialog
 from views.endview_resize_dialog import EndviewResizeDialog
 from views.overlay_settings_view import OverlaySettingsView
 from views.piece3d_view import Piece3DView
@@ -73,6 +78,7 @@ class MasterController:
         self.roi_model = RoiModel()
         self.temp_mask_model = TempMaskModel()
         self.nde_loader = NdeLoader()
+        self.nde_signal_processing_service = NdeSignalProcessingService()
         self.annotation_axis_service = AnnotationAxisService()
         self.session_manager = AnnotationSessionManager()
         self._nde_path: Optional[str] = None
@@ -484,9 +490,14 @@ class MasterController:
 
         try:
             loaded_model = self.nde_loader.load(file_path)
-            axis_mode = self._prompt_annotation_axis_mode(loaded_model)
-            if axis_mode is None:
+            open_selection = self._prompt_nde_open_options(loaded_model)
+            if open_selection is None:
                 return
+            axis_mode, processing_options = open_selection
+            self.nde_signal_processing_service.apply_processing_to_model(
+                loaded_model,
+                processing_options,
+            )
             self._annotation_axis_mode = axis_mode
             self._apply_annotation_axis_mode(loaded_model, axis_mode)
             volume = loaded_model.get_active_volume()
@@ -549,7 +560,10 @@ class MasterController:
             self._update_endview_label()
             self._sync_apply_volume_range_view()
 
-            self.status_message(f"NDE chargé: {file_path}")
+            processing_label = self.nde_signal_processing_service.describe_selection(
+                processing_options
+            )
+            self.status_message(f"NDE charge: {file_path} | {processing_label}")
 
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur NDE", str(exc))
@@ -1212,6 +1226,45 @@ class MasterController:
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
+
+    def _prompt_nde_open_options(
+        self,
+        model: NdeModel,
+    ) -> Optional[tuple[str, NdeSignalProcessingOptions]]:
+        """Ask for axis mode and optional signal processing before opening the NDE."""
+        choices = self.annotation_axis_service.axis_mode_choices(model)
+        current = self.annotation_axis_service.normalize_axis_mode(
+            self._annotation_axis_mode,
+            choices,
+        )
+        transform_info = self.nde_signal_processing_service.coerce_transform_info(
+            model.metadata.get("signal_transform_info")
+        )
+        defaults = self.nde_signal_processing_service.default_processing_options(
+            transform_info
+        )
+
+        dialog = NdeOpenOptionsDialog(
+            axis_choices=choices,
+            current_axis_mode=current,
+            detected_title=self.nde_signal_processing_service.build_detection_title(
+                transform_info
+            ),
+            detected_lines=self.nde_signal_processing_service.build_detection_lines(
+                transform_info
+            ),
+            default_apply_hilbert=defaults.apply_hilbert,
+            default_apply_smoothing=defaults.apply_smoothing,
+            parent=self.main_window,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+
+        axis_mode, apply_hilbert, apply_smoothing = dialog.get_selection()
+        return axis_mode, NdeSignalProcessingOptions(
+            apply_hilbert=apply_hilbert,
+            apply_smoothing=apply_smoothing,
+        )
 
     def _prompt_annotation_axis_mode(self, model: NdeModel) -> Optional[str]:
         """Ask which coordinate axis should be the editable annotation plane."""

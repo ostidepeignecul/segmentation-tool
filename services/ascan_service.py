@@ -123,7 +123,7 @@ class AScanService:
         }
         logger.info("AScan preview (slice=%d, x=%d, y=%d): %s", s_idx, px, py, stats)
 
-        raw_volume = getattr(model, "volume", None)
+        raw_volume = model.get_active_raw_volume()
         if raw_volume is None or getattr(raw_volume, "ndim", 0) != 3:
             return
         d, h, w = raw_volume.shape[:3]
@@ -198,10 +198,9 @@ class AScanService:
         return max(0, min(axis_length - 1, int(value)))
 
     def _normalize_profile(self, profile: np.ndarray, model: NdeModel) -> np.ndarray:
-        if model.normalized_volume is not None:
+        if model.get_active_normalized_volume() is not None:
             return np.clip(profile, 0.0, 1.0)
-        min_value = model.metadata.get("min_value")
-        max_value = model.metadata.get("max_value")
+        min_value, max_value = model.get_active_min_max()
         if min_value is None or max_value is None or max_value <= min_value:
             return np.zeros_like(profile, dtype=np.float32)
         normalized = (profile - min_value) / (max_value - min_value)
