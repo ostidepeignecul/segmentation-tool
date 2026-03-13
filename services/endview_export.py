@@ -35,6 +35,7 @@ class EndviewExportService:
         apply_flip_vertical: bool = False,
         rotation_angle: int = 0,  # 0, 90, 180, 270
         apply_custom_transpose: bool = False,
+        use_active_signal: bool = False,
     ) -> Tuple[bool, str]:
         """
         Exporte les endviews depuis un fichier NDE avec options de transformation.
@@ -58,7 +59,11 @@ class EndviewExportService:
             if model is None:
                 return False, "Impossible de charger le modèle NDE."
 
-            data_array = getattr(model, "volume", None)
+            # Use active signal variant (processed) when requested
+            if use_active_signal and hasattr(model, "get_active_raw_volume"):
+                data_array = model.get_active_raw_volume()
+            else:
+                data_array = getattr(model, "volume", None)
             if data_array is None:
                 return False, "Volume NDE introuvable dans le modèle."
 
@@ -72,16 +77,23 @@ class EndviewExportService:
             self.logger.info("Export des endviews vers: %s", output_folder)
             self.logger.info("Format: %s", export_format.upper())
             self.logger.info(
-                "Options: flip_h=%s, flip_v=%s, rotation=%s°, transpose=%s",
+                "Options: flip_h=%s, flip_v=%s, rotation=%s°, transpose=%s, active_signal=%s",
                 apply_flip_horizontal,
                 apply_flip_vertical,
                 rotation_angle,
                 apply_custom_transpose,
+                use_active_signal,
             )
 
-            metadata = getattr(model, "metadata", {}) or {}
-            min_value = metadata.get("min_value")
-            max_value = metadata.get("max_value")
+            # Use active min/max when using active signal variant
+            min_value = None
+            max_value = None
+            if use_active_signal and hasattr(model, "get_active_min_max"):
+                min_value, max_value = model.get_active_min_max()
+            if min_value is None or max_value is None:
+                metadata = getattr(model, "metadata", {}) or {}
+                min_value = metadata.get("min_value", min_value)
+                max_value = metadata.get("max_value", max_value)
             if min_value is None or max_value is None:
                 min_value = float(np.min(data_array))
                 max_value = float(np.max(data_array))

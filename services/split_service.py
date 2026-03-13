@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 
 from services.endview_export import EndviewExportService
+from services.nde_signal_processing_service import NdeSignalProcessingOptions
 
 
 class SplitFlawNoflawService:
@@ -40,6 +41,7 @@ class SplitFlawNoflawService:
         output_root: Path | str,
         filename_prefix: Optional[str] = None,
         filename_suffix: Optional[str] = None,
+        signal_processing_options: Optional[NdeSignalProcessingOptions] = None,
     ) -> Tuple[bool, str]:
         """Export endviews et sépare flaw/noflaw selon le masque courant.
 
@@ -73,7 +75,19 @@ class SplitFlawNoflawService:
         if nde_path:
             base_name = Path(str(nde_path)).stem
 
-        base_dir = Path(output_root) / base_name
+        # Tag the folder name with applied processing
+        use_active = False
+        processing_tag = ""
+        if signal_processing_options is not None and not signal_processing_options.is_passthrough():
+            use_active = True
+            parts = []
+            if signal_processing_options.apply_hilbert:
+                parts.append("hilbert")
+            if signal_processing_options.apply_smoothing:
+                parts.append("lissage")
+            processing_tag = "_" + "+".join(parts)
+
+        base_dir = Path(output_root) / f"{base_name}{processing_tag}"
         rgb_complete = base_dir / "endviews_rgb24" / "complete"
         uint8_complete = base_dir / "endviews_uint8" / "complete"
 
@@ -103,22 +117,24 @@ class SplitFlawNoflawService:
         uint8_complete.mkdir(parents=True, exist_ok=True)
 
         # Export endviews (toujours, pour rester déterministe)
-        self.logger.info("Export endviews RGB24 -> %s", rgb_complete)
+        self.logger.info("Export endviews RGB24 -> %s (active_signal=%s)", rgb_complete, use_active)
         success_rgb, msg_rgb = self.endview_export.export_endviews(
             nde_file=nde_path,
             nde_model=nde_model,
             output_folder=str(rgb_complete),
             export_format="rgb",
+            use_active_signal=use_active,
         )
         if not success_rgb:
             return False, msg_rgb
 
-        self.logger.info("Export endviews UINT8 -> %s", uint8_complete)
+        self.logger.info("Export endviews UINT8 -> %s (active_signal=%s)", uint8_complete, use_active)
         success_uint8, msg_uint8 = self.endview_export.export_endviews(
             nde_file=nde_path,
             nde_model=nde_model,
             output_folder=str(uint8_complete),
             export_format="uint8",
+            use_active_signal=use_active,
         )
         if not success_uint8:
             return False, msg_uint8
@@ -155,7 +171,16 @@ class SplitFlawNoflawService:
             if (idx + 1) % 100 == 0:
                 self.logger.info("Traitement slices: %s/%s", idx + 1, depth)
 
-        summary = "\n=== Résumé ===\n" + "\n".join(f"{k}: {v}" for k, v in stats.items())
+        processing_desc = "signal source (aucun traitement)"
+        if use_active:
+            parts_desc = []
+            if signal_processing_options.apply_hilbert:
+                parts_desc.append("Hilbert")
+            if signal_processing_options.apply_smoothing:
+                parts_desc.append("lissage")
+            processing_desc = " + ".join(parts_desc)
+
+        summary = f"\n=== Résumé ===\nSignal utilisé: {processing_desc}\n" + "\n".join(f"{k}: {v}" for k, v in stats.items())
         return True, f"Split flaw/noflaw terminé.\n{summary}"
 
     def _safe_copy(self, src: Path, dst_dir: Path, dst_name: Optional[str] = None) -> None:

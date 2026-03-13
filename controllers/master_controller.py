@@ -785,6 +785,16 @@ class MasterController:
         prefix = (prefix or "").strip()
         suffix = (suffix or "").strip()
 
+        # Retrieve current signal processing selection from model metadata
+        processing_options = None
+        if self.nde_model is not None:
+            sel = (self.nde_model.metadata or {}).get("signal_processing_selection")
+            if isinstance(sel, dict):
+                processing_options = NdeSignalProcessingOptions(
+                    apply_hilbert=bool(sel.get("apply_hilbert", False)),
+                    apply_smoothing=bool(sel.get("apply_smoothing", False)),
+                )
+
         self.status_message("Split flaw/noflaw en cours...", timeout_ms=2000)
         success, message = self.split_flaw_noflaw_service.split_endviews(
             nde_model=self.nde_model,
@@ -793,6 +803,7 @@ class MasterController:
             output_root=output_root,
             filename_prefix=prefix,
             filename_suffix=suffix,
+            signal_processing_options=processing_options,
         )
 
         if success:
