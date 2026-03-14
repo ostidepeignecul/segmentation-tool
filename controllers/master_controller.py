@@ -1064,6 +1064,7 @@ class MasterController:
         )
         if current_x == clamped:
             self._sync_secondary_endview_state()
+            self.annotation_controller.refresh_secondary_roi_overlay()
             return
 
         # Keep A-scan/C-scan/Main endview in sync when X changes from the secondary view.
@@ -1073,6 +1074,7 @@ class MasterController:
             self.tools_panel.set_position_label(synced_point[0], synced_point[1])
         else:
             self.tools_panel.set_position_label(clamped, current_y)
+        self.annotation_controller.refresh_secondary_roi_overlay()
 
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""

@@ -3358,3 +3358,21 @@ Le besoin etait d aligner l export et le split des endviews avec le choix de tra
 2. Reutiliser le concept de volume actif deja expose par `NdeModel` via `get_active_raw_volume()` et `get_active_min_max()` au lieu de recalculer un pipeline de traitement pendant l export.
 3. Encoder le traitement applique dans le nom du dossier de sortie afin de separer clairement les exports issus du signal source et ceux issus du signal traite.
 4. Garder un fallback robuste sur les min/max metadata puis sur les bornes calculees du volume pour eviter les regressions sur des fichiers NDE incomplets ou anciens.
+
+### 2026-03-14 - Preview des masks temporaires sur les deux endviews
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#services/annotation_axis_service.py`, `#annotation`, `#endview`, `#tempmask`, `#overlay`, `#orthogonal`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute dans `AnnotationAxisService` un helper `build_temp_preview_slice()` pour normaliser la construction du mask de preview temporaire a partir de `slice_mask`, `coverage` et de la palette des labels.
+- Ajoute dans `AnnotationAxisService` un helper `build_secondary_temp_preview_slice()` pour extraire et transposer la preview temporaire orthogonale correspondant a la `secondary_slice`.
+- Refactorise `AnnotationController.refresh_roi_overlay_for_slice()` et `_rebuild_slice_preview()` pour reutiliser le helper metier au lieu de dupliquer la logique locale de composition du mask temporaire.
+- Ajoute `AnnotationController.refresh_secondary_roi_overlay()` pour pousser ou nettoyer la preview temporaire sur la vue secondaire en lecture seule, sans y projeter les ROI boxes ni les seeds.
+- Branche `MasterController._on_secondary_slice_changed()` pour recalculer la preview orthogonale lorsque la tranche secondaire change, puis valide la syntaxe par `python -m py_compile` sur les trois fichiers modifies.
+
+**Contexte :**
+Le mask temporaire avant application etait visible uniquement dans l endview principal utilise pour annoter. Avec le dual endview U/V deja en place, le besoin etait de rendre la preview temporaire lisible aussi dans la vue orthogonale secondaire afin de suivre la propagation spatiale du masque sans dupliquer la logique d interaction ni casser le statut read-only de cette vue.
+
+**Decisions techniques :**
+1. Centraliser la construction des previews temporaires dans `AnnotationAxisService` pour conserver `AnnotationController` comme orchestration et eviter de dupliquer la logique de composition du mask.
+2. Garder la vue secondaire en lecture seule et n y afficher que le mask temp transpose, sans ROI boxes ni seeds, afin de limiter le scope et les regressions d interaction.
+3. Rafraichir explicitement la preview secondaire lors des changements de `secondary_slice` en plus des mises a jour du temp mask pour garder la coherence entre navigation orthogonale et overlay temporaire.

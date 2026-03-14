@@ -875,17 +875,11 @@ class AnnotationController:
         """Refresh ROI preview overlay for the given slice."""
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)
         coverage = self.temp_mask_model.get_slice_coverage(slice_idx)
-        palette = dict(self.temp_mask_model.label_palette)
-        overlay_mask = None
-        if slice_mask is not None and coverage is not None and np.any(coverage):
-            overlay_mask = np.array(slice_mask, copy=True)
-            zero_area = coverage & (overlay_mask == 0)
-            if np.any(zero_area):
-                overlay_mask[zero_area] = 255
-                if 0 in palette:
-                    palette[255] = palette[0]
-                else:
-                    palette[255] = MASK_COLORS_BGRA.get(0, (180, 180, 180, 160))
+        overlay_mask, palette = self.annotation_axis_service.build_temp_preview_slice(
+            slice_mask=slice_mask,
+            coverage=coverage,
+            label_palette=self.temp_mask_model.label_palette,
+        )
 
         if overlay_mask is None:
             self.annotation_view.clear_roi_overlay()
@@ -906,6 +900,24 @@ class AnnotationController:
             self.annotation_view.set_roi_points(seeds)
         else:
             self.annotation_view.clear_roi_points()
+        self.refresh_secondary_roi_overlay()
+
+    def refresh_secondary_roi_overlay(self) -> None:
+        """Refresh temp preview on the orthogonal read-only endview."""
+        if self.annotation_secondary_view is None:
+            return
+        overlay_mask, palette = self.annotation_axis_service.build_secondary_temp_preview_slice(
+            temp_mask_volume=self.temp_mask_model.get_mask_volume(),
+            coverage_volume=self.temp_mask_model.get_coverage_volume(),
+            secondary_slice=self.view_state_model.secondary_slice,
+            label_palette=self.temp_mask_model.label_palette,
+        )
+        if overlay_mask is None:
+            self.annotation_secondary_view.clear_roi_overlay()
+            return
+        self.annotation_secondary_view.set_roi_overlay(overlay_mask, palette=palette)
+        self.annotation_secondary_view.clear_roi_boxes()
+        self.annotation_secondary_view.clear_roi_points()
 
     def on_apply_temp_mask_requested(self) -> None:
         """Apply the current temporary mask (free-hand/ROI) into the annotation model."""
@@ -1364,17 +1376,11 @@ class AnnotationController:
 
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)
         coverage = self.temp_mask_model.get_slice_coverage(slice_idx)
-        palette = dict(self.temp_mask_model.label_palette)
-        overlay_mask = None
-        if slice_mask is not None and coverage is not None and np.any(coverage):
-            overlay_mask = np.array(slice_mask, copy=True)
-            zero_area = coverage & (overlay_mask == 0)
-            if np.any(zero_area):
-                overlay_mask[zero_area] = 255
-                if 0 in palette:
-                    palette[255] = palette[0]
-                else:
-                    palette[255] = MASK_COLORS_BGRA.get(0, (180, 180, 180, 160))
+        overlay_mask, palette = self.annotation_axis_service.build_temp_preview_slice(
+            slice_mask=slice_mask,
+            coverage=coverage,
+            label_palette=self.temp_mask_model.label_palette,
+        )
 
         if overlay_mask is not None:
             self.annotation_view.set_roi_overlay(overlay_mask, palette=palette)
@@ -1392,3 +1398,4 @@ class AnnotationController:
             self.annotation_view.set_roi_points(seeds)
         else:
             self.annotation_view.clear_roi_points()
+        self.refresh_secondary_roi_overlay()

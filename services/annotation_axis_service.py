@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 import numpy as np
 
+from config.constants import MASK_COLORS_BGRA
 from models.nde_model import NdeModel
 from models.overlay_data import OverlayData
 
@@ -127,6 +128,78 @@ class AnnotationAxisService:
             mask_volume=secondary_mask,
             palette=dict(overlay_data.palette),
             label_volumes=None,
+        )
+
+    @staticmethod
+    def build_temp_preview_slice(
+        *,
+        slice_mask: Optional[np.ndarray],
+        coverage: Optional[np.ndarray],
+        label_palette: Mapping[int, tuple[int, int, int, int]],
+    ) -> tuple[Optional[np.ndarray], dict[int, tuple[int, int, int, int]]]:
+        """Build a 2D preview mask from temp mask data and explicit coverage."""
+        palette = {
+            int(label): tuple(int(channel) for channel in color)
+            for label, color in dict(label_palette).items()
+        }
+        if slice_mask is None or coverage is None:
+            return None, palette
+
+        try:
+            mask_arr = np.asarray(slice_mask, dtype=np.uint8)
+            coverage_arr = np.asarray(coverage, dtype=bool)
+        except Exception:
+            return None, palette
+
+        if mask_arr.ndim != 2 or coverage_arr.shape != mask_arr.shape or not np.any(coverage_arr):
+            return None, palette
+
+        overlay_mask = np.array(mask_arr, copy=True)
+        zero_area = coverage_arr & (overlay_mask == 0)
+        if np.any(zero_area):
+            overlay_mask[zero_area] = 255
+            if 0 in palette:
+                palette[255] = palette[0]
+            else:
+                palette[255] = MASK_COLORS_BGRA.get(0, (180, 180, 180, 160))
+        return overlay_mask, palette
+
+    @staticmethod
+    def build_secondary_temp_preview_slice(
+        *,
+        temp_mask_volume: Optional[np.ndarray],
+        coverage_volume: Optional[np.ndarray],
+        secondary_slice: int,
+        label_palette: Mapping[int, tuple[int, int, int, int]],
+    ) -> tuple[Optional[np.ndarray], dict[int, tuple[int, int, int, int]]]:
+        """Extract the orthogonal temp preview slice for the secondary endview."""
+        palette = {
+            int(label): tuple(int(channel) for channel in color)
+            for label, color in dict(label_palette).items()
+        }
+        if temp_mask_volume is None or coverage_volume is None:
+            return None, palette
+
+        try:
+            mask_volume = np.asarray(temp_mask_volume, dtype=np.uint8)
+            coverage_data = np.asarray(coverage_volume, dtype=bool)
+        except Exception:
+            return None, palette
+
+        if mask_volume.ndim != 3 or coverage_data.shape != mask_volume.shape:
+            return None, palette
+
+        max_idx = int(mask_volume.shape[2]) - 1
+        if max_idx < 0:
+            return None, palette
+        clamped_idx = max(0, min(max_idx, int(secondary_slice)))
+
+        slice_mask = np.transpose(mask_volume[:, :, clamped_idx], (1, 0))
+        coverage = np.transpose(coverage_data[:, :, clamped_idx], (1, 0))
+        return AnnotationAxisService.build_temp_preview_slice(
+            slice_mask=slice_mask,
+            coverage=coverage,
+            label_palette=palette,
         )
 
     @staticmethod
