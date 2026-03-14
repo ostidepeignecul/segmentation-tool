@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from config.constants import format_label_text
+
 
 class CorrosionSettingsView(QDialog):
     """Floating window to select label pair for corrosion analysis."""
@@ -64,8 +66,8 @@ class CorrosionSettingsView(QDialog):
         self._label_b_combo.addItem("Aucun", None)
         for label_id in labels:
             lbl = int(label_id)
-            self._label_a_combo.addItem(f"Label {lbl}", lbl)
-            self._label_b_combo.addItem(f"Label {lbl}", lbl)
+            self._label_a_combo.addItem(format_label_text(lbl), lbl)
+            self._label_b_combo.addItem(format_label_text(lbl), lbl)
         self._set_current_data(self._label_a_combo, current_a)
         self._set_current_data(self._label_b_combo, current_b)
         self._label_a_combo.blockSignals(False)

@@ -211,6 +211,7 @@ class CorrosionProfileController:
         if palette:
             self.annotation_model.label_palette = dict(palette)
             self.annotation_model.label_visibility = {int(lbl): True for lbl in palette.keys()}
+            self.annotation_model.ensure_persistent_labels()
 
         volume = self._get_volume()
         if volume is not None:

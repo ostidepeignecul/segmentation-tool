@@ -17,7 +17,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config.constants import MASK_COLORS_BGRA
+from config.constants import (
+    MASK_COLORS_BGRA,
+    PERSISTENT_LABEL_IDS,
+    USER_LABEL_START,
+    format_label_text,
+)
 
 
 class OverlaySettingsView(QDialog):
@@ -63,10 +68,6 @@ class OverlaySettingsView(QDialog):
         layout.addLayout(opacity_layout)
 
         buttons_layout = QHBoxLayout()
-        self._add_zero_button = QPushButton("Ajouter label 0", self)
-        self._add_zero_button.clicked.connect(self._on_add_zero_label)
-        buttons_layout.addWidget(self._add_zero_button, 1)
-
         self._add_button = QPushButton("Ajouter un label", self)
         self._add_button.clicked.connect(self._on_add_label)
         buttons_layout.addWidget(self._add_button, 1)
@@ -89,7 +90,13 @@ class OverlaySettingsView(QDialog):
             self._labels[label_id].set_color(color)
             self._labels[label_id].set_checked(visible)
             return
-        row = _LabelRow(label_id, color, visible, parent=self)
+        row = _LabelRow(
+            label_id,
+            color,
+            visible,
+            parent=self,
+            allow_delete=label_id not in PERSISTENT_LABEL_IDS,
+        )
         row.visibility_toggled.connect(self.label_visibility_changed)
         row.color_changed.connect(self.label_color_changed)
         row.deleted.connect(self._on_label_deleted)
@@ -99,10 +106,8 @@ class OverlaySettingsView(QDialog):
     def set_labels(self, entries: Iterable[Tuple[int, QColor, bool]]) -> None:
         """Sync the view from an external list of (id, color, visible)."""
         self.clear_labels()
-        seen = set()
         for label_id, color, visible in entries:
             self.ensure_label(label_id, color, visible=visible)
-            seen.add(int(label_id))
 
     def set_overlay_opacity(self, value: float) -> None:
         """Set the overlay opacity slider (0.0 - 1.0)."""
@@ -116,6 +121,8 @@ class OverlaySettingsView(QDialog):
     def _on_label_deleted(self, label_id: int) -> None:
         """Remove row then propagate deletion event."""
         lbl = int(label_id)
+        if lbl in PERSISTENT_LABEL_IDS:
+            return
         row = self._labels.pop(lbl, None)
         if row is not None:
             row.setParent(None)
@@ -149,18 +156,14 @@ class OverlaySettingsView(QDialog):
         self._update_opacity_label(value)
         self.overlay_opacity_changed.emit(float(value) / 100.0)
 
-    def _on_add_zero_label(self) -> None:
-        if 0 in self._labels:
-            return
-        color = QColor(180, 180, 180, 200)
-        self.ensure_label(0, color, visible=True)
-        self.label_added.emit(0, color)
-
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
     def _next_free_label_id(self) -> int:
-        return max(self._labels.keys(), default=0) + 1
+        candidate = int(USER_LABEL_START)
+        while candidate in self._labels:
+            candidate += 1
+        return candidate
 
     @staticmethod
     def _palette_color_for_label(label_id: int) -> Optional[QColor]:
@@ -188,7 +191,15 @@ class _LabelRow(QWidget):
     color_changed = pyqtSignal(int, QColor)
     deleted = pyqtSignal(int)
 
-    def __init__(self, label_id: int, color: QColor, visible: bool, parent: Optional[QWidget]) -> None:
+    def __init__(
+        self,
+        label_id: int,
+        color: QColor,
+        visible: bool,
+        parent: Optional[QWidget],
+        *,
+        allow_delete: bool = True,
+    ) -> None:
         super().__init__(parent)
         self.label_id = int(label_id)
         self._color = QColor(color)
@@ -196,7 +207,7 @@ class _LabelRow(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self._checkbox = QCheckBox(f"Label {self.label_id}", self)
+        self._checkbox = QCheckBox(format_label_text(self.label_id), self)
         self._checkbox.setChecked(visible)
         self._checkbox.toggled.connect(self._on_visibility_toggled)
         layout.addWidget(self._checkbox, 1)
@@ -207,10 +218,12 @@ class _LabelRow(QWidget):
         self._color_button.clicked.connect(self._on_pick_color)
         layout.addWidget(self._color_button, 0)
 
-        self._delete_button = QPushButton("Supprimer", self)
-        self._delete_button.setFixedWidth(90)
-        self._delete_button.clicked.connect(self._on_delete_clicked)
-        layout.addWidget(self._delete_button, 0)
+        self._delete_button: Optional[QPushButton] = None
+        if allow_delete:
+            self._delete_button = QPushButton("Supprimer", self)
+            self._delete_button.setFixedWidth(90)
+            self._delete_button.clicked.connect(self._on_delete_clicked)
+            layout.addWidget(self._delete_button, 0)
 
     # ------------------------------------------------------------------ #
     # Public setters
@@ -232,7 +245,7 @@ class _LabelRow(QWidget):
         self.visibility_toggled.emit(self.label_id, checked)
 
     def _on_pick_color(self) -> None:
-        picked = QColorDialog.getColor(self._color, self, f"Couleur du label {self.label_id}")
+        picked = QColorDialog.getColor(self._color, self, f"Couleur pour {format_label_text(self.label_id)}")
         if picked.isValid():
             self.set_color(picked)
             self.color_changed.emit(self.label_id, picked)

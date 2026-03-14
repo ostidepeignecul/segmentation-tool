@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from config.constants import MASK_COLORS_BGRA
+from config.constants import MASK_COLORS_BGRA, PERSISTENT_LABEL_IDS
 
 
 class TempMaskModel:
@@ -18,6 +18,7 @@ class TempMaskModel:
         self.label_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self.label_visibility: Dict[int, bool] = {}
         self.coverage_volume: Optional[np.ndarray] = None
+        self.ensure_persistent_labels()
 
     def initialize(self, shape: Any) -> None:
         """Prepare an empty mask volume with the given shape."""
@@ -32,6 +33,7 @@ class TempMaskModel:
         self.coverage_volume = np.zeros((int(depth), int(height), int(width)), dtype=bool)
         self.label_palette = prev_palette
         self.label_visibility = prev_visibility
+        self.ensure_persistent_labels()
 
     def clear(self) -> None:
         """Reset masks to zero; keep label palette/visibility."""
@@ -45,6 +47,12 @@ class TempMaskModel:
         key = int(label_id)
         self.label_palette.setdefault(key, tuple(int(c) for c in color))
         self.label_visibility.setdefault(key, bool(visible))
+
+    def ensure_persistent_labels(self) -> None:
+        """Ensure labels that must always exist remain available."""
+        for label_id in PERSISTENT_LABEL_IDS:
+            color = MASK_COLORS_BGRA.get(int(label_id), (180, 180, 180, 200))
+            self.ensure_label(int(label_id), tuple(int(c) for c in color), visible=True)
 
     def set_label_color(self, label_id: int, color: Tuple[int, int, int, int]) -> None:
         """Set/update label color."""
@@ -121,6 +129,9 @@ class TempMaskModel:
     def remove_label(self, label_id: int) -> None:
         """Remove a label entirely from temp mask and palette."""
         lbl = int(label_id)
+        if lbl in PERSISTENT_LABEL_IDS:
+            self.ensure_persistent_labels()
+            return
         if self.mask_volume is not None:
             self.mask_volume[self.mask_volume == lbl] = 0
         if self.coverage_volume is not None:

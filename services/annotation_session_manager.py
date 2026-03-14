@@ -239,6 +239,7 @@ class AnnotationSessionManager:
         annotation_model.label_palette = copy.deepcopy(state.label_palette)
         annotation_model.label_visibility = copy.deepcopy(state.label_visibility)
         annotation_model.overlay_cache = state.overlay_cache
+        annotation_model.ensure_persistent_labels()
 
         # Temp masks
         temp_mask_model.clear()
@@ -249,6 +250,7 @@ class AnnotationSessionManager:
             temp_mask_model.coverage_volume = state.temp_coverage_volume  # type: ignore[assignment]
         temp_mask_model.label_palette = copy.deepcopy(state.temp_palette)
         temp_mask_model.label_visibility = copy.deepcopy(state.temp_visibility)
+        temp_mask_model.ensure_persistent_labels()
 
         # ROIs
         roi_model._rois = copy.deepcopy(state.rois)  # noqa: SLF001

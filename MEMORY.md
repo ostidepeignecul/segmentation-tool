@@ -3376,3 +3376,22 @@ Le mask temporaire avant application etait visible uniquement dans l endview pri
 1. Centraliser la construction des previews temporaires dans `AnnotationAxisService` pour conserver `AnnotationController` comme orchestration et eviter de dupliquer la logique de composition du mask.
 2. Garder la vue secondaire en lecture seule et n y afficher que le mask temp transpose, sans ROI boxes ni seeds, afin de limiter le scope et les regressions d interaction.
 3. Rafraichir explicitement la preview secondaire lors des changements de `secondary_slice` en plus des mises a jour du temp mask pour garder la coherence entre navigation orthogonale et overlay temporaire.
+
+### 2026-03-14 - Labels persistants nommes et Reflector 100
+**Tags :** `#branch:annotation`, `#config/constants.py`, `#models/annotation_model.py`, `#models/temp_mask_model.py`, `#models/view_state_model.py`, `#services/annotation_session_manager.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#controllers/corrosion_profile_controller.py`, `#views/overlay_settings_view.py`, `#views/tools_panel.py`, `#views/nde_settings_view.py`, `#views/corrosion_settings_view.py`, `#labels`, `#overlay`, `#ui`, `#npz`, `#mvc`
+
+**Actions effectuees :**
+- Etend les labels persistants a `0`, `1`, `2`, `3` et `100`, avec re-injection automatique dans `AnnotationModel`, `TempMaskModel`, la restauration de session et les flux corrosion.
+- Ajoute dans `constants.py` une nomenclature d affichage des labels (`Erase`, `Paint`, `Frontwall`, `Backwall`, `Reflector`) et un helper `format_label_text()` pour dissocier nom UI et id de classe reel.
+- Met a jour `OverlaySettingsView`, `ToolsPanel`, `NdeSettingsView` et `CorrosionSettingsView` pour afficher les alias utilisateur sans modifier les ids ecrits dans l overlay ou le NPZ.
+- Ajoute le label persistant `100` nomme `Reflector` avec une couleur par defaut dediee dans les palettes BGR/RGB/BGRA.
+- Corrige l allocation de nouveaux labels pour repartir a `4` et ignorer le label persistant `100`, afin d eviter un saut artificiel vers `101`.
+- Bloque la suppression des labels persistants et verifie la syntaxe par `python -m py_compile` sur les fichiers modifies.
+
+**Contexte :**
+Le besoin etait d ameliorer l experience utilisateur en nommant clairement certains labels metier (`Erase`, `Paint`, `Frontwall`, `Backwall`, `Reflector`) tout en conservant strictement les valeurs de classes numeriques appliquees au masque et exportees dans le NPZ. Un nouveau label persistant `100` devait aussi etre expose pour les reflecteurs, sans perturber le workflow d ajout des labels libres qui doit continuer a commencer a `4`.
+
+**Decisions techniques :**
+1. Separer completement le texte affiche a l utilisateur de l id de classe reel pour garantir que les exports NPZ et les traitements restent inchanges.
+2. Ajouter `100` a la liste des labels persistants et le proteger comme les labels metier `0/1/2/3`, plutot que de le traiter comme un label libre special.
+3. Faire calculer le prochain label libre a partir de `4` en ignorant les ids reserves, afin de garder un workflow d ajout stable meme si `100` est toujours present.

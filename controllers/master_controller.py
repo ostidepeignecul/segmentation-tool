@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from config.constants import MASK_COLORS_BGRA
+from config.constants import MASK_COLORS_BGRA, PERSISTENT_LABEL_IDS
 from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
@@ -1160,6 +1160,9 @@ class MasterController:
 
     def _on_label_deleted(self, label_id: int) -> None:
         """Forward label deletion then resync tool panel labels."""
+        if int(label_id) in PERSISTENT_LABEL_IDS:
+            self._sync_tools_labels(select_label_id=self.view_state_model.active_label)
+            return
         self.annotation_controller.on_label_deleted(label_id)
         if self.view_state_model.active_label == int(label_id):
             self.view_state_model.set_active_label(None)
@@ -1167,11 +1170,13 @@ class MasterController:
 
     def _sync_tools_labels(self, select_label_id: Optional[int] = None) -> None:
         """Sync the label list in the tools panel with the annotation model."""
+        self.annotation_model.ensure_persistent_labels()
+        self.temp_mask_model.ensure_persistent_labels()
         palette = self.annotation_model.get_label_palette()
         labels = sorted(palette.keys()) if palette else []
         current = select_label_id if select_label_id is not None else self.view_state_model.active_label
         if current not in labels:
-            current = None
+            current = next((label_id for label_id in PERSISTENT_LABEL_IDS if label_id in labels), None)
         self.view_state_model.set_active_label(current)
         self.tools_panel.set_labels(labels, current=current)
         self.mask_modification_controller.on_active_label_changed(-1 if current is None else int(current))
@@ -1508,6 +1513,7 @@ class MasterController:
             self.annotation_model.label_palette = dict(palette)
             vis = {lbl: True for lbl in palette.keys()}
             self.annotation_model.label_visibility = vis
+            self.annotation_model.ensure_persistent_labels()
 
         # Nettoie les masques/temp et ROIs pour la session interpolée
         self.temp_mask_model.clear()

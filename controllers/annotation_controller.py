@@ -10,7 +10,7 @@ import numpy as np
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QDialog
 
-from config.constants import MASK_COLORS_BGRA
+from config.constants import MASK_COLORS_BGRA, PERSISTENT_LABEL_IDS
 from models.annotation_model import AnnotationModel
 from models.roi_model import RoiModel
 from models.temp_mask_model import TempMaskModel
@@ -112,6 +112,10 @@ class AnnotationController:
     def on_label_deleted(self, label_id: int) -> None:
         """Supprime un label (palette + masques + ROIs) et rafraîchit les vues."""
         lbl = int(label_id)
+        if lbl in PERSISTENT_LABEL_IDS:
+            self.annotation_model.ensure_persistent_labels()
+            self.temp_mask_model.ensure_persistent_labels()
+            return
         self.annotation_model.remove_label(lbl)
         self.temp_mask_model.remove_label(lbl)
         self.roi_model.remove_label(lbl)

@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtWidgets import QInputDialog, QButtonGroup
 
+from config.constants import format_label_text
+
 
 class ToolsPanel(QFrame):
     """Docked tools panel exposing user interactions as signals (view only)."""
@@ -221,7 +223,7 @@ class ToolsPanel(QFrame):
         self._label_buttons.clear()
 
         for lbl in labels:
-            btn = QBtn(f"Label {lbl}", self._label_container)
+            btn = QBtn(format_label_text(lbl), self._label_container)
             btn.setCheckable(True)
             self._label_group.addButton(btn, lbl)
             self._label_layout.addWidget(btn)

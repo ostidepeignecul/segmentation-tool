@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from config.constants import MASK_COLORS_BGRA
+from config.constants import MASK_COLORS_BGRA, PERSISTENT_LABEL_IDS
 from models.overlay_data import OverlayData
 
 FallbackColor = (255, 0, 255, 160)  # Magenta semi-transparent
@@ -18,6 +18,7 @@ class AnnotationModel:
         self.label_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self.label_visibility: Dict[int, bool] = {}
         self.overlay_cache: Optional[OverlayData] = None
+        self.ensure_persistent_labels()
 
     # ------------------------------------------------------------------ #
     # Mask handling
@@ -31,6 +32,7 @@ class AnnotationModel:
             return
         self.mask_volume = np.zeros((int(depth), int(height), int(width)), dtype=np.uint8)
         self.overlay_cache = None
+        self.ensure_persistent_labels()
 
     def set_mask_volume(self, mask_volume: Any, *, preserve_labels: bool = False) -> None:
         """Assign a full mask volume (uint8, shape (Z,H,W)), optionally preserving labels."""
@@ -51,6 +53,7 @@ class AnnotationModel:
                 color = MASK_COLORS_BGRA.get(cls_int, FallbackColor)
                 self.label_palette[cls_int] = tuple(int(c) for c in color)
             self.label_visibility.setdefault(cls_int, True)
+        self.ensure_persistent_labels()
 
     def set_slice_mask(self, slice_idx: int, mask: Any, *, invalidate_cache: bool = True) -> None:
         """Set or replace the mask for a specific slice."""
@@ -70,6 +73,7 @@ class AnnotationModel:
         self.label_palette = {}
         self.label_visibility = {}
         self.overlay_cache = None
+        self.ensure_persistent_labels()
 
     # ------------------------------------------------------------------ #
     # Labels (palette + visibility)
@@ -79,6 +83,12 @@ class AnnotationModel:
         key = int(label_id)
         self.label_palette.setdefault(key, tuple(int(c) for c in color))
         self.label_visibility.setdefault(key, bool(visible))
+
+    def ensure_persistent_labels(self) -> None:
+        """Ensure labels that must always exist remain available."""
+        for label_id in PERSISTENT_LABEL_IDS:
+            color = MASK_COLORS_BGRA.get(int(label_id), FallbackColor)
+            self.ensure_label(int(label_id), tuple(int(c) for c in color), visible=True)
 
     def set_label_color(self, label_id: int, color: Tuple[int, int, int, int]) -> None:
         """Assign or update a label color (BGRA)."""
@@ -91,6 +101,9 @@ class AnnotationModel:
     def remove_label(self, label_id: int) -> None:
         """Delete a label from palette/visibility and clear it from the mask."""
         key = int(label_id)
+        if key in PERSISTENT_LABEL_IDS:
+            self.ensure_persistent_labels()
+            return
         if self.mask_volume is not None:
             self.mask_volume[self.mask_volume == key] = 0
         self.label_palette.pop(key, None)

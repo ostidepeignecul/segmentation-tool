@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from config.constants import format_label_text
+
 
 class NdeSettingsView(QDialog):
     """Floating window to select colormaps for endview/3D and C-scan."""
@@ -138,7 +140,7 @@ class NdeSettingsView(QDialog):
         self._erase_label_combo.addItem("Tous", None)
         for label_id in labels:
             lbl = int(label_id)
-            self._erase_label_combo.addItem(f"Label {lbl}", lbl)
+            self._erase_label_combo.addItem(format_label_text(lbl), lbl)
         self._set_current_data(self._erase_label_combo, current)
         self._erase_label_combo.blockSignals(False)
 

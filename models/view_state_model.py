@@ -1,5 +1,7 @@
 from typing import Optional, Tuple, Any
 
+from config.constants import PERSISTENT_LABEL_IDS
+
 
 class ViewStateModel:
     """
@@ -29,7 +31,7 @@ class ViewStateModel:
         self.roi_peak_vertical_max_length: int = 0
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
-        self.active_label: Optional[int] = None
+        self.active_label: Optional[int] = PERSISTENT_LABEL_IDS[0]
         self.label0_erase_target: Optional[int] = None
         self.roi_thin_line_max_width: int = 2
         self.apply_volume_start: int = 0
