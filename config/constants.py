@@ -60,6 +60,9 @@ def format_label_text(label_id: int) -> str:
     label = int(label_id)
     display_name = LABEL_DISPLAY_NAMES.get(label)
     if display_name is None:
+        if label >= int(USER_LABEL_START):
+            user_index = label - int(USER_LABEL_START) + 1
+            return f"BW echo {user_index} ({label})"
         return f"Label {label}"
     return f"{display_name} ({label})"
 

@@ -3413,3 +3413,19 @@ Le besoin etait d annuler la derniere annotation seulement apres son application
 1. Conserver l historique au niveau des slices effectivement modifiees plutot qu au niveau d un snapshot complet de session pour limiter la memoire et rester cible sur le masque applique.
 2. Stocker pour chaque action les etats avant et apres application afin de rendre `redo` strictement symetrique a `undo` sans recalcul metier supplementaire.
 3. Vider la pile `redo` a chaque nouvel `Apply` et invalider tout l historique lorsque le masque permanent est remplace par un autre workflow, afin d eviter de reappliquer un etat obsolete.
+
+### 2026-03-16 - Labels libres renommes en BW echo avec suffixe id
+**Tags :** `#branch:annotation`, `#config/constants.py`, `#labels`, `#ui`
+
+**Actions effectuees :**
+- Modifie `format_label_text()` pour afficher les labels libres a partir de `USER_LABEL_START` sous la forme `BW echo N (id)` au lieu de `Label id`.
+- Conserve le suffixe numerique entre parentheses pour garder la correspondance visuelle avec l id de classe reel.
+- Laisse inchanges les ids internes des labels et les alias des labels persistants deja definis (`Erase`, `Paint`, `Frontwall`, `Backwall`, `Reflector`).
+
+**Contexte :**
+Le besoin etait de renommer les prochains labels ajoutes en `BW echo 1`, `BW echo 2`, etc., tout en conservant les ids numeriques reels utilises dans les masques, l overlay et les exports. L utilisateur a explicitement demande de garder le suffixe avec l id.
+
+**Decisions techniques :**
+1. Centraliser le renommage uniquement dans `format_label_text()` pour propager le nouveau libelle a toutes les vues deja branchees sur ce helper sans toucher au flux MVC d ajout de labels.
+2. Calculer l index utilisateur a partir de `USER_LABEL_START` afin de garder `4 -> BW echo 1 (4)`, `5 -> BW echo 2 (5)`, etc.
+3. Preserver l id de classe dans le texte affiche pour faciliter le lien entre UI, masque interne et workflows existants.
