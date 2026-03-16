@@ -207,6 +207,7 @@ class CorrosionProfileController:
             self.view_state_model.corrosion_active = True
 
         self.annotation_model.set_mask_volume(payload.overlay_volume)
+        self.annotation_controller.clear_apply_history()
         palette = self.view_state_model.corrosion_overlay_palette or {}
         if palette:
             self.annotation_model.label_palette = dict(palette)

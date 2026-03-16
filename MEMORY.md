@@ -3395,3 +3395,21 @@ Le besoin etait d ameliorer l experience utilisateur en nommant clairement certa
 1. Separer completement le texte affiche a l utilisateur de l id de classe reel pour garantir que les exports NPZ et les traitements restent inchanges.
 2. Ajouter `100` a la liste des labels persistants et le proteger comme les labels metier `0/1/2/3`, plutot que de le traiter comme un label libre special.
 3. Faire calculer le prochain label libre a partir de `4` en ignorant les ids reserves, afin de garder un workflow d ajout stable meme si `100` est toujours present.
+
+### 2026-03-16 - Undo/redo des annotations appliquees
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#controllers/corrosion_profile_controller.py`, `#models/applied_annotation_history_model.py`, `#annotation`, `#undo`, `#redo`, `#shortcuts`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute `AppliedAnnotationHistoryModel` avec une pile `undo` et une pile `redo`, en stockant des copies defensives des slices avant et apres chaque `Apply`.
+- Etend `AnnotationController.on_apply_temp_mask_requested()` pour capturer les slices modifiees en mode slice et apply-volume, puis ajoute les handlers `on_undo_last_applied_annotation_requested()` et `on_redo_last_applied_annotation_requested()`.
+- Ajoute dans `MasterController` les raccourcis globaux `Ctrl+Z` et `Ctrl+Shift+Z` avec messages de status dedies pour annuler ou reappliquer la derniere annotation deja committee.
+- Invalide l historique des annotations appliquees lors des flux qui remplacent le masque permanent ou le rendent incoherent (`reset_overlay_state`, suppression destructive de label, switch de session, commit corrosion).
+- Verifie la syntaxe via `python -m py_compile` sur les fichiers modifies.
+
+**Contexte :**
+Le besoin etait d annuler la derniere annotation seulement apres son application au masque permanent, sans interagir avec les masks temporaires qui disposent deja de leur propre bouton d annulation dans l UI. La demande a ensuite ete etendue a un redo clavier pour reappliquer l annotation annulee avec `Ctrl+Shift+Z`.
+
+**Decisions techniques :**
+1. Conserver l historique au niveau des slices effectivement modifiees plutot qu au niveau d un snapshot complet de session pour limiter la memoire et rester cible sur le masque applique.
+2. Stocker pour chaque action les etats avant et apres application afin de rendre `redo` strictement symetrique a `undo` sans recalcul metier supplementaire.
+3. Vider la pile `redo` a chaque nouvel `Apply` et invalider tout l historique lorsque le masque permanent est remplace par un autre workflow, afin d eviter de reappliquer un etat obsolete.

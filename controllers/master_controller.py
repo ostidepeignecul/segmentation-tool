@@ -28,6 +28,7 @@ from controllers.dock_layout_controller import DockLayoutController
 from controllers.endview_controller import EndviewController
 from controllers.mask_modification_controller import MaskModificationController
 from models.annotation_model import AnnotationModel
+from models.applied_annotation_history_model import AppliedAnnotationHistoryModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from models.roi_model import RoiModel
@@ -74,6 +75,7 @@ class MasterController:
 
         self.nde_model: Optional[NdeModel] = None
         self.annotation_model = AnnotationModel()
+        self.applied_annotation_history_model = AppliedAnnotationHistoryModel()
         self.view_state_model = ViewStateModel()
         self.roi_model = RoiModel()
         self.temp_mask_model = TempMaskModel()
@@ -176,6 +178,7 @@ class MasterController:
             annotation_secondary_corrosion_view=self.secondary_annotation_view_corrosion,
             volume_view=self.volume_view,
             overlay_settings_view=self.overlay_settings_view,
+            applied_annotation_history_model=self.applied_annotation_history_model,
             logger=self.logger,
             get_volume=self._current_volume,
         )
@@ -442,6 +445,8 @@ class MasterController:
             (QKeySequence(Qt.Key.Key_A), self._on_previous_slice),
             (QKeySequence(Qt.Key.Key_D), self._on_next_slice),
             (QKeySequence(Qt.Key.Key_W), self._apply_roi_non_corrosion),
+            (QKeySequence(QKeySequence.StandardKey.Undo), self._on_annotation_undo_requested),
+            (QKeySequence("Ctrl+Shift+Z"), self._on_annotation_redo_requested),
             (QKeySequence(Qt.Key.Key_Escape), self._on_selection_cancel_requested),
             (QKeySequence(Qt.Key.Key_Return), self.annotation_controller.on_apply_all_temp_masks_requested),
             (QKeySequence(Qt.Key.Key_Enter), self.annotation_controller.on_apply_all_temp_masks_requested),
@@ -979,6 +984,20 @@ class MasterController:
             return
         self.annotation_controller.on_selection_cancel_requested()
 
+    def _on_annotation_undo_requested(self) -> None:
+        """Undo the last committed annotation apply action."""
+        if self.annotation_controller.on_undo_last_applied_annotation_requested():
+            self.status_message("Derniere annotation appliquee annulee.", timeout_ms=1800)
+            return
+        self.status_message("Aucune annotation appliquee a annuler.", timeout_ms=1800)
+
+    def _on_annotation_redo_requested(self) -> None:
+        """Redo the last committed annotation undo action."""
+        if self.annotation_controller.on_redo_last_applied_annotation_requested():
+            self.status_message("Derniere annotation reappliquee.", timeout_ms=1800)
+            return
+        self.status_message("Aucune annotation a reappliquer.", timeout_ms=1800)
+
     def _on_roi_delete_requested(self) -> None:
         """Delete ROI/temp previews and clear mod pending edits consistently."""
         self.mask_modification_controller.on_roi_delete_requested()
@@ -1448,6 +1467,7 @@ class MasterController:
 
     def _after_session_switch(self) -> None:
         """Synchronise l'état du modèle actif vers les vues."""
+        self.annotation_controller.clear_apply_history()
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
         self.mask_modification_controller.reset()

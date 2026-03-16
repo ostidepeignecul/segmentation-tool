@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QDialog
 
 from config.constants import MASK_COLORS_BGRA, PERSISTENT_LABEL_IDS
 from models.annotation_model import AnnotationModel
+from models.applied_annotation_history_model import AppliedAnnotationHistoryModel
 from models.roi_model import RoiModel
 from models.temp_mask_model import TempMaskModel
 from models.overlay_data import OverlayData
@@ -50,6 +51,7 @@ class AnnotationController:
         annotation_secondary_corrosion_view: Optional[EndviewViewCorrosion],
         volume_view: VolumeView,
         overlay_settings_view: OverlaySettingsView,
+        applied_annotation_history_model: AppliedAnnotationHistoryModel,
         logger: logging.Logger,
         get_volume: Optional[callable] = None,
     ) -> None:
@@ -67,6 +69,7 @@ class AnnotationController:
         self.annotation_secondary_corrosion_view = annotation_secondary_corrosion_view
         self.volume_view = volume_view
         self.overlay_settings_view = overlay_settings_view
+        self.applied_annotation_history_model = applied_annotation_history_model
         self.logger = logger
         self._get_volume = get_volume
         self.on_paint_size_changed(self.view_state_model.paint_radius)
@@ -116,6 +119,7 @@ class AnnotationController:
             self.annotation_model.ensure_persistent_labels()
             self.temp_mask_model.ensure_persistent_labels()
             return
+        self.clear_apply_history()
         self.annotation_model.remove_label(lbl)
         self.temp_mask_model.remove_label(lbl)
         self.roi_model.remove_label(lbl)
@@ -236,6 +240,7 @@ class AnnotationController:
 
     def reset_overlay_state(self, *, preserve_labels: bool = False) -> None:
         """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""
+        self.clear_apply_history()
         self.annotation_model.clear_overlay_cache()
         self.annotation_view.set_overlay(None)
         if self.annotation_secondary_view is not None:
@@ -925,6 +930,8 @@ class AnnotationController:
 
     def on_apply_temp_mask_requested(self) -> None:
         """Apply the current temporary mask (free-hand/ROI) into the annotation model."""
+        undo_slices: dict[int, np.ndarray] = {}
+        redo_slices: dict[int, np.ndarray] = {}
         if self.view_state_model.apply_volume:
             depth, _ = self._resolve_volume_dimensions()
             if depth is None:
@@ -948,6 +955,10 @@ class AnnotationController:
                     break
             if not has_pending:
                 return
+            undo_slices, redo_slices = self._collect_applied_history_slices(
+                start_idx=int(start_idx),
+                end_idx=int(end_idx),
+            )
 
             self.annotation_service.apply_temp_volume_to_model(
                 temp_mask_model=self.temp_mask_model,
@@ -975,11 +986,19 @@ class AnnotationController:
 
             updated = np.array(current_slice, copy=True)
             updated[coverage] = temp_slice[coverage]
+            if not np.array_equal(updated, current_slice):
+                undo_slices[int(target_slice)] = np.array(current_slice, copy=True)
+                redo_slices[int(target_slice)] = np.array(updated, copy=True)
             self.annotation_model.set_slice_mask(
                 target_slice,
                 updated,
                 invalidate_cache=False,
             )
+
+        self.applied_annotation_history_model.push(
+            previous_slices=undo_slices,
+            applied_slices=redo_slices,
+        )
 
         for label, color in self.temp_mask_model.label_palette.items():
             self.annotation_model.ensure_label(label, color, visible=True)
@@ -1004,6 +1023,50 @@ class AnnotationController:
         )
         self.refresh_roi_overlay_for_slice(target_slice)
 
+    def on_undo_last_applied_annotation_requested(self) -> bool:
+        """Restore the previous slices captured for the last committed apply action."""
+        entry = self.applied_annotation_history_model.pop_undo()
+        if entry is None:
+            return False
+        return self._restore_applied_history_slices(entry.previous_slices)
+
+    def on_redo_last_applied_annotation_requested(self) -> bool:
+        """Reapply the slices restored by the latest undo action."""
+        entry = self.applied_annotation_history_model.pop_redo()
+        if entry is None:
+            return False
+        return self._restore_applied_history_slices(entry.applied_slices)
+
+    def _restore_applied_history_slices(self, slices: dict[int, np.ndarray]) -> bool:
+        restored_indices: list[int] = []
+        for slice_idx in sorted(slices.keys()):
+            slice_mask = slices.get(int(slice_idx))
+            if slice_mask is None:
+                continue
+            self.annotation_model.set_slice_mask(int(slice_idx), slice_mask, invalidate_cache=False)
+            restored_indices.append(int(slice_idx))
+
+        if not restored_indices:
+            return False
+
+        self.annotation_view.clear_roi_overlay()
+        self.annotation_view.clear_roi_boxes()
+        self.annotation_view.clear_roi_points()
+
+        rebuild = len(restored_indices) != 1
+        changed_slice = None if rebuild else restored_indices[0]
+        self.refresh_overlay(
+            defer_volume=True,
+            rebuild=rebuild,
+            changed_slice=changed_slice,
+        )
+        self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
+        return True
+
+    def clear_apply_history(self) -> None:
+        """Invalidate the undo stack for committed annotations."""
+        self.applied_annotation_history_model.clear()
+
     def on_apply_all_temp_masks_requested(self) -> None:
         """Apply temp masks across the whole volume regardless of the current slice mode."""
         prev_apply_volume = self.view_state_model.apply_volume
@@ -1018,6 +1081,64 @@ class AnnotationController:
             self.view_state_model.set_apply_volume(prev_apply_volume)
             self.view_state_model.apply_volume_start = prev_range[0]
             self.view_state_model.apply_volume_end = prev_range[1]
+
+    def _collect_applied_history_slices(
+        self,
+        *,
+        start_idx: int,
+        end_idx: int,
+    ) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray]]:
+        """Capture the original and resulting slices that would be written by Apply."""
+        temp_volume = self.temp_mask_model.get_mask_volume()
+        if temp_volume is None:
+            return {}, {}
+
+        coverage_volume = self.temp_mask_model.get_coverage_volume()
+        mask_volume = self.annotation_model.get_mask_volume()
+        max_depth = int(temp_volume.shape[0])
+        if max_depth <= 0:
+            return {}, {}
+
+        lo = max(0, int(start_idx))
+        hi = min(int(end_idx), max_depth - 1)
+        if hi < lo:
+            return {}, {}
+
+        original_slices: dict[int, np.ndarray] = {}
+        applied_slices: dict[int, np.ndarray] = {}
+        for idx in range(lo, hi + 1):
+            temp_slice = np.asarray(temp_volume[idx], dtype=np.uint8)
+            if temp_slice.ndim != 2:
+                continue
+
+            if mask_volume is None or idx >= mask_volume.shape[0]:
+                current_slice = np.zeros_like(temp_slice, dtype=np.uint8)
+            else:
+                current_slice = np.asarray(mask_volume[idx], dtype=np.uint8)
+                if current_slice.shape != temp_slice.shape:
+                    continue
+
+            if coverage_volume is not None:
+                if idx >= coverage_volume.shape[0]:
+                    continue
+                coverage_slice = np.asarray(coverage_volume[idx], dtype=bool)
+                if coverage_slice.shape != temp_slice.shape or not np.any(coverage_slice):
+                    continue
+                updated = np.array(current_slice, copy=True)
+                updated[coverage_slice] = temp_slice[coverage_slice]
+            else:
+                if not np.any(temp_slice):
+                    continue
+                updated = np.array(current_slice, copy=True)
+                mask_to_apply = temp_slice > 0
+                updated[mask_to_apply] = temp_slice[mask_to_apply]
+
+            if np.array_equal(updated, current_slice):
+                continue
+            original_slices[int(idx)] = np.array(current_slice, copy=True)
+            applied_slices[int(idx)] = np.array(updated, copy=True)
+
+        return original_slices, applied_slices
 
     # ------------------------------------------------------------------ #
     # Saving
