@@ -239,6 +239,7 @@ class MasterController:
         self._sync_tools_labels()
         self._update_nde_label()
         self._update_endview_label()
+        self._sync_display_toggle_actions()
         self.session_manager.ensure_default(
             annotation_model=self.annotation_model,
             temp_mask_model=self.temp_mask_model,
@@ -270,6 +271,37 @@ class MasterController:
             self.ui.actionSession_selector.triggered.connect(self._open_session_dialog)
         if hasattr(self.ui, "actionToggle_tools_panel"):
             self.dock_layout_controller.bind_tools_toggle_action(self.ui.actionToggle_tools_panel)
+        if hasattr(self.ui, "actionToggle_ucoord"):
+            self.dock_layout_controller.bind_dock_toggle_action(
+                self.ucoordinate_dock,
+                self.ui.actionToggle_ucoord,
+            )
+        if hasattr(self.ui, "actionToggle_vcoord"):
+            self.dock_layout_controller.bind_dock_toggle_action(
+                self.vcoordinate_dock,
+                self.ui.actionToggle_vcoord,
+            )
+        if hasattr(self.ui, "actionToggle_A_Scan"):
+            self.dock_layout_controller.bind_dock_toggle_action(
+                self.dock_layout_controller.ascan_dock,
+                self.ui.actionToggle_A_Scan,
+            )
+        if hasattr(self.ui, "actionToggle_C_Scan"):
+            self.dock_layout_controller.bind_dock_toggle_action(
+                self.dock_layout_controller.cscan_dock,
+                self.ui.actionToggle_C_Scan,
+            )
+        if hasattr(self.ui, "actionToggle_Volume"):
+            self.dock_layout_controller.bind_dock_toggle_action(
+                self.dock_layout_controller.volume_dock,
+                self.ui.actionToggle_Volume,
+            )
+        if hasattr(self.ui, "actionToggle_cross"):
+            self.ui.actionToggle_cross.setCheckable(True)
+            self.ui.actionToggle_cross.toggled.connect(self._on_cross_toggled)
+        if hasattr(self.ui, "actionToggle_overlay"):
+            self.ui.actionToggle_overlay.setCheckable(True)
+            self.ui.actionToggle_overlay.toggled.connect(self._on_overlay_toggled)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionR_initialisation_docks"):
@@ -286,34 +318,29 @@ class MasterController:
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
         self.tools_panel.attach_designer_widgets(
-            slice_slider=self._tools_ui.horizontalSlider_2,
-            slice_label=self._tools_ui.label_3,
-            goto_button=self._tools_ui.pushButton,
+            primary_axis_label=self._tools_ui.label_3,
+            primary_slice_slider=self._tools_ui.horizontalSlider_2,
+            primary_slice_spinbox=self._tools_ui.spinBox_2,
+            secondary_axis_label=self._tools_ui.label_7,
+            secondary_slice_slider=self._tools_ui.horizontalSlider_4,
+            secondary_slice_spinbox=self._tools_ui.spinBox,
+            tool_combo=self._tools_ui.comboBox,
             threshold_slider=self._tools_ui.horizontalSlider,
             threshold_label=self._tools_ui.label_2,
-            free_hand_radio=self._tools_ui.radioButton,
-            box_radio=self._tools_ui.radioButton_2,
-            grow_radio=self._tools_ui.radioButton_3,
-            line_radio=self._tools_ui.radioButton_5,
-            paint_radio=self._tools_ui.radioButton_4,
-            peak_radio=self._tools_ui.radioButton_7,
-            mod_radio=self._tools_ui.radioButton_6,
             paint_slider=self._tools_ui.horizontalSlider_3,
             nde_label=self._tools_ui.label,
             endview_label=self._tools_ui.label_5,
             position_label=self._tools_ui.label_4,
-            overlay_checkbox=self._tools_ui.checkBox_5,
-            cross_checkbox=self._tools_ui.checkBox_4,
             apply_volume_checkbox=self._tools_ui.checkBox,
             threshold_auto_checkbox=self._tools_ui.checkBox_2,
             roi_persistence_checkbox=self._tools_ui.checkBox_3,
             roi_recompute_button=self._tools_ui.pushButton_2,
             roi_delete_button=self._tools_ui.pushButton_3,
             selection_cancel_button=self._tools_ui.pushButton_4,
-            previous_button=self._tools_ui.pushButton_5,
-            next_button=self._tools_ui.pushButton_6,
             apply_roi_button=self._tools_ui.pushButton_7,
             label_container=self._tools_ui.scrollAreaWidgetContents,
+            overlay_checkbox=getattr(self._tools_ui, "checkBox_5", None),
+            cross_checkbox=getattr(self._tools_ui, "checkBox_4", None),
         )
 
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
@@ -321,23 +348,27 @@ class MasterController:
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
+        self._sync_tools_coordinate_labels()
+        initial_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
+        if initial_tool_mode:
+            self.tools_panel.select_tool_mode(initial_tool_mode)
+            self.annotation_controller.on_tool_mode_changed(initial_tool_mode)
+            self.mask_modification_controller.on_tool_mode_changed(initial_tool_mode)
 
         self.tools_panel.slice_changed.connect(self._on_slice_changed)
-        self.tools_panel.goto_requested.connect(self._on_goto_requested)
+        self.tools_panel.secondary_slice_changed.connect(self._on_secondary_slice_changed)
         self.tools_panel.tool_mode_changed.connect(self.annotation_controller.on_tool_mode_changed)
         self.tools_panel.tool_mode_changed.connect(self.mask_modification_controller.on_tool_mode_changed)
         self.tools_panel.paint_size_changed.connect(self.annotation_controller.on_paint_size_changed)
         self.tools_panel.threshold_changed.connect(self.annotation_controller.on_threshold_changed)
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
-        self.tools_panel.overlay_toggled.connect(self.annotation_controller.on_overlay_toggled)
+        self.tools_panel.overlay_toggled.connect(self._on_overlay_toggled)
         self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
         self.tools_panel.roi_persistence_toggled.connect(self.annotation_controller.on_roi_persistence_toggled)
         self.tools_panel.roi_recompute_requested.connect(self.annotation_controller.on_roi_recompute_requested)
         self.tools_panel.roi_delete_requested.connect(self._on_roi_delete_requested)
         self.tools_panel.selection_cancel_requested.connect(self._on_selection_cancel_requested)
-        self.tools_panel.previous_requested.connect(self._on_previous_slice)
-        self.tools_panel.next_requested.connect(self._on_next_slice)
         self.tools_panel.apply_roi_requested.connect(
             self.corrosion_profile_controller.on_apply_roi_requested
         )
@@ -538,8 +569,10 @@ class MasterController:
                 view_state_model=self.view_state_model,
             )
 
-            self.tools_panel.set_slice_bounds(0, num_slices - 1)
-            self.tools_panel.set_slice_value(0)
+            self.tools_panel.set_primary_slice_bounds(0, num_slices - 1)
+            self.tools_panel.set_primary_slice_value(0)
+            self.tools_panel.set_secondary_slice_bounds(0, volume.shape[2] - 1)
+            self.tools_panel.set_secondary_slice_value(volume.shape[2] // 2)
             self._sync_tools_labels()
 
             axis_order = loaded_model.metadata.get("axis_order", [])
@@ -1036,7 +1069,7 @@ class MasterController:
         clamped = max(0, min(volume.shape[0] - 1, int(index)))
         self.view_state_model.set_slice(index)
         clamped = self.view_state_model.current_slice
-        self.tools_panel.set_slice_value(clamped)
+        self.tools_panel.set_primary_slice_value(clamped)
         self.endview_controller.set_slice(clamped)
         self.annotation_controller.on_slice_changed(clamped)
         self.mask_modification_controller.on_slice_changed(clamped)
@@ -1061,10 +1094,6 @@ class MasterController:
         current = self.view_state_model.current_slice
         self._on_slice_changed(current + int(delta))
 
-    def _on_goto_requested(self, slice_idx: int) -> None:
-        """Handle explicit goto action from tools panel."""
-        self._on_slice_changed(slice_idx)
-
     def _on_secondary_slice_changed(self, index: int) -> None:
         """Handle secondary orthogonal slice changes."""
         volume = self._current_volume()
@@ -1073,6 +1102,7 @@ class MasterController:
         self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
         self.view_state_model.set_secondary_slice(index)
         clamped = self.view_state_model.secondary_slice
+        self.tools_panel.set_secondary_slice_value(clamped)
         self.volume_view.set_secondary_slice_index(clamped, update_slider=True, emit=False)
         current_point = self.view_state_model.current_point
         current_x = int(current_point[0]) if current_point is not None else None
@@ -1098,9 +1128,17 @@ class MasterController:
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
         self.view_state_model.set_show_cross(enabled)
+        self.tools_panel.set_cross_checked(enabled)
+        self._set_action_checked(getattr(self.ui, "actionToggle_cross", None), enabled)
         self.endview_controller.set_cross_visible(enabled)
         self.cscan_controller.set_cross_visible(enabled)
         self.ascan_controller.set_marker_visible(enabled)
+
+    def _on_overlay_toggled(self, enabled: bool) -> None:
+        """Handle overlay visibility toggle from menu or tools panel."""
+        self.annotation_controller.on_overlay_toggled(enabled)
+        self.tools_panel.set_overlay_checked(enabled)
+        self._set_action_checked(getattr(self.ui, "actionToggle_overlay", None), enabled)
 
     def _on_endview_point_selected(self, pos: Any) -> None:
         """Handle point selection for crosshair sync."""
@@ -1132,7 +1170,7 @@ class MasterController:
             current_point=self.view_state_model.current_point,
         )
         clamped_slice = self.view_state_model.current_slice
-        self.tools_panel.set_slice_value(clamped_slice)
+        self.tools_panel.set_primary_slice_value(clamped_slice)
         self.endview_controller.set_slice(clamped_slice)
         self.annotation_controller.on_slice_changed(clamped_slice)
         self.mask_modification_controller.on_slice_changed(clamped_slice)
@@ -1260,6 +1298,30 @@ class MasterController:
         if hasattr(self.ui, "statusbar") and self.ui.statusbar:
             self.ui.statusbar.showMessage(message, timeout_ms)
 
+    def _set_action_checked(self, action: Optional[Any], enabled: bool) -> None:
+        """Update a toggle action without retriggering its slot."""
+        if action is None:
+            return
+        action.blockSignals(True)
+        action.setChecked(bool(enabled))
+        action.blockSignals(False)
+
+    def _sync_display_toggle_actions(self) -> None:
+        """Sync menu toggle actions with the current overlay/cross state."""
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_cross", None),
+            self.view_state_model.show_cross,
+        )
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_overlay", None),
+            self.view_state_model.show_overlay,
+        )
+
+    def _sync_tools_coordinate_labels(self) -> None:
+        """Push primary/secondary axis names into the tools panel."""
+        self.tools_panel.set_primary_axis_name(self._annotation_axis_name)
+        self.tools_panel.set_secondary_axis_name(self._secondary_axis_name)
+
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -1342,6 +1404,7 @@ class MasterController:
         self._secondary_axis_name = titles.secondary_axis_name
         self.ucoordinate_dock.setWindowTitle(titles.primary_title)
         self.vcoordinate_dock.setWindowTitle(titles.secondary_title)
+        self._sync_tools_coordinate_labels()
 
     def _sync_secondary_endview_state(self) -> None:
         """Apply secondary slice/crosshair state to the secondary endview."""
@@ -1370,6 +1433,10 @@ class MasterController:
         slice_idx = self.view_state_model.clamp_slice(self.view_state_model.current_slice)
         self.view_state_model.set_secondary_slice(self.view_state_model.secondary_slice)
         secondary_slice_idx = self.view_state_model.secondary_slice
+        self.tools_panel.set_primary_slice_bounds(0, volume.shape[0] - 1)
+        self.tools_panel.set_secondary_slice_bounds(0, volume.shape[2] - 1)
+        self.tools_panel.set_primary_slice_value(slice_idx)
+        self.tools_panel.set_secondary_slice_value(secondary_slice_idx)
 
         # Met à jour l’Endview (pas de changement ici)
         self.endview_controller.set_volume(volume)
@@ -1470,6 +1537,13 @@ class MasterController:
         self.annotation_controller.clear_apply_history()
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
+        self._sync_display_toggle_actions()
+        self._sync_tools_coordinate_labels()
+        current_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
+        if current_tool_mode:
+            self.tools_panel.select_tool_mode(current_tool_mode)
+            self.annotation_controller.on_tool_mode_changed(current_tool_mode)
+            self.mask_modification_controller.on_tool_mode_changed(current_tool_mode)
         self.mask_modification_controller.reset()
         self.endview_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)

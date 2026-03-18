@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Optional
 
 import PyQt6Ads as ads
@@ -80,33 +81,44 @@ class DockLayoutController:
         self.ascan_stack: Optional[QStackedLayout] = None
         self.annotation_stack: Optional[QStackedLayout] = None
         self.secondary_annotation_stack: Optional[QStackedLayout] = None
-        self._tools_toggle_action: Optional[QAction] = None
+        self._dock_toggle_actions: dict[int, QAction] = {}
         self._default_layout_state: Optional[QByteArray] = None
 
         self._configure_docks()
         self._build_default_layout()
         self._build_corrosion_stacks()
-        self.tools_dock.viewToggled.connect(self._on_tools_view_toggled)
+        for dock in self._all_docks():
+            dock.viewToggled.connect(partial(self._on_dock_view_toggled, dock))
         self.volume_dock.topLevelChanged.connect(self._on_volume_top_level_changed)
         QTimer.singleShot(0, self._initialize_layout_state)
 
     def bind_tools_toggle_action(self, action: QAction) -> None:
         """Bind menu action to ADS tools dock visibility."""
-        if self._tools_toggle_action is action:
+        self.bind_dock_toggle_action(self.tools_dock, action)
+
+    def bind_dock_toggle_action(self, dock: ads.CDockWidget, action: QAction) -> None:
+        """Bind a menu action to an ADS dock visibility state."""
+        dock_key = id(dock)
+        current_action = self._dock_toggle_actions.get(dock_key)
+        if current_action is action:
             return
-        if self._tools_toggle_action is not None:
+        if current_action is not None:
             try:
-                self._tools_toggle_action.toggled.disconnect(self.set_tools_visible)
+                current_action.toggled.disconnect()
             except Exception:
                 pass
-        self._tools_toggle_action = action
+        self._dock_toggle_actions[dock_key] = action
         action.setCheckable(True)
-        action.toggled.connect(self.set_tools_visible)
-        action.setChecked(not self.tools_dock.isClosed())
+        action.toggled.connect(partial(self.set_dock_visible, dock))
+        self._sync_dock_toggle_action(dock, not dock.isClosed())
 
     def set_tools_visible(self, visible: bool) -> None:
         """Show or hide the tools dock."""
-        self.tools_dock.toggleView(bool(visible))
+        self.set_dock_visible(self.tools_dock, visible)
+
+    def set_dock_visible(self, dock: ads.CDockWidget, visible: bool) -> None:
+        """Show or hide any ADS dock."""
+        dock.toggleView(bool(visible))
 
     def _configure_docks(self) -> None:
         self.ucoordinate_dock.setObjectName("dock_ucoordinate")
@@ -171,7 +183,9 @@ class DockLayoutController:
         self._apply_default_splitter_sizes()
         self._default_layout_state = self.dock_manager.saveState(self._LAYOUT_STATE_VERSION)
         if self.restore_layout_state():
+            self._sync_all_dock_toggle_actions()
             return
+        self._sync_all_dock_toggle_actions()
 
     def _all_docks(self) -> tuple[ads.CDockWidget, ...]:
         return (
@@ -199,8 +213,7 @@ class DockLayoutController:
             if dock.isClosed():
                 dock.toggleView(True)
 
-        # Keep menu action in sync if the tools dock changed visibility.
-        self._on_tools_view_toggled(not self.tools_dock.isClosed())
+        self._sync_all_dock_toggle_actions()
 
         self._apply_default_splitter_sizes()
 
@@ -352,14 +365,21 @@ class DockLayoutController:
         stack.setCurrentWidget(self.ascan_view)
         return stack, corrosion_view
 
-    def _on_tools_view_toggled(self, visible: bool) -> None:
-        """Keep toggle action state in sync with dock visibility."""
-        action = self._tools_toggle_action
+    def _on_dock_view_toggled(self, dock: ads.CDockWidget, visible: bool) -> None:
+        """Keep menu action state in sync with dock visibility."""
+        self._sync_dock_toggle_action(dock, visible)
+
+    def _sync_dock_toggle_action(self, dock: ads.CDockWidget, visible: bool) -> None:
+        action = self._dock_toggle_actions.get(id(dock))
         if action is None:
             return
         action.blockSignals(True)
         action.setChecked(bool(visible))
         action.blockSignals(False)
+
+    def _sync_all_dock_toggle_actions(self) -> None:
+        for dock in self._all_docks():
+            self._sync_dock_toggle_action(dock, not dock.isClosed())
 
     def _on_volume_top_level_changed(self, _floating: bool) -> None:
         """Rebuild VolumeView GL scene after dock/undock transitions."""

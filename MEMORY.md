@@ -3429,3 +3429,23 @@ Le besoin etait de renommer les prochains labels ajoutes en `BW echo 1`, `BW ech
 1. Centraliser le renommage uniquement dans `format_label_text()` pour propager le nouveau libelle a toutes les vues deja branchees sur ce helper sans toucher au flux MVC d ajout de labels.
 2. Calculer l index utilisateur a partir de `USER_LABEL_START` afin de garder `4 -> BW echo 1 (4)`, `5 -> BW echo 2 (5)`, etc.
 3. Preserver l id de classe dans le texte affiche pour faciliter le lien entre UI, masque interne et workflows existants.
+
+### 2026-03-18 - ToolsPanel sur doubles coordonnees et toggles d affichage menus
+**Tags :** `#branch:annotation`, `#controllers/dock_layout_controller.py`, `#controllers/master_controller.py`, `#views/tools_panel.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#mvc`, `#ui`, `#signals-and-slots`, `#dock-layout`
+
+**Actions effectuees :**
+- Remplace dans le `ToolsPanel` le flux de navigation mono-slice par deux controles dedies `U-Coordinate` et `V-Coordinate`, chacun avec slider + spinbox synchronises, exposes via `slice_changed` et `secondary_slice_changed`.
+- Supprime le bouton `goto`, les boutons `previous/next` et les radios de type ROI cote panneau, puis remplace la selection d outil par un `QComboBox` mappe proprement vers les `tool_mode` metier (`free_hand`, `box`, `grow`, `line`, `paint`, `mod`, `peak`).
+- Rend les checkboxes `overlay` et `cross` optionnelles dans `ToolsPanel` pour supporter leur deplacement vers le menu `Affichage`, tout en conservant une API de synchro sans reemission.
+- Etend `MasterController` pour brancher le nouveau contrat de `ToolsPanel`, synchroniser les deux endviews avec les bornes/valeurs des spinboxes, pousser les labels d axes U/V, et reutiliser les etats `tool_mode`, `overlay` et `cross` apres chargement ou switch de session.
+- Generalise `DockLayoutController` avec `bind_dock_toggle_action()` afin de reutiliser le pattern de `Toggle tools panel` pour `ucoord`, `vcoord`, `A-Scan`, `C-Scan` et `Volume`, avec synchronisation bidirectionnelle entre actions menu et etat ADS reel.
+- Ajoute dans le menu `Affichage` les toggles `cross` et `overlay` comme sources d etat UI, synchronises avec le modele de vue et le panneau d outils.
+- Verifie la syntaxe via `python -m py_compile` sur `controllers/master_controller.py`, `controllers/dock_layout_controller.py` et `views/tools_panel.py`.
+
+**Contexte :**
+Le panneau d outils ne correspondait plus au Designer apres remplacement du `goto` par deux spinboxes de coordonnees, suppression des boutons `previous/next`, et remplacement des radios ROI par un combo box. En parallele, l utilisateur a ajoute dans le menu `Affichage` des toggles par vue et voulait le meme comportement robuste que `Toggle tools panel`, sans melanger logique metier et vue.
+
+**Decisions techniques :**
+1. Garder `ToolsPanel` strictement vue en lui faisant seulement exposer les nouveaux signaux UI et des setters de synchronisation, toute l orchestration restant dans `MasterController`.
+2. Centraliser la logique de binding `action <-> dock ADS` dans `DockLayoutController` plutot que de dupliquer un handler par dock, pour garantir une synchro menu/etat uniforme.
+3. Considerer `cross` et `overlay` comme etats du `ViewStateModel` synchronises a la fois vers le menu et vers le panneau, afin d eviter les divergences quand l utilisateur agit depuis plusieurs points d entree UI.

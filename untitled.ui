@@ -65,7 +65,16 @@
     <property name="title">
      <string>Affichage</string>
     </property>
+    <addaction name="actionToggle_C_Scan"/>
+    <addaction name="actionToggle_A_Scan"/>
+    <addaction name="actionToggle_Volume"/>
+    <addaction name="actionToggle_vcoord"/>
+    <addaction name="actionToggle_ucoord"/>
     <addaction name="actionToggle_tools_panel"/>
+    <addaction name="separator"/>
+    <addaction name="actionToggle_cross"/>
+    <addaction name="actionToggle_overlay"/>
+    <addaction name="separator"/>
     <addaction name="actionResize_endview"/>
     <addaction name="actionR_initialisation_docks"/>
    </widget>
@@ -171,6 +180,41 @@
   <action name="actionR_initialisation_docks">
    <property name="text">
     <string>Réinitialisation docks</string>
+   </property>
+  </action>
+  <action name="actionToggle_cross">
+   <property name="text">
+    <string>Toggle cross</string>
+   </property>
+  </action>
+  <action name="actionToggle_overlay">
+   <property name="text">
+    <string>Toggle overlay</string>
+   </property>
+  </action>
+  <action name="actionToggle_A_Scan">
+   <property name="text">
+    <string>Toggle a-scan</string>
+   </property>
+  </action>
+  <action name="actionToggle_C_Scan">
+   <property name="text">
+    <string>Toggle c-scan</string>
+   </property>
+  </action>
+  <action name="actionToggle_Volume">
+   <property name="text">
+    <string>Toggle volume</string>
+   </property>
+  </action>
+  <action name="actionToggle_vcoord">
+   <property name="text">
+    <string>Toggle v-coord</string>
+   </property>
+  </action>
+  <action name="actionToggle_ucoord">
+   <property name="text">
+    <string>Toggle u-coord</string>
    </property>
   </action>
  </widget>

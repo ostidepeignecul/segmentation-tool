@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
+    QComboBox,
     QFrame,
     QLabel,
     QPushButton,
-    QRadioButton,
+    QRadioButton as QBtn,
     QSlider,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
-    QButtonGroup,
-    QRadioButton as QBtn,
 )
-from PyQt6.QtWidgets import QInputDialog, QButtonGroup
 
 from config.constants import format_label_text
 
@@ -24,9 +24,7 @@ class ToolsPanel(QFrame):
     """Docked tools panel exposing user interactions as signals (view only)."""
 
     slice_changed = pyqtSignal(int)
-    goto_requested = pyqtSignal(int)
-    previous_requested = pyqtSignal()
-    next_requested = pyqtSignal()
+    secondary_slice_changed = pyqtSignal(int)
     apply_roi_requested = pyqtSignal()
     tool_mode_changed = pyqtSignal(str)
     threshold_changed = pyqtSignal(int)
@@ -41,24 +39,31 @@ class ToolsPanel(QFrame):
     label_selected = pyqtSignal(int)
     paint_size_changed = pyqtSignal(int)
 
+    _TOOL_MODE_BY_TEXT = {
+        "free hand": "free_hand",
+        "box": "box",
+        "grow": "grow",
+        "line": "line",
+        "paint": "paint",
+        "mod": "mod",
+        "peak": "peak",
+    }
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
-        self._slice_slider: Optional[QSlider] = None
-        self._slice_label: Optional[QLabel] = None
+        self._primary_axis_label: Optional[QLabel] = None
+        self._secondary_axis_label: Optional[QLabel] = None
+        self._primary_slider: Optional[QSlider] = None
+        self._secondary_slider: Optional[QSlider] = None
+        self._primary_spinbox: Optional[QSpinBox] = None
+        self._secondary_spinbox: Optional[QSpinBox] = None
         self._nde_label: Optional[QLabel] = None
         self._endview_label: Optional[QLabel] = None
         self._position_label: Optional[QLabel] = None
-        self._goto_button: Optional[QPushButton] = None
+        self._tool_combo: Optional[QComboBox] = None
         self._threshold_slider: Optional[QSlider] = None
         self._threshold_label: Optional[QLabel] = None
-        self._free_hand_radio: Optional[QRadioButton] = None
-        self._box_radio: Optional[QRadioButton] = None
-        self._grow_radio: Optional[QRadioButton] = None
-        self._line_radio: Optional[QRadioButton] = None
-        self._paint_radio: Optional[QRadioButton] = None
-        self._mod_radio: Optional[QRadioButton] = None
-        self._peak_radio: Optional[QRadioButton] = None
         self._paint_size_slider: Optional[QSlider] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
@@ -68,128 +73,105 @@ class ToolsPanel(QFrame):
         self._roi_recompute_button: Optional[QPushButton] = None
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
-        self._previous_button: Optional[QPushButton] = None
-        self._next_button: Optional[QPushButton] = None
         self._apply_roi_button: Optional[QPushButton] = None
         self._label_container: Optional[QWidget] = None
         self._label_layout: Optional[QVBoxLayout] = None
         self._label_group: Optional[QButtonGroup] = None
         self._label_buttons: Dict[int, QBtn] = {}
 
-        self._slice_min: int = 0
-        self._slice_max: int = 0
+        self._primary_min: int = 0
+        self._primary_max: int = 0
+        self._secondary_min: int = 0
+        self._secondary_max: int = 0
         self._wired = False
 
     def attach_designer_widgets(
         self,
         *,
-        slice_slider: QSlider,
-        slice_label: QLabel,
-        goto_button: QPushButton,
+        primary_axis_label: QLabel,
+        primary_slice_slider: QSlider,
+        primary_slice_spinbox: QSpinBox,
+        secondary_axis_label: QLabel,
+        secondary_slice_slider: QSlider,
+        secondary_slice_spinbox: QSpinBox,
+        tool_combo: QComboBox,
         threshold_slider: QSlider,
         threshold_label: QLabel,
-        free_hand_radio: QRadioButton,
-        box_radio: QRadioButton,
-        grow_radio: QRadioButton,
-        line_radio: QRadioButton,
-        paint_radio: QRadioButton,
-        peak_radio: Optional[QRadioButton] = None,
         paint_slider: QSlider,
-        mod_radio: Optional[QRadioButton] = None,
         nde_label: QLabel,
         endview_label: QLabel,
         position_label: QLabel,
-        overlay_checkbox: QCheckBox,
-        cross_checkbox: QCheckBox,
         apply_volume_checkbox: QCheckBox,
         threshold_auto_checkbox: QCheckBox,
         roi_persistence_checkbox: QCheckBox,
         roi_recompute_button: QPushButton,
         roi_delete_button: QPushButton,
         selection_cancel_button: QPushButton,
-        previous_button: QPushButton,
-        next_button: QPushButton,
         apply_roi_button: QPushButton,
         label_container: QWidget,
+        overlay_checkbox: Optional[QCheckBox] = None,
+        cross_checkbox: Optional[QCheckBox] = None,
     ) -> None:
         """Receive Designer-created widgets and wire them to the exposed signals."""
         if self._wired:
             return
 
-        self._slice_slider = slice_slider
-        self._slice_label = slice_label
+        self._primary_axis_label = primary_axis_label
+        self._secondary_axis_label = secondary_axis_label
+        self._primary_slider = primary_slice_slider
+        self._secondary_slider = secondary_slice_slider
+        self._primary_spinbox = primary_slice_spinbox
+        self._secondary_spinbox = secondary_slice_spinbox
+        self._tool_combo = tool_combo
+        self._threshold_slider = threshold_slider
+        self._threshold_label = threshold_label
+        self._paint_size_slider = paint_slider
         self._nde_label = nde_label
         self._endview_label = endview_label
         self._position_label = position_label
-        self._goto_button = goto_button
-        self._threshold_slider = threshold_slider
-        self._threshold_label = threshold_label
-        self._free_hand_radio = free_hand_radio
-        self._box_radio = box_radio
-        self._grow_radio = grow_radio
-        self._line_radio = line_radio
-        self._paint_radio = paint_radio
-        self._peak_radio = peak_radio
-        self._mod_radio = mod_radio
-        self._paint_size_slider = paint_slider
-        self._overlay_checkbox = overlay_checkbox
-        self._cross_checkbox = cross_checkbox
         self._apply_volume_checkbox = apply_volume_checkbox
         self._threshold_auto_checkbox = threshold_auto_checkbox
+        self._overlay_checkbox = overlay_checkbox
+        self._cross_checkbox = cross_checkbox
         self._roi_persistence_checkbox = roi_persistence_checkbox
         self._roi_recompute_button = roi_recompute_button
         self._roi_delete_button = roi_delete_button
         self._selection_cancel_button = selection_cancel_button
-        self._previous_button = previous_button
-        self._next_button = next_button
         self._apply_roi_button = apply_roi_button
         self._label_container = label_container
         self._ensure_label_layout()
 
-        self._slice_slider.valueChanged.connect(self._on_slider_changed)
-        self._goto_button.clicked.connect(self._emit_goto_requested)
-        if self._previous_button is not None:
-            self._previous_button.clicked.connect(self.previous_requested)
-        if self._next_button is not None:
-            self._next_button.clicked.connect(self.next_requested)
-        if self._apply_roi_button is not None:
-            self._apply_roi_button.clicked.connect(self.apply_roi_requested)
+        self._configure_slice_controls(
+            slider=self._primary_slider,
+            spinbox=self._primary_spinbox,
+            handler=self._on_primary_slice_changed,
+        )
+        self._configure_slice_controls(
+            slider=self._secondary_slider,
+            spinbox=self._secondary_spinbox,
+            handler=self._on_secondary_slice_changed,
+        )
+
+        self._prepare_tool_combo()
+        self._tool_combo.currentIndexChanged.connect(self._on_tool_combo_changed)
+
         self._threshold_slider.setMinimum(0)
         self._threshold_slider.setMaximum(255)
         self._threshold_slider.setValue(50)
         self._threshold_slider.valueChanged.connect(self._on_threshold_changed)
+
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)
-        self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
-        self._cross_checkbox.toggled.connect(self.cross_toggled.emit)
+        if self._overlay_checkbox is not None:
+            self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
+        if self._cross_checkbox is not None:
+            self._cross_checkbox.toggled.connect(self.cross_toggled.emit)
         self._roi_persistence_checkbox.toggled.connect(self.roi_persistence_toggled.emit)
         self._roi_recompute_button.clicked.connect(self.roi_recompute_requested)
         self._roi_delete_button.clicked.connect(self.roi_delete_requested)
         self._selection_cancel_button.clicked.connect(self.selection_cancel_requested)
+        self._apply_roi_button.clicked.connect(self.apply_roi_requested)
 
-        self._free_hand_radio.toggled.connect(
-            lambda checked: checked and self.tool_mode_changed.emit("free_hand")
-        )
-        self._box_radio.toggled.connect(
-            lambda checked: checked and self.tool_mode_changed.emit("box")
-        )
-        self._grow_radio.toggled.connect(
-            lambda checked: checked and self.tool_mode_changed.emit("grow")
-        )
-        self._line_radio.toggled.connect(
-            lambda checked: checked and self.tool_mode_changed.emit("line")
-        )
-        self._paint_radio.toggled.connect(
-            lambda checked: checked and self.tool_mode_changed.emit("paint")
-        )
-        if self._peak_radio is not None:
-            self._peak_radio.toggled.connect(
-                lambda checked: checked and self.tool_mode_changed.emit("peak")
-            )
-        if self._mod_radio is not None:
-            self._mod_radio.toggled.connect(
-                lambda checked: checked and self.tool_mode_changed.emit("mod")
-            )
         if self._paint_size_slider is not None:
             self._paint_size_slider.setMinimum(1)
             self._paint_size_slider.setMaximum(50)
@@ -199,6 +181,29 @@ class ToolsPanel(QFrame):
         self._wired = True
         self.set_nde_name("")
         self.set_endview_name("")
+
+    def _configure_slice_controls(
+        self,
+        *,
+        slider: QSlider,
+        spinbox: QSpinBox,
+        handler,
+    ) -> None:
+        slider.setMinimum(0)
+        slider.setMaximum(0)
+        spinbox.setMinimum(0)
+        spinbox.setMaximum(0)
+        slider.valueChanged.connect(handler)
+        spinbox.valueChanged.connect(handler)
+
+    def _prepare_tool_combo(self) -> None:
+        if self._tool_combo is None:
+            return
+        for idx in range(self._tool_combo.count()):
+            text = self._tool_combo.itemText(idx).strip().lower()
+            mode = self._TOOL_MODE_BY_TEXT.get(text)
+            if mode is not None:
+                self._tool_combo.setItemData(idx, mode)
 
     def _ensure_label_layout(self) -> None:
         if self._label_container is None:
@@ -216,7 +221,7 @@ class ToolsPanel(QFrame):
         self._ensure_label_layout()
         if self._label_layout is None or self._label_group is None:
             return
-        # Clear old buttons
+
         for btn in self._label_buttons.values():
             self._label_group.removeButton(btn)
             btn.setParent(None)
@@ -232,144 +237,215 @@ class ToolsPanel(QFrame):
         target = current if current in labels else (labels[0] if labels else None)
         if target is not None:
             self.select_label(target)
-        else:
-            # No selection if no labels
-            pass
 
     def select_label(self, label_id: int) -> None:
         """Programmatically select a label button."""
         btn = self._label_buttons.get(int(label_id))
-        if btn:
+        if btn is not None:
             btn.setChecked(True)
 
     def set_slice_bounds(self, minimum: int, maximum: int) -> None:
-        """Configure slider bounds without emitting change signals."""
-        if not self._slice_slider:
-            return
-        self._slice_slider.blockSignals(True)
-        self._slice_slider.setMinimum(minimum)
-        self._slice_slider.setMaximum(maximum)
-        self._slice_slider.blockSignals(False)
-        self._slice_min = minimum
-        self._slice_max = maximum
+        """Backward-compatible wrapper for the primary coordinate bounds."""
+        self.set_primary_slice_bounds(minimum, maximum)
 
     def set_slice_value(self, slice_idx: int) -> None:
-        """Update the slice slider/label without re-emitting signals."""
-        if not self._slice_slider:
+        """Backward-compatible wrapper for the primary coordinate value."""
+        self.set_primary_slice_value(slice_idx)
+
+    def set_primary_slice_bounds(self, minimum: int, maximum: int) -> None:
+        """Configure primary coordinate bounds without emitting change signals."""
+        self._set_pair_bounds(self._primary_slider, self._primary_spinbox, minimum, maximum)
+        self._primary_min = int(minimum)
+        self._primary_max = int(maximum)
+
+    def set_secondary_slice_bounds(self, minimum: int, maximum: int) -> None:
+        """Configure secondary coordinate bounds without emitting change signals."""
+        self._set_pair_bounds(self._secondary_slider, self._secondary_spinbox, minimum, maximum)
+        self._secondary_min = int(minimum)
+        self._secondary_max = int(maximum)
+
+    def set_primary_slice_value(self, slice_idx: int) -> None:
+        """Update the primary coordinate widgets without re-emitting signals."""
+        self._set_pair_value(self._primary_slider, self._primary_spinbox, slice_idx)
+
+    def set_secondary_slice_value(self, slice_idx: int) -> None:
+        """Update the secondary coordinate widgets without re-emitting signals."""
+        self._set_pair_value(self._secondary_slider, self._secondary_spinbox, slice_idx)
+
+    def _set_pair_bounds(
+        self,
+        slider: Optional[QSlider],
+        spinbox: Optional[QSpinBox],
+        minimum: int,
+        maximum: int,
+    ) -> None:
+        if slider is None or spinbox is None:
             return
-        self._slice_slider.blockSignals(True)
-        self._slice_slider.setValue(slice_idx)
-        self._update_slice_label(slice_idx)
-        self._slice_slider.blockSignals(False)
+        for widget in (slider, spinbox):
+            widget.blockSignals(True)
+            widget.setMinimum(int(minimum))
+            widget.setMaximum(int(maximum))
+            widget.blockSignals(False)
+
+    def _set_pair_value(
+        self,
+        slider: Optional[QSlider],
+        spinbox: Optional[QSpinBox],
+        value: int,
+    ) -> None:
+        if slider is None or spinbox is None:
+            return
+        clamped = max(int(slider.minimum()), min(int(slider.maximum()), int(value)))
+        slider.blockSignals(True)
+        spinbox.blockSignals(True)
+        slider.setValue(clamped)
+        spinbox.setValue(clamped)
+        slider.blockSignals(False)
+        spinbox.blockSignals(False)
 
     def set_threshold_value(self, threshold: int) -> None:
         """Update the threshold slider without re-emitting signals."""
-        if not self._threshold_slider:
+        if self._threshold_slider is None:
             return
         self._threshold_slider.blockSignals(True)
-        self._threshold_slider.setValue(threshold)
+        self._threshold_slider.setValue(int(threshold))
         self._threshold_slider.blockSignals(False)
         self._update_threshold_label(threshold)
 
     def set_overlay_checked(self, enabled: bool) -> None:
-        """Set overlay checkbox state without emitting signals."""
-        if not self._overlay_checkbox:
+        """Set overlay checkbox state without emitting signals when present."""
+        if self._overlay_checkbox is None:
             return
         self._overlay_checkbox.blockSignals(True)
-        self._overlay_checkbox.setChecked(enabled)
+        self._overlay_checkbox.setChecked(bool(enabled))
         self._overlay_checkbox.blockSignals(False)
 
     def set_cross_checked(self, enabled: bool) -> None:
-        """Set cross checkbox state without emitting signals."""
-        if not self._cross_checkbox:
+        """Set cross checkbox state without emitting signals when present."""
+        if self._cross_checkbox is None:
             return
         self._cross_checkbox.blockSignals(True)
-        self._cross_checkbox.setChecked(enabled)
+        self._cross_checkbox.setChecked(bool(enabled))
         self._cross_checkbox.blockSignals(False)
 
+    def current_tool_mode(self) -> Optional[str]:
+        """Return the currently selected drawing tool mode."""
+        if self._tool_combo is None:
+            return None
+        data = self._tool_combo.currentData()
+        if data is not None:
+            return str(data)
+        text = self._tool_combo.currentText().strip().lower()
+        return self._TOOL_MODE_BY_TEXT.get(text)
+
     def select_tool_mode(self, mode: str) -> None:
-        """Select a tool radio button without emitting tool_mode_changed."""
-        mapping = {
-            "free_hand": self._free_hand_radio,
-            "box": self._box_radio,
-            "grow": self._grow_radio,
-            "line": self._line_radio,
-            "paint": self._paint_radio,
-            "peak": self._peak_radio,
-            "mod": self._mod_radio,
-        }
-        target = mapping.get(mode)
-        if not target:
+        """Select the active tool in the combo box without emitting signals."""
+        if self._tool_combo is None:
             return
-        target.blockSignals(True)
-        target.setChecked(True)
-        target.blockSignals(False)
+        target_mode = str(mode)
+        target_index = self._tool_combo.findData(target_mode)
+        if target_index < 0:
+            for idx in range(self._tool_combo.count()):
+                text = self._tool_combo.itemText(idx).strip().lower()
+                if self._TOOL_MODE_BY_TEXT.get(text) == target_mode:
+                    target_index = idx
+                    break
+        if target_index < 0:
+            return
+        self._tool_combo.blockSignals(True)
+        self._tool_combo.setCurrentIndex(target_index)
+        self._tool_combo.blockSignals(False)
+
+    def _on_tool_combo_changed(self, _index: int) -> None:
+        mode = self.current_tool_mode()
+        if mode:
+            self.tool_mode_changed.emit(mode)
 
     def _on_threshold_changed(self, value: int) -> None:
         """Update threshold label and emit value."""
         self._update_threshold_label(value)
-        self.threshold_changed.emit(value)
+        self.threshold_changed.emit(int(value))
 
     def _update_threshold_label(self, value: int) -> None:
-        if not self._threshold_label:
+        if self._threshold_label is None:
             return
         self._threshold_label.setText(f"Threshold : {int(value)}")
 
-    def _emit_goto_requested(self) -> None:
-        """Emit goto with the current spinbox value."""
-        if not self._slice_slider:
-            return
-        current = self._slice_slider.value()
-        slice_idx, ok = QInputDialog.getInt(
-            self,
-            "Se rendre à la tranche",
-            f"Index de tranche (0 - {self._slice_max})",
-            current,
-            self._slice_min,
-            self._slice_max,
-            1,
+    def _on_primary_slice_changed(self, value: int) -> None:
+        self._sync_pair_from_source(
+            source_value=int(value),
+            slider=self._primary_slider,
+            spinbox=self._primary_spinbox,
         )
-        if ok:
-            self.goto_requested.emit(slice_idx)
+        self.slice_changed.emit(int(value))
 
-    def _on_slider_changed(self, value: int) -> None:
-        """Handle slider movements and emit slice_changed."""
-        self._update_slice_label(value)
-        self.slice_changed.emit(value)
+    def _on_secondary_slice_changed(self, value: int) -> None:
+        self._sync_pair_from_source(
+            source_value=int(value),
+            slider=self._secondary_slider,
+            spinbox=self._secondary_spinbox,
+        )
+        self.secondary_slice_changed.emit(int(value))
 
-    def _update_slice_label(self, value: int) -> None:
-        """Reflect the current slider value into the label."""
-        if not self._slice_label:
+    def _sync_pair_from_source(
+        self,
+        *,
+        source_value: int,
+        slider: Optional[QSlider],
+        spinbox: Optional[QSpinBox],
+    ) -> None:
+        if slider is None or spinbox is None:
             return
-        if self._slice_max:
-            self._slice_label.setText(f"{value} / {self._slice_max}")
-        else:
-            self._slice_label.setText(str(value))
+        clamped = max(int(slider.minimum()), min(int(slider.maximum()), int(source_value)))
+        if slider.value() != clamped:
+            slider.blockSignals(True)
+            slider.setValue(clamped)
+            slider.blockSignals(False)
+        if spinbox.value() != clamped:
+            spinbox.blockSignals(True)
+            spinbox.setValue(clamped)
+            spinbox.blockSignals(False)
 
     def set_position_label(self, x: int, y: int) -> None:
         """Update the position label with the latest cursor coordinates."""
-        if not self._position_label:
+        if self._position_label is None:
             return
-        self._position_label.setText(f"position x = {x} ; y = {y}")
+        self._position_label.setText(f"position x = {int(x)} ; y = {int(y)}")
 
     def set_paint_size(self, radius: int) -> None:
         """Update the paint size slider without emitting signals."""
-        if not self._paint_size_slider:
+        if self._paint_size_slider is None:
             return
+        clamped = max(
+            int(self._paint_size_slider.minimum()),
+            min(int(self._paint_size_slider.maximum()), int(radius)),
+        )
         self._paint_size_slider.blockSignals(True)
-        self._paint_size_slider.setValue(max(self._paint_size_slider.minimum(), min(self._paint_size_slider.maximum(), int(radius))))
+        self._paint_size_slider.setValue(clamped)
         self._paint_size_slider.blockSignals(False)
 
     def set_nde_name(self, name: str) -> None:
         """Display the opened NDE file name."""
-        if not self._nde_label:
+        if self._nde_label is None:
             return
-        suffix = name if name else "-"
+        suffix = str(name).strip() if name else "-"
         self._nde_label.setText(f"NDE: {suffix}")
 
     def set_endview_name(self, name: str) -> None:
         """Display the current endview identifier."""
-        if not self._endview_label:
+        if self._endview_label is None:
             return
-        suffix = name if name else "-"
+        suffix = str(name).strip() if name else "-"
         self._endview_label.setText(f"Endview: {suffix}")
+
+    def set_primary_axis_name(self, name: str) -> None:
+        """Display the primary coordinate axis label."""
+        if self._primary_axis_label is None:
+            return
+        self._primary_axis_label.setText(str(name).strip() if name else "U-Coordinate")
+
+    def set_secondary_axis_name(self, name: str) -> None:
+        """Display the secondary coordinate axis label."""
+        if self._secondary_axis_label is None:
+            return
+        self._secondary_axis_label.setText(str(name).strip() if name else "V-Coordinate")
