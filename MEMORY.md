@@ -3449,3 +3449,19 @@ Le panneau d outils ne correspondait plus au Designer apres remplacement du `got
 1. Garder `ToolsPanel` strictement vue en lui faisant seulement exposer les nouveaux signaux UI et des setters de synchronisation, toute l orchestration restant dans `MasterController`.
 2. Centraliser la logique de binding `action <-> dock ADS` dans `DockLayoutController` plutot que de dupliquer un handler par dock, pour garantir une synchro menu/etat uniforme.
 3. Considerer `cross` et `overlay` comme etats du `ViewStateModel` synchronises a la fois vers le menu et vers le panneau, afin d eviter les divergences quand l utilisateur agit depuis plusieurs points d entree UI.
+
+### 2026-03-18 - Defaut corrosion sur Frontwall et Backwall
+**Tags :** `#branch:annotation`, `#services/corrosion_label_service.py`, `#corrosion`, `#labels`, `#defaults`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute dans `CorrosionLabelService` des constantes internes pour preferer `Frontwall (2)` et `Backwall (3)` comme paire par defaut.
+- Modifie `normalize_pair()` pour retourner explicitement cette paire quand aucun choix utilisateur valide n est encore memorise et que les deux labels sont disponibles.
+- Conserve le fallback generique existant sur les deux premiers labels disponibles si `Frontwall` ou `Backwall` manque, afin de ne pas casser les jeux de labels non standards.
+
+**Contexte :**
+L analyse corrosion selectionnait par defaut les deux premiers labels disponibles, ce qui favorisait souvent `Paint` puis `Frontwall` a cause de l ordre de palette. Le besoin etait de demarrer naturellement entre `Frontwall` et `Backwall`, qui representent le cas d usage principal pour la mesure corrosion.
+
+**Decisions techniques :**
+1. Garder la regle de choix par defaut dans `CorrosionLabelService` plutot que dans le controleur pour conserver un service pur et reutilisable.
+2. Preferer explicitement les ids metier `2/3` seulement au moment ou aucune selection valide n existe, afin de ne pas ecraser un choix manuel deja present.
+3. Preserver un fallback generique sur les labels disponibles pour rester compatible avec des annotations corrosion construites sur d autres paires de classes.

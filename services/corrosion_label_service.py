@@ -6,6 +6,9 @@ from typing import Iterable, Optional, Tuple
 class CorrosionLabelService:
     """Pure helper for choosing a valid corrosion label pair."""
 
+    _DEFAULT_FRONTWALL_LABEL = 2
+    _DEFAULT_BACKWALL_LABEL = 3
+
     @staticmethod
     def normalize_pair(
         labels: Iterable[int],
@@ -23,6 +26,10 @@ class CorrosionLabelService:
             return None, None
 
         if label_a is None and label_b is None:
+            preferred_a = CorrosionLabelService._DEFAULT_FRONTWALL_LABEL
+            preferred_b = CorrosionLabelService._DEFAULT_BACKWALL_LABEL
+            if preferred_a in available and preferred_b in available:
+                return preferred_a, preferred_b
             label_a = ordered[0]
             label_b = ordered[1] if len(ordered) > 1 else None
             return label_a, label_b
