@@ -325,9 +325,14 @@ class MasterController:
             secondary_slice_slider=self._tools_ui.horizontalSlider_4,
             secondary_slice_spinbox=self._tools_ui.spinBox,
             tool_combo=self._tools_ui.comboBox,
+            colormap_combo=self._tools_ui.comboBox_2,
             threshold_slider=self._tools_ui.horizontalSlider,
             threshold_label=self._tools_ui.label_2,
             paint_slider=self._tools_ui.horizontalSlider_3,
+            overlay_opacity_slider=self._tools_ui.horizontalSlider_6,
+            overlay_opacity_spinbox=self._tools_ui.spinBox_4,
+            nde_opacity_slider=self._tools_ui.horizontalSlider_5,
+            nde_opacity_spinbox=self._tools_ui.spinBox_3,
             nde_label=self._tools_ui.label,
             endview_label=self._tools_ui.label_5,
             position_label=self._tools_ui.label_4,
@@ -341,6 +346,7 @@ class MasterController:
             label_container=self._tools_ui.scrollAreaWidgetContents,
             overlay_checkbox=getattr(self._tools_ui, "checkBox_5", None),
             cross_checkbox=getattr(self._tools_ui, "checkBox_4", None),
+            nde_opacity_label=getattr(self._tools_ui, "label_10", None),
         )
 
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
@@ -348,6 +354,8 @@ class MasterController:
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
+        self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
+        self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
         self._sync_tools_coordinate_labels()
         initial_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
         if initial_tool_mode:
@@ -363,6 +371,8 @@ class MasterController:
         self.tools_panel.threshold_changed.connect(self.annotation_controller.on_threshold_changed)
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
+        self.tools_panel.overlay_opacity_changed.connect(self._on_overlay_opacity_changed)
+        self.tools_panel.endview_colormap_changed.connect(self._on_endview_colormap_changed)
         self.tools_panel.overlay_toggled.connect(self._on_overlay_toggled)
         self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
         self.tools_panel.roi_persistence_toggled.connect(self.annotation_controller.on_roi_persistence_toggled)
@@ -439,7 +449,7 @@ class MasterController:
             self.annotation_controller.on_label_color_changed
         )
         self.overlay_settings_view.overlay_opacity_changed.connect(
-            self.annotation_controller.on_overlay_opacity_changed
+            self._on_overlay_opacity_changed
         )
         self.overlay_settings_view.label_added.connect(self._on_label_added)
         self.overlay_settings_view.label_deleted.connect(self._on_label_deleted)
@@ -938,16 +948,28 @@ class MasterController:
         except Exception:
             self.logger.exception("Unable to save dock layout state.")
 
+    def _on_overlay_opacity_changed(self, opacity: float) -> None:
+        """Keep overlay opacity synchronized across the tools panel and settings dialog."""
+        self.annotation_controller.on_overlay_opacity_changed(opacity)
+        alpha = float(self.view_state_model.overlay_alpha)
+        self.overlay_settings_view.set_overlay_opacity(alpha)
+        self.tools_panel.set_overlay_opacity(alpha)
+
     def _on_endview_colormap_changed(self, name: str) -> None:
-        lut = self._get_colormap_lut(name)
-        self.view_state_model.set_endview_colormap(name)
-        self.endview_controller.set_colormap(name, lut)
-        self.volume_view.set_base_colormap(name, lut)
+        normalized = self._normalize_colormap_name(name)
+        lut = self._get_colormap_lut(normalized)
+        self.view_state_model.set_endview_colormap(normalized)
+        self.endview_controller.set_colormap(normalized, lut)
+        self.volume_view.set_base_colormap(normalized, lut)
+        self.tools_panel.set_endview_colormap(normalized)
+        self.nde_settings_view.set_endview_colormap(normalized)
 
     def _on_cscan_colormap_changed(self, name: str) -> None:
-        lut = self._get_colormap_lut(name)
-        self.view_state_model.set_cscan_colormap(name)
-        self.cscan_controller.set_colormap(name, lut)
+        normalized = self._normalize_colormap_name(name)
+        lut = self._get_colormap_lut(normalized)
+        self.view_state_model.set_cscan_colormap(normalized)
+        self.cscan_controller.set_colormap(normalized, lut)
+        self.nde_settings_view.set_cscan_colormap(normalized)
 
     def _on_apply_volume_range_changed(self, start: int, end: int) -> None:
         """Handle apply-to-volume range updates from settings."""
@@ -1035,6 +1057,16 @@ class MasterController:
         """Delete ROI/temp previews and clear mod pending edits consistently."""
         self.mask_modification_controller.on_roi_delete_requested()
         self.annotation_controller.on_roi_delete_requested()
+
+    @staticmethod
+    def _normalize_colormap_name(name: str) -> str:
+        text = str(name).strip()
+        lowered = text.casefold()
+        if lowered == "omniscan":
+            return "OmniScan"
+        if lowered in {"gray", "gris"}:
+            return "Gris"
+        return text or "Gris"
 
     def _get_colormap_lut(self, name: str) -> Optional[np.ndarray]:
         """Return LUT (256x3 float) for known colormap names."""
@@ -1553,10 +1585,16 @@ class MasterController:
         self.endview_controller.set_colormap(self.view_state_model.endview_colormap, None)
         self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
         self.cscan_controller.set_colormap(self.view_state_model.cscan_colormap, None)
+        self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
+        self.nde_settings_view.set_colormaps(
+            endview=self.view_state_model.endview_colormap,
+            cscan=self.view_state_model.cscan_colormap,
+        )
 
         self._sync_tools_labels()
         self.annotation_controller.sync_overlay_settings()
         self.annotation_controller.apply_overlay_opacity()
+        self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
         # Rafraîchir le volume puis réappliquer l'overlay pour forcer le push 3D
         self._refresh_views()
         self.corrosion_profile_controller.sync_anchors()

@@ -3465,3 +3465,20 @@ L analyse corrosion selectionnait par defaut les deux premiers labels disponible
 1. Garder la regle de choix par defaut dans `CorrosionLabelService` plutot que dans le controleur pour conserver un service pur et reutilisable.
 2. Preferer explicitement les ids metier `2/3` seulement au moment ou aucune selection valide n existe, afin de ne pas ecraser un choix manuel deja present.
 3. Preserver un fallback generique sur les labels disponibles pour rester compatible avec des annotations corrosion construites sur d autres paires de classes.
+
+### 2026-03-18 - ToolsPanel colormap opacite et scroll global
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#views/tools_panel.py`, `#views/nde_settings_view.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#ui`, `#opacity`, `#colormap`, `#scrollarea`, `#mvc`
+
+**Actions effectuees :**
+- Branche dans `ToolsPanel` le nouveau combo `Colormap` sur la colormap `Endview + 3D`, avec normalisation `gray/gris -> Gris` et `omniscan -> OmniScan`.
+- Branche le slider et la spinbox d opacite overlay du panneau sur le pipeline deja existant `ViewStateModel -> AnnotationController -> Endview/Volume`, avec synchro bidirectionnelle entre `ToolsPanel`, `OverlaySettingsView` et `NdeSettingsView`.
+- Laisse les controles d opacite NDE visibles mais desactives tant qu aucun backend d opacite de l image NDE n existe dans les vues et le modele.
+- Reorganise `toolspanel.ui` autour d une `QScrollArea` principale pour faire defiler tout le panneau avant toute compression, ajoute des contraintes/minimum sizes sur les layouts et regenere `ui_toolspanel.py`.
+
+**Contexte :**
+L utilisateur avait ajoute dans le Designer un combo colormap et deux couples slider/spinbox pour les opacites overlay/NDE, puis constatait que le panneau d outils ecrasait les widgets quand le dock devenait trop petit. Le besoin etait de rebrancher les nouveaux controles sur les reglages existants sans dupliquer la logique metier, puis de rendre le panneau scrollable plutot que compressible.
+
+**Decisions techniques :**
+1. Reutiliser `MasterController` comme point d orchestration unique pour la synchro colormap/opacite entre surfaces UI, afin de garder `ToolsPanel` strictement vue et de ne pas dupliquer les handlers existants d overlay.
+2. Normaliser les noms de colormap au niveau du controleur pour absorber les libelles Designer (`gray`, `omniscan`) sans imposer un format unique aux widgets.
+3. Preferer une `QScrollArea` globale sur le `ToolsPanel` avec layouts en `SetMinimumSize` plutot que de laisser les frames enfants se faire ecraser verticalement quand le dock est reduit.

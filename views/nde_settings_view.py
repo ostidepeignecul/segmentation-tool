@@ -105,8 +105,16 @@ class NdeSettingsView(QDialog):
     # ------------------------------------------------------------------ #
     def set_colormaps(self, *, endview: str, cscan: str) -> None:
         """Populate combos with the provided current values."""
-        self._set_current(self._endview_combo, endview)
-        self._set_current(self._cscan_combo, cscan)
+        self.set_endview_colormap(endview)
+        self.set_cscan_colormap(cscan)
+
+    def set_endview_colormap(self, value: str) -> None:
+        """Update the endview/3D colormap combo without emitting signals."""
+        self._set_current_blocked(self._endview_combo, value)
+
+    def set_cscan_colormap(self, value: str) -> None:
+        """Update the C-scan colormap combo without emitting signals."""
+        self._set_current_blocked(self._cscan_combo, value)
 
     def set_apply_volume_bounds(self, minimum: int, maximum: int) -> None:
         """Set min/max bounds for apply-to-volume range."""
@@ -298,6 +306,12 @@ class NdeSettingsView(QDialog):
             combo.addItem(value)
             idx = combo.findText(value)
         combo.setCurrentIndex(idx)
+
+    @classmethod
+    def _set_current_blocked(cls, combo: QComboBox, value: str) -> None:
+        combo.blockSignals(True)
+        cls._set_current(combo, value)
+        combo.blockSignals(False)
 
     @staticmethod
     def _set_current_data(combo: QComboBox, value: Optional[int]) -> None:

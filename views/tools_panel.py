@@ -38,6 +38,8 @@ class ToolsPanel(QFrame):
     cross_toggled = pyqtSignal(bool)
     label_selected = pyqtSignal(int)
     paint_size_changed = pyqtSignal(int)
+    overlay_opacity_changed = pyqtSignal(float)
+    endview_colormap_changed = pyqtSignal(str)
 
     _TOOL_MODE_BY_TEXT = {
         "free hand": "free_hand",
@@ -47,6 +49,11 @@ class ToolsPanel(QFrame):
         "paint": "paint",
         "mod": "mod",
         "peak": "peak",
+    }
+    _COLORMAP_BY_TEXT = {
+        "omniscan": "OmniScan",
+        "gray": "Gris",
+        "gris": "Gris",
     }
 
     def __init__(self, parent=None) -> None:
@@ -62,9 +69,15 @@ class ToolsPanel(QFrame):
         self._endview_label: Optional[QLabel] = None
         self._position_label: Optional[QLabel] = None
         self._tool_combo: Optional[QComboBox] = None
+        self._colormap_combo: Optional[QComboBox] = None
         self._threshold_slider: Optional[QSlider] = None
         self._threshold_label: Optional[QLabel] = None
         self._paint_size_slider: Optional[QSlider] = None
+        self._overlay_opacity_slider: Optional[QSlider] = None
+        self._overlay_opacity_spinbox: Optional[QSpinBox] = None
+        self._nde_opacity_slider: Optional[QSlider] = None
+        self._nde_opacity_spinbox: Optional[QSpinBox] = None
+        self._nde_opacity_label: Optional[QLabel] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
         self._overlay_checkbox: Optional[QCheckBox] = None
@@ -95,9 +108,14 @@ class ToolsPanel(QFrame):
         secondary_slice_slider: QSlider,
         secondary_slice_spinbox: QSpinBox,
         tool_combo: QComboBox,
+        colormap_combo: QComboBox,
         threshold_slider: QSlider,
         threshold_label: QLabel,
         paint_slider: QSlider,
+        overlay_opacity_slider: QSlider,
+        overlay_opacity_spinbox: QSpinBox,
+        nde_opacity_slider: QSlider,
+        nde_opacity_spinbox: QSpinBox,
         nde_label: QLabel,
         endview_label: QLabel,
         position_label: QLabel,
@@ -111,6 +129,7 @@ class ToolsPanel(QFrame):
         label_container: QWidget,
         overlay_checkbox: Optional[QCheckBox] = None,
         cross_checkbox: Optional[QCheckBox] = None,
+        nde_opacity_label: Optional[QLabel] = None,
     ) -> None:
         """Receive Designer-created widgets and wire them to the exposed signals."""
         if self._wired:
@@ -123,9 +142,15 @@ class ToolsPanel(QFrame):
         self._primary_spinbox = primary_slice_spinbox
         self._secondary_spinbox = secondary_slice_spinbox
         self._tool_combo = tool_combo
+        self._colormap_combo = colormap_combo
         self._threshold_slider = threshold_slider
         self._threshold_label = threshold_label
         self._paint_size_slider = paint_slider
+        self._overlay_opacity_slider = overlay_opacity_slider
+        self._overlay_opacity_spinbox = overlay_opacity_spinbox
+        self._nde_opacity_slider = nde_opacity_slider
+        self._nde_opacity_spinbox = nde_opacity_spinbox
+        self._nde_opacity_label = nde_opacity_label
         self._nde_label = nde_label
         self._endview_label = endview_label
         self._position_label = position_label
@@ -154,11 +179,23 @@ class ToolsPanel(QFrame):
 
         self._prepare_tool_combo()
         self._tool_combo.currentIndexChanged.connect(self._on_tool_combo_changed)
+        self._prepare_colormap_combo()
+        self._colormap_combo.currentIndexChanged.connect(self._on_colormap_combo_changed)
 
         self._threshold_slider.setMinimum(0)
         self._threshold_slider.setMaximum(255)
         self._threshold_slider.setValue(50)
         self._threshold_slider.valueChanged.connect(self._on_threshold_changed)
+        self._configure_percentage_controls(
+            slider=self._overlay_opacity_slider,
+            spinbox=self._overlay_opacity_spinbox,
+            handler=self._on_overlay_opacity_value_changed,
+        )
+        self._configure_percentage_controls(
+            slider=self._nde_opacity_slider,
+            spinbox=self._nde_opacity_spinbox,
+            handler=self._on_nde_opacity_value_changed,
+        )
 
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)
@@ -181,6 +218,7 @@ class ToolsPanel(QFrame):
         self._wired = True
         self.set_nde_name("")
         self.set_endview_name("")
+        self._set_nde_opacity_available(False)
 
     def _configure_slice_controls(
         self,
@@ -204,6 +242,32 @@ class ToolsPanel(QFrame):
             mode = self._TOOL_MODE_BY_TEXT.get(text)
             if mode is not None:
                 self._tool_combo.setItemData(idx, mode)
+
+    def _prepare_colormap_combo(self) -> None:
+        if self._colormap_combo is None:
+            return
+        for idx in range(self._colormap_combo.count()):
+            text = self._colormap_combo.itemText(idx).strip()
+            normalized = self._normalize_colormap_name(text)
+            self._colormap_combo.setItemData(idx, normalized)
+            self._colormap_combo.setItemText(idx, normalized)
+
+    def _configure_percentage_controls(
+        self,
+        *,
+        slider: Optional[QSlider],
+        spinbox: Optional[QSpinBox],
+        handler,
+    ) -> None:
+        if slider is None or spinbox is None:
+            return
+        slider.setMinimum(0)
+        slider.setMaximum(100)
+        spinbox.setMinimum(0)
+        spinbox.setMaximum(100)
+        spinbox.setKeyboardTracking(False)
+        slider.valueChanged.connect(handler)
+        spinbox.valueChanged.connect(handler)
 
     def _ensure_label_layout(self) -> None:
         if self._label_container is None:
@@ -361,6 +425,43 @@ class ToolsPanel(QFrame):
         if mode:
             self.tool_mode_changed.emit(mode)
 
+    def current_endview_colormap(self) -> Optional[str]:
+        """Return the selected endview/3D colormap."""
+        if self._colormap_combo is None:
+            return None
+        data = self._colormap_combo.currentData()
+        if data is not None:
+            return str(data)
+        return self._normalize_colormap_name(self._colormap_combo.currentText())
+
+    def set_endview_colormap(self, name: str) -> None:
+        """Select the current endview/3D colormap without re-emitting signals."""
+        if self._colormap_combo is None:
+            return
+        normalized = self._normalize_colormap_name(name)
+        target_index = self._colormap_combo.findData(normalized)
+        if target_index < 0:
+            for idx in range(self._colormap_combo.count()):
+                text = self._normalize_colormap_name(self._colormap_combo.itemText(idx))
+                if text == normalized:
+                    target_index = idx
+                    break
+        if target_index < 0:
+            self._colormap_combo.addItem(normalized, normalized)
+            target_index = self._colormap_combo.findData(normalized)
+        self._colormap_combo.blockSignals(True)
+        self._colormap_combo.setCurrentIndex(target_index)
+        self._colormap_combo.blockSignals(False)
+
+    def set_overlay_opacity(self, opacity: float) -> None:
+        """Update the overlay opacity widgets without re-emitting signals."""
+        percent = int(round(max(0.0, min(1.0, float(opacity))) * 100.0))
+        self._set_pair_value(
+            self._overlay_opacity_slider,
+            self._overlay_opacity_spinbox,
+            percent,
+        )
+
     def _on_threshold_changed(self, value: int) -> None:
         """Update threshold label and emit value."""
         self._update_threshold_label(value)
@@ -370,6 +471,26 @@ class ToolsPanel(QFrame):
         if self._threshold_label is None:
             return
         self._threshold_label.setText(f"Threshold : {int(value)}")
+
+    def _on_colormap_combo_changed(self, _index: int) -> None:
+        name = self.current_endview_colormap()
+        if name:
+            self.endview_colormap_changed.emit(name)
+
+    def _on_overlay_opacity_value_changed(self, value: int) -> None:
+        self._sync_pair_from_source(
+            source_value=int(value),
+            slider=self._overlay_opacity_slider,
+            spinbox=self._overlay_opacity_spinbox,
+        )
+        self.overlay_opacity_changed.emit(float(int(value)) / 100.0)
+
+    def _on_nde_opacity_value_changed(self, value: int) -> None:
+        self._sync_pair_from_source(
+            source_value=int(value),
+            slider=self._nde_opacity_slider,
+            spinbox=self._nde_opacity_spinbox,
+        )
 
     def _on_primary_slice_changed(self, value: int) -> None:
         self._sync_pair_from_source(
@@ -449,3 +570,17 @@ class ToolsPanel(QFrame):
         if self._secondary_axis_label is None:
             return
         self._secondary_axis_label.setText(str(name).strip() if name else "V-Coordinate")
+
+    def _set_nde_opacity_available(self, available: bool) -> None:
+        enabled = bool(available)
+        tooltip = "" if enabled else "Opacité NDE non disponible pour l'instant."
+        for widget in (self._nde_opacity_slider, self._nde_opacity_spinbox, self._nde_opacity_label):
+            if widget is None:
+                continue
+            widget.setEnabled(enabled)
+            widget.setToolTip(tooltip)
+
+    @classmethod
+    def _normalize_colormap_name(cls, value: str) -> str:
+        text = str(value).strip()
+        return cls._COLORMAP_BY_TEXT.get(text.lower(), text or "Gris")
