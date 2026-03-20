@@ -47,6 +47,8 @@ class CScanCorrosionService(CScanService):
     # Gap size in pixels allowed only for zones without A-scan support.
     # `0` keeps support-present holes interpolated, but never bridges absent A-scan zones.
     MAX_INTERPOLATION_GAP_PX = 0
+    # Robust upper bound for corrosion heatmaps to avoid one aberrant peak flattening the whole map.
+    HEATMAP_UPPER_PERCENTILE = 99.0
 
     def __init__(self) -> None:
         super().__init__()
@@ -68,14 +70,44 @@ class CScanCorrosionService(CScanService):
             raise ValueError(f"Expected a 2D distance map (Z, X), got shape {data.shape}.")
 
         projection = np.array(data, dtype=np.float32, copy=True)
-        finite_values = projection[np.isfinite(projection)]
         if value_range is None:
-            if finite_values.size == 0:
-                value_range = (0.0, 0.0)
-            else:
-                value_range = (float(finite_values.min()), float(finite_values.max()))
+            value_range = self.compute_display_value_range(projection)
 
         return projection, value_range
+
+    @classmethod
+    def compute_display_value_range(
+        cls,
+        distance_map: np.ndarray,
+    ) -> Tuple[float, float]:
+        """Return a robust display range for corrosion heatmaps without mutating the data."""
+        data = np.asarray(distance_map, dtype=np.float32)
+        finite_values = data[np.isfinite(data)]
+        if finite_values.size == 0:
+            return (0.0, 0.0)
+
+        vmin = float(finite_values.min())
+        vmax = float(finite_values.max())
+        if finite_values.size < 3 or vmax <= vmin:
+            return (vmin, vmax)
+
+        try:
+            clipped_vmax = float(np.percentile(finite_values, cls.HEATMAP_UPPER_PERCENTILE))
+        except Exception:
+            clipped_vmax = vmax
+
+        if not np.isfinite(clipped_vmax):
+            return (vmin, vmax)
+        if clipped_vmax > vmin:
+            return (vmin, min(vmax, clipped_vmax))
+
+        below_raw_max = finite_values[finite_values < vmax]
+        if below_raw_max.size > 0:
+            fallback_vmax = float(below_raw_max.max())
+            if fallback_vmax > vmin:
+                return (vmin, fallback_vmax)
+
+        return (vmin, float(np.nextafter(np.float32(vmin), np.float32(np.inf))))
 
     # --- Analyse corrosion end-to-end ----------------------------------------------
     def run_analysis(
@@ -153,11 +185,7 @@ class CScanCorrosionService(CScanService):
         self._log_progress(0.75, "Overlay lignes")
         t_interp = time.perf_counter()
 
-        valid_values = distance_map[np.isfinite(distance_map)]
-        if valid_values.size > 0:
-            value_range = (float(valid_values.min()), float(valid_values.max()))
-        else:
-            value_range = (0.0, 0.0)
+        value_range = self.compute_display_value_range(distance_map)
 
         interpolated_distance_map = self.build_interpolated_distance_map(
             overlay=lines_overlay,
@@ -169,12 +197,7 @@ class CScanCorrosionService(CScanService):
         self._logger.info("[Corrosion] Carte interpolée calculée en %.2f s", time.perf_counter() - t_interp)
         self._log_progress(0.9, "Interpolation")
 
-        interpolated_valid = interpolated_distance_map[np.isfinite(interpolated_distance_map)]
-        interpolated_value_range = (
-            (float(interpolated_valid.min()), float(interpolated_valid.max()))
-            if interpolated_valid.size > 0
-            else (0.0, 0.0)
-        )
+        interpolated_value_range = self.compute_display_value_range(interpolated_distance_map)
 
         palette_source = label_palette or {}
         color_a_bgra = palette_source.get(color_A)

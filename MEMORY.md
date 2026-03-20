@@ -3500,3 +3500,20 @@ Le premier correctif de gap d interpolation utilisait les trous du `peak_map`/du
 1. Deriver le support A-scan depuis le volume brut actif (`get_active_raw_volume`) plutot que depuis le volume normalise, afin d eviter qu une normalisation masque les colonnes remplies a zero.
 2. Considerer `MAX_INTERPOLATION_GAP_PX` comme un seuil de pontage des zones sans support A-scan uniquement ; avec `0`, les trous de support restent ouverts mais les trous de mask sur support valide peuvent encore etre interpoles.
 3. Stocker explicitement le `support_map` dans le modele de vue corrosion pour garder un comportement coherent entre analyse initiale, preview d edition et commit du profil.
+
+### 2026-03-20 - Heatmap corrosion robuste aux outliers
+**Tags :** `#branch:annotation`, `#services/cscan_corrosion_service.py`, `#corrosion`, `#heatmap`, `#outlier`, `#percentile`, `#visualization`
+
+**Actions effectuees :**
+- Ajoute `HEATMAP_UPPER_PERCENTILE = 99.0` et une helper `compute_display_value_range()` dans `CScanCorrosionService` pour calculer une plage d affichage robuste a partir des distances finies.
+- Remplace les `min/max` bruts par cette helper dans `run_analysis()` pour la projection corrosion principale et la projection interpolee.
+- Fait passer `compute_corrosion_projection()` par la meme logique quand aucun `value_range` n est fourni, ce qui aligne aussi le recalcul du heatmap lors du commit du profil corrosion.
+- Ajoute un fallback pour le cas degenerate ou le percentile haut retombe sur `vmin`, afin qu un outlier isole ne reintroduise pas le `max` brut dans l echelle de couleurs.
+
+**Contexte :**
+Certaines analyses corrosion selectionnent des pics aberrants qui produisent des distances tres grandes par rapport au reste de la carte. Avec une normalisation `min/max` brute, ces outliers ecrasent la dynamique du heatmap et la plupart des pixels retombent en rouge, ce qui rend la carte peu lisible.
+
+**Decisions techniques :**
+1. Corriger le probleme au niveau du service corrosion plutot que dans la vue, afin de centraliser la logique de plage d affichage et de garder le pipeline MVC coherent.
+2. Conserver `vmin` sur le minimum reel et ne clipper que la borne haute par percentile, pour ne pas masquer artificiellement les petites distances potentiellement critiques.
+3. Ne pas modifier la `distance_map` elle-meme : seules les couleurs sont saturees, ce qui preserve les valeurs brutes pour les mesures et le crosshair.
