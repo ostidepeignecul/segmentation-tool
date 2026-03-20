@@ -142,11 +142,13 @@ class CorrosionProfileController:
         label_ids = self.view_state_model.corrosion_overlay_label_ids
         peak_map_a = self.view_state_model.corrosion_peak_index_map_a
         peak_map_b = self.view_state_model.corrosion_peak_index_map_b
+        support_map = self.view_state_model.corrosion_ascan_support_map
         if label_ids is None or peak_map_a is None or peak_map_b is None:
             return False
         return self.corrosion_profile_edit_service.ensure_context(
             peak_map_a=peak_map_a,
             peak_map_b=peak_map_b,
+            support_map=support_map,
             label_ids=label_ids,
             image_shape=(int(volume.shape[1]), int(volume.shape[2])),
             cscan_corrosion_service=self.cscan_corrosion_service,

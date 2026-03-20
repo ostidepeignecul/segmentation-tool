@@ -36,6 +36,8 @@ class CorrosionProfileEditService:
     def reset(self) -> None:
         self._pending_peak_map_a: Optional[np.ndarray] = None
         self._pending_peak_map_b: Optional[np.ndarray] = None
+        self._ascan_support_map: Optional[np.ndarray] = None
+        self._fillable_support_map: Optional[np.ndarray] = None
         self._label_ids: Optional[tuple[int, int]] = None
         self._image_shape: Optional[tuple[int, int]] = None  # (H, W)
         self._controls_a: Dict[int, List[Tuple[int, int]]] = {}
@@ -55,6 +57,7 @@ class CorrosionProfileEditService:
         *,
         peak_map_a: np.ndarray,
         peak_map_b: np.ndarray,
+        support_map: Optional[np.ndarray],
         label_ids: tuple[int, int],
         image_shape: tuple[int, int],
         cscan_corrosion_service: CScanCorrosionService,
@@ -63,6 +66,12 @@ class CorrosionProfileEditService:
         data_b = np.asarray(peak_map_b, dtype=np.int32)
         if data_a.ndim != 2 or data_b.ndim != 2:
             return False
+
+        support_data: Optional[np.ndarray] = None
+        if support_map is not None:
+            support_data = np.asarray(support_map, dtype=bool)
+            if support_data.shape != data_a.shape:
+                return False
 
         shape_key = (
             data_a.shape,
@@ -88,6 +97,8 @@ class CorrosionProfileEditService:
 
         self._pending_peak_map_a = np.array(data_a, dtype=np.int32, copy=True)
         self._pending_peak_map_b = np.array(data_b, dtype=np.int32, copy=True)
+        self._ascan_support_map = None if support_data is None else np.array(support_data, dtype=bool, copy=True)
+        self._fillable_support_map = cscan_corrosion_service.build_fillable_support_mask(self._ascan_support_map)
         self._label_ids = tuple(int(x) for x in label_ids)
         self._image_shape = (int(image_shape[0]), int(image_shape[1]))
         self._controls_a.clear()
@@ -271,10 +282,12 @@ class CorrosionProfileEditService:
         committed_a = cscan_corrosion_service.interpolate_peak_map_1d_dual_axis(
             self._pending_peak_map_a,
             height=height,
+            support_map=self._ascan_support_map,
         )
         committed_b = cscan_corrosion_service.interpolate_peak_map_1d_dual_axis(
             self._pending_peak_map_b,
             height=height,
+            support_map=self._ascan_support_map,
         )
         overlay = cscan_corrosion_service.build_overlay_from_peak_maps(
             peak_map_a=committed_a,
@@ -424,6 +437,9 @@ class CorrosionProfileEditService:
                 ys = np.clip(ys, 0, height - 1)
                 row[xs] = ys
 
+        if self._fillable_support_map is not None and 0 <= int(slice_idx) < self._fillable_support_map.shape[0]:
+            row[~self._fillable_support_map[int(slice_idx)]] = -1
+
         self._set_row(slice_idx=slice_idx, target_is_a=target_is_a, row=row)
         self._update_overlay_slice(slice_idx=slice_idx)
 
@@ -492,5 +508,6 @@ class CorrosionProfileEditService:
             x0, y0 = pts[0]
             canvas[y0, x0] = int(color)
             return
-        for idx in range(len(pts) - 1):
-            cv2.line(canvas, pts[idx], pts[idx + 1], color=int(color), thickness=int(line_thickness))
+        max_gap = CScanCorrosionService._get_max_interpolation_gap_px()
+        for pt_a, pt_b in CScanCorrosionService._iter_gap_limited_segments(pts, max_gap=max_gap):
+            cv2.line(canvas, pt_a, pt_b, color=int(color), thickness=int(line_thickness))

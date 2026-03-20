@@ -62,6 +62,7 @@ class ViewStateModel:
         self.corrosion_overlay_label_ids: Optional[tuple[int, int]] = None
         self.corrosion_peak_index_map_a: Optional[Any] = None
         self.corrosion_peak_index_map_b: Optional[Any] = None
+        self.corrosion_ascan_support_map: Optional[Any] = None
         self.corrosion_label_a: Optional[int] = None
         self.corrosion_label_b: Optional[int] = None
 
@@ -269,6 +270,7 @@ class ViewStateModel:
         self.corrosion_overlay_label_ids = None
         self.corrosion_peak_index_map_a = None
         self.corrosion_peak_index_map_b = None
+        self.corrosion_ascan_support_map = None
 
     def set_corrosion_label_a(self, label_id: Optional[int]) -> None:
         if label_id is None:

@@ -48,14 +48,19 @@ class CscanViewCorrosion(CScanView):
     @staticmethod
     def _to_rgb(data: np.ndarray, value_range: Tuple[float, float], _unused_lut=None) -> np.ndarray:
         vmin, vmax = value_range
+        valid = np.isfinite(data)
+        rgb = np.zeros((*data.shape, 3), dtype=np.uint8)
         if vmax <= vmin:
-            return np.zeros((*data.shape, 3), dtype=np.uint8)
-        normalized = (data - vmin) / (vmax - vmin)
+            return rgb
+
+        normalized = np.zeros_like(data, dtype=np.float32)
+        normalized[valid] = (data[valid] - vmin) / (vmax - vmin)
         normalized = np.clip(normalized, 0.0, 1.0)
-        indices = (normalized * 255.0).astype(np.int32)
+        indices = np.zeros(data.shape, dtype=np.int32)
+        indices[valid] = (normalized[valid] * 255.0).astype(np.int32)
         lut = CscanViewCorrosion._LUT_CACHE
         if lut is None:
             lut = CscanViewCorrosion._build_lut()
             CscanViewCorrosion._LUT_CACHE = lut
-        rgb = lut[indices]
+        rgb[valid] = lut[indices[valid]]
         return rgb

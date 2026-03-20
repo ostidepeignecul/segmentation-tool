@@ -26,6 +26,7 @@ class CorrosionAnalysisResult:
     distance_map: np.ndarray
     peak_index_map_a: np.ndarray
     peak_index_map_b: np.ndarray
+    ascan_support_map: np.ndarray
     distance_value_range: Tuple[float, float]
     interpolated_distance_map: np.ndarray
     interpolated_value_range: Tuple[float, float]
@@ -42,6 +43,10 @@ class CorrosionAnalysisResult:
 
 class CScanCorrosionService(CScanService):
     """Compute corrosion projections and orchestrate corrosion analysis."""
+
+    # Gap size in pixels allowed only for zones without A-scan support.
+    # `0` keeps support-present holes interpolated, but never bridges absent A-scan zones.
+    MAX_INTERPOLATION_GAP_PX = 0
 
     def __init__(self) -> None:
         super().__init__()
@@ -70,7 +75,6 @@ class CScanCorrosionService(CScanService):
             else:
                 value_range = (float(finite_values.min()), float(finite_values.max()))
 
-        projection = np.nan_to_num(projection, nan=0.0, posinf=0.0, neginf=0.0)
         return projection, value_range
 
     # --- Analyse corrosion end-to-end ----------------------------------------------
@@ -79,6 +83,7 @@ class CScanCorrosionService(CScanService):
         *,
         global_masks: List[np.ndarray],
         volume_data: np.ndarray,
+        support_volume_data: Optional[np.ndarray],
         nde_data: Dict,
         nde_filename: str,
         orientation: str,
@@ -101,11 +106,15 @@ class CScanCorrosionService(CScanService):
 
         # Calcul vectorisé de la carte de distances (Z,X) directement depuis volume + masques
         mask_stack = np.stack(global_masks, axis=0)
+        ascan_support_map = self.build_ascan_support_map(
+            support_volume_data if support_volume_data is not None else volume_data
+        )
         distance_map, peak_index_map_a, peak_index_map_b = self._distance_service.measure_distance_and_peaks_vectorized(
             volume=volume_data,
             masks=mask_stack,
             class_A=class_A_id,
             class_B=class_B_id,
+            support_map=ascan_support_map,
             use_mm=use_mm,
             resolution_ultrasound=resolution_ultrasound_mm,
         )
@@ -115,10 +124,12 @@ class CScanCorrosionService(CScanService):
         peak_index_map_a = self.interpolate_peak_map_1d_dual_axis(
             peak_index_map_a,
             height=mask_stack.shape[1],
+            support_map=ascan_support_map,
         )
         peak_index_map_b = self.interpolate_peak_map_1d_dual_axis(
             peak_index_map_b,
             height=mask_stack.shape[1],
+            support_map=ascan_support_map,
         )
         distance_map = self._build_distance_map_from_peak_maps(
             peak_map_a=peak_index_map_a,
@@ -204,6 +215,7 @@ class CScanCorrosionService(CScanService):
             distance_map=distance_map,
             peak_index_map_a=peak_index_map_a,
             peak_index_map_b=peak_index_map_b,
+            ascan_support_map=ascan_support_map,
             distance_value_range=value_range,
             interpolated_distance_map=interpolated_distance_map,
             interpolated_value_range=interpolated_value_range,
@@ -294,13 +306,52 @@ class CScanCorrosionService(CScanService):
         self._logger.info("Overlay corrosion sauvegardé: %s", npz_path)
         return npz_path
 
+    @staticmethod
+    def build_ascan_support_map(volume: np.ndarray) -> np.ndarray:
+        """Return a (Z,X) support map where a column has at least one finite non-zero A-scan sample."""
+        data = np.asarray(volume, dtype=np.float32)
+        if data.ndim != 3:
+            raise ValueError(f"Volume support attendu 3D (Z,H,W), recu shape {data.shape}")
+        return np.any(np.isfinite(data) & (data != 0.0), axis=1)
+
+    @classmethod
+    def build_fillable_support_mask(cls, support_map: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        """Allow interpolation where support exists, plus short unsupported X gaps up to MAX_INTERPOLATION_GAP_PX."""
+        if support_map is None:
+            return None
+
+        support = np.asarray(support_map, dtype=bool)
+        if support.ndim != 2:
+            raise ValueError(f"Support map attendu 2D (Z,W), recu shape {support.shape}")
+
+        fillable = np.array(support, dtype=bool, copy=True)
+        max_gap = cls._get_max_interpolation_gap_px()
+        if max_gap <= 0 or fillable.size == 0:
+            return fillable
+
+        for z in range(fillable.shape[0]):
+            row = fillable[z]
+            x = 0
+            width = row.shape[0]
+            while x < width:
+                if row[x]:
+                    x += 1
+                    continue
+                start = x
+                while x < width and not row[x]:
+                    x += 1
+                if (x - start) <= max_gap:
+                    row[start:x] = True
+        return fillable
+
     def interpolate_peak_map_1d(
         self,
         peak_map: np.ndarray,
         *,
         height: Optional[int] = None,
+        fillable_mask: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """Fill missing Y peaks (-1) along X for each slice using linear interpolation."""
+        """Fill missing Y gaps (-1) along X only where fillable_mask allows interpolation."""
         data = np.asarray(peak_map, dtype=np.int32)
         if data.ndim != 2:
             raise ValueError(f"Peak map attendu 2D (Z,W), recu shape {data.shape}")
@@ -309,35 +360,43 @@ class CScanCorrosionService(CScanService):
         if interpolated.size == 0:
             return interpolated
 
-        width = interpolated.shape[1]
-        x_all = np.arange(width, dtype=np.float32)
         max_y = int(height) - 1 if height is not None else None
+        fillable: Optional[np.ndarray] = None
+        if fillable_mask is not None:
+            fillable = np.asarray(fillable_mask, dtype=bool)
+            if fillable.shape != interpolated.shape:
+                raise ValueError(
+                    f"Fillable mask attendu en shape {interpolated.shape}, recu {fillable.shape}"
+                )
 
         for z in range(interpolated.shape[0]):
             row = interpolated[z]
             valid = row >= 0
-            if np.count_nonzero(valid) < 2:
+            valid_idx = np.flatnonzero(valid)
+            if valid_idx.size < 2:
                 if max_y is not None and np.any(valid):
                     row[valid] = np.clip(row[valid], 0, max_y)
                 continue
 
-            x_valid = x_all[valid]
-            y_valid = row[valid].astype(np.float32)
-            first = int(x_valid[0])
-            last = int(x_valid[-1])
+            first = int(valid_idx[0])
+            last = int(valid_idx[-1])
             if last <= first:
                 continue
 
-            x_segment = np.arange(first, last + 1, dtype=np.float32)
-            y_segment = np.rint(np.interp(x_segment, x_valid, y_valid)).astype(np.int32)
-            if max_y is not None:
-                y_segment = np.clip(y_segment, 0, max_y)
-
-            window = row[first : last + 1]
-            missing = window < 0
+            segment = np.rint(
+                np.interp(
+                    np.arange(first, last + 1, dtype=np.float32),
+                    valid_idx.astype(np.float32),
+                    row[valid].astype(np.float32),
+                )
+            ).astype(np.int32)
+            segment_row = row[first : last + 1]
+            missing = segment_row < 0
+            if fillable is not None:
+                missing &= fillable[z, first : last + 1]
             if np.any(missing):
-                window[missing] = y_segment[missing]
-                row[first : last + 1] = window
+                segment_row[missing] = segment[missing]
+                row[first : last + 1] = segment_row
 
             if max_y is not None:
                 row[row >= 0] = np.clip(row[row >= 0], 0, max_y)
@@ -349,11 +408,14 @@ class CScanCorrosionService(CScanService):
         peak_map: np.ndarray,
         *,
         height: Optional[int] = None,
+        support_map: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """Apply base 1D interpolation on primary axis, then on secondary axis."""
+        """Apply support-aware interpolation on the primary axis, then on the secondary axis."""
+        fillable_mask = self.build_fillable_support_mask(support_map)
         primary = self.interpolate_peak_map_1d(
             peak_map,
             height=height,
+            fillable_mask=fillable_mask,
         )
         if primary.ndim != 2 or primary.size == 0:
             return primary
@@ -361,6 +423,7 @@ class CScanCorrosionService(CScanService):
         secondary = self.interpolate_peak_map_1d(
             np.ascontiguousarray(primary.T),
             height=height,
+            fillable_mask=None if fillable_mask is None else np.ascontiguousarray(fillable_mask.T),
         )
         return np.ascontiguousarray(secondary.T)
 
@@ -521,6 +584,7 @@ class CScanCorrosionService(CScanService):
         lines_volume = np.zeros((num_slices, height, width), dtype=np.uint8)
         color_A = int(class_A_id)
         color_B = int(class_B_id)
+        max_gap = self._get_max_interpolation_gap_px()
 
         width_map = min(width, peak_map_a.shape[1], peak_map_b.shape[1])
         if width_map <= 0 or num_slices <= 0:
@@ -533,20 +597,38 @@ class CScanCorrosionService(CScanService):
             valid_a = np.where((slice_a[:width_map] >= 0) & (slice_a[:width_map] < height))[0]
             pts_a = [(int(x), int(slice_a[x])) for x in valid_a]
             if len(pts_a) >= 2:
-                for i in range(len(pts_a) - 1):
-                    cv2.line(lines_volume[z], pts_a[i], pts_a[i + 1], color=color_A, thickness=line_thickness)
+                for pt_a, pt_b in self._iter_gap_limited_segments(pts_a, max_gap=max_gap):
+                    cv2.line(lines_volume[z], pt_a, pt_b, color=color_A, thickness=line_thickness)
             elif len(pts_a) == 1:
                 lines_volume[z, pts_a[0][1], pts_a[0][0]] = color_A
 
             valid_b = np.where((slice_b[:width_map] >= 0) & (slice_b[:width_map] < height))[0]
             pts_b = [(int(x), int(slice_b[x])) for x in valid_b]
             if len(pts_b) >= 2:
-                for i in range(len(pts_b) - 1):
-                    cv2.line(lines_volume[z], pts_b[i], pts_b[i + 1], color=color_B, thickness=line_thickness)
+                for pt_a, pt_b in self._iter_gap_limited_segments(pts_b, max_gap=max_gap):
+                    cv2.line(lines_volume[z], pt_a, pt_b, color=color_B, thickness=line_thickness)
             elif len(pts_b) == 1:
                 lines_volume[z, pts_b[0][1], pts_b[0][0]] = color_B
 
         return lines_volume
+
+    @classmethod
+    def _get_max_interpolation_gap_px(cls) -> int:
+        try:
+            return max(0, int(cls.MAX_INTERPOLATION_GAP_PX))
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _iter_gap_limited_segments(
+        points: List[Tuple[int, int]],
+        *,
+        max_gap: int,
+    ):
+        for left, right in zip(points[:-1], points[1:]):
+            gap = int(right[0]) - int(left[0]) - 1
+            if gap <= max_gap:
+                yield left, right
 
     def _build_overlay_from_masks(
         self,
@@ -746,6 +828,7 @@ class CorrosionWorkflowResult:
     raw_distance_map: Optional[np.ndarray] = None
     peak_index_map_a: Optional[np.ndarray] = None
     peak_index_map_b: Optional[np.ndarray] = None
+    ascan_support_map: Optional[np.ndarray] = None
     interpolated_distance_map: Optional[np.ndarray] = None
     interpolated_projection: Optional[np.ndarray] = None
     interpolated_value_range: Optional[Tuple[float, float]] = None
@@ -848,6 +931,11 @@ class CorrosionWorkflowService:
 
         # Récupération des résolutions dans NdeModel.metadata
         resolution_cross, resolution_ultra = self._extract_resolutions(nde_model)
+        support_volume = (
+            nde_model.get_active_raw_volume()
+            if nde_model is not None
+            else None
+        )
 
         # Choix du output_directory
         nde_filename = "unknown"
@@ -861,6 +949,7 @@ class CorrosionWorkflowService:
             result = self.cscan_corrosion_service.run_analysis(
                 global_masks=global_masks,
                 volume_data=volume,
+                support_volume_data=support_volume,
                 nde_data=nde_model.metadata if nde_model else {},
                 nde_filename=nde_filename,
                 orientation="lengthwise",
@@ -898,6 +987,7 @@ class CorrosionWorkflowService:
                 raw_distance_map=result.distance_map,
                 peak_index_map_a=result.peak_index_map_a,
                 peak_index_map_b=result.peak_index_map_b,
+                ascan_support_map=result.ascan_support_map,
                 interpolated_distance_map=result.interpolated_distance_map,
                 interpolated_projection=interpolated_projection,
                 interpolated_value_range=interpolated_value_range,

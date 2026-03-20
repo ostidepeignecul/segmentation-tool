@@ -34,6 +34,7 @@ class DistanceMeasurementService:
         masks: np.ndarray,
         class_A: int,
         class_B: int,
+        support_map: Optional[np.ndarray] = None,
         use_mm: bool = False,
         resolution_ultrasound: float = 1.0,
     ) -> np.ndarray:
@@ -48,6 +49,7 @@ class DistanceMeasurementService:
             masks=masks,
             class_A=class_A,
             class_B=class_B,
+            support_map=support_map,
             use_mm=use_mm,
             resolution_ultrasound=resolution_ultrasound,
         )
@@ -60,6 +62,7 @@ class DistanceMeasurementService:
         masks: np.ndarray,
         class_A: int,
         class_B: int,
+        support_map: Optional[np.ndarray] = None,
         use_mm: bool = False,
         resolution_ultrasound: float = 1.0,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -78,6 +81,14 @@ class DistanceMeasurementService:
             raise ValueError(f"Volume attendu 3D, recu {vol.ndim}D")
 
         z, h, w = vol.shape
+        support: Optional[np.ndarray] = None
+        if support_map is not None:
+            support = np.asarray(support_map, dtype=bool)
+            if support.shape != (z, w):
+                raise ValueError(
+                    f"Support map attendu en shape {(z, w)}, recu {support.shape}"
+                )
+
         distance_map = np.full((z, w), np.nan, dtype=np.float32)
         peak_map_a = np.full((z, w), -1, dtype=np.int32)
         peak_map_b = np.full((z, w), -1, dtype=np.int32)
@@ -111,8 +122,13 @@ class DistanceMeasurementService:
                     max_val_B[x] = val
                     max_y_B[x] = y
 
-            valid_a = max_y_A >= 0
-            valid_b = max_y_B >= 0
+            if support is not None:
+                support_row = support[zi]
+            else:
+                support_row = np.ones((w,), dtype=bool)
+
+            valid_a = (max_y_A >= 0) & support_row
+            valid_b = (max_y_B >= 0) & support_row
             if np.any(valid_a):
                 peak_map_a[zi, valid_a] = max_y_A[valid_a]
             if np.any(valid_b):

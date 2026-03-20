@@ -3482,3 +3482,21 @@ L utilisateur avait ajoute dans le Designer un combo colormap et deux couples sl
 1. Reutiliser `MasterController` comme point d orchestration unique pour la synchro colormap/opacite entre surfaces UI, afin de garder `ToolsPanel` strictement vue et de ne pas dupliquer les handlers existants d overlay.
 2. Normaliser les noms de colormap au niveau du controleur pour absorber les libelles Designer (`gray`, `omniscan`) sans imposer un format unique aux widgets.
 3. Preferer une `QScrollArea` globale sur le `ToolsPanel` avec layouts en `SetMinimumSize` plutot que de laisser les frames enfants se faire ecraser verticalement quand le dock est reduit.
+
+### 2026-03-19 - Support A-scan corrosion et no-data noir
+**Tags :** `#branch:annotation`, `#controllers/corrosion_profile_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/corrosion_profile_edit_service.py`, `#services/cscan_corrosion_service.py`, `#services/distance_measurement.py`, `#views/cscan_view_corrosion.py`, `#corrosion`, `#ascan`, `#support-map`, `#heatmap`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute dans `CScanCorrosionService` un calcul `ascan_support_map (Z,X)` derive du volume brut actif, avec `build_fillable_support_mask()` pour autoriser le pontage de petits manques A-scan via `MAX_INTERPOLATION_GAP_PX` sans confondre absence de support et trous du mask.
+- Modifie `DistanceMeasurementService.measure_distance_and_peaks_vectorized()` pour invalider pics et distances sur les colonnes sans support A-scan, meme si un mask corrosion y passe.
+- Propage `corrosion_ascan_support_map` dans `ViewStateModel` et `MasterController`, puis le reutilise dans `CorrosionProfileController` et `CorrosionProfileEditService` afin que preview/commit des edits respectent les memes zones non supportees.
+- Conserve les `NaN` dans la projection corrosion et rend explicitement les zones sans donnees en noir dans `CscanViewCorrosion`.
+- Valide le comportement sur `Flexoform Demopipe.nde` : environ 40.94% des colonnes `(Z,X)` ont un profil A-scan entierement nul, et un test synthetique confirme qu une colonne sans support ne produit plus de distance meme avec un faux mask.
+
+**Contexte :**
+Le premier correctif de gap d interpolation utilisait les trous du `peak_map`/du mask comme proxy de manque A-scan. L analyse sur `Flexoform Demopipe` a montre que ce proxy est faux : des masques peuvent exister sur des colonnes ou le profil A-scan est entierement nul. Il fallait donc baser la coupure et l interpolation sur le support reel du signal, pas sur la geometrie du mask.
+
+**Decisions techniques :**
+1. Deriver le support A-scan depuis le volume brut actif (`get_active_raw_volume`) plutot que depuis le volume normalise, afin d eviter qu une normalisation masque les colonnes remplies a zero.
+2. Considerer `MAX_INTERPOLATION_GAP_PX` comme un seuil de pontage des zones sans support A-scan uniquement ; avec `0`, les trous de support restent ouverts mais les trous de mask sur support valide peuvent encore etre interpoles.
+3. Stocker explicitement le `support_map` dans le modele de vue corrosion pour garder un comportement coherent entre analyse initiale, preview d edition et commit du profil.

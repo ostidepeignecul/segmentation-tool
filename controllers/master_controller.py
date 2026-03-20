@@ -1613,6 +1613,7 @@ class MasterController:
         self.view_state_model.corrosion_overlay_label_ids = result.overlay_label_ids
         self.view_state_model.corrosion_peak_index_map_a = result.peak_index_map_a
         self.view_state_model.corrosion_peak_index_map_b = result.peak_index_map_b
+        self.view_state_model.corrosion_ascan_support_map = result.ascan_support_map
 
         origin_id = self._pre_corrosion_session_id
         origin_state = self._pre_corrosion_session_state
