@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import uuid
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -86,6 +86,10 @@ class AnnotationSessionManager:
             (sid, state.name, sid == self._active_id)
             for sid, state in self._sessions.items()
         ]
+
+    def get_active_session_id(self) -> Optional[str]:
+        """Expose l'id de la session active."""
+        return self._active_id
 
     def create_from_models(
         self,
@@ -180,6 +184,48 @@ class AnnotationSessionManager:
             view_state_model=view_state_model,
         )
         self._active_id = session_id
+
+    def build_dump(
+        self,
+        *,
+        annotation_model: AnnotationModel,
+        temp_mask_model: TempMaskModel,
+        roi_model: RoiModel,
+        view_state_model: ViewStateModel,
+    ) -> dict[str, Any]:
+        """Capture l'etat courant et retourne un dump serialisable du gestionnaire."""
+        if self._active_id is not None and self._active_id in self._sessions:
+            self._sessions[self._active_id] = self._snapshot(
+                name=self._sessions[self._active_id].name,
+                annotation_model=annotation_model,
+                temp_mask_model=temp_mask_model,
+                roi_model=roi_model,
+                view_state_model=view_state_model,
+            )
+        return {
+            "sessions": self._sessions,
+            "active_id": self._active_id,
+        }
+
+    def restore_dump(self, payload: dict[str, Any]) -> Optional[str]:
+        """Replace les sessions en memoire par un dump precedemment sauvegarde."""
+        sessions = payload.get("sessions")
+        if not isinstance(sessions, dict) or not sessions:
+            raise ValueError("Dump de sessions invalide ou vide.")
+
+        restored: Dict[str, AnnotationSessionState] = {}
+        for session_id, state in sessions.items():
+            if not isinstance(session_id, str) or not isinstance(state, AnnotationSessionState):
+                raise ValueError("Dump de sessions corrompu.")
+            restored[session_id] = state
+
+        active_id = payload.get("active_id")
+        if not isinstance(active_id, str) or active_id not in restored:
+            active_id = next(iter(restored.keys()))
+
+        self._sessions = restored
+        self._active_id = active_id
+        return self._active_id
 
     # ------------------------------------------------------------------ #
     # Internals

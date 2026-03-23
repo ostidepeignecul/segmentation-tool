@@ -87,7 +87,11 @@ class Ui_MainWindow(object):
         self.actionToggle_vcoord.setObjectName("actionToggle_vcoord")
         self.actionToggle_ucoord = QtGui.QAction(parent=MainWindow)
         self.actionToggle_ucoord.setObjectName("actionToggle_ucoord")
+        self.actionOuvrir_une_session = QtGui.QAction(parent=MainWindow)
+        self.actionOuvrir_une_session.setObjectName("actionOuvrir_une_session")
         self.menuFichier.addAction(self.actionopen_nde)
+        self.menuFichier.addSeparator()
+        self.menuFichier.addAction(self.actionOuvrir_une_session)
         self.menuFichier.addAction(self.actionSauvegarder)
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionExporter_endviews)
@@ -160,6 +164,7 @@ class Ui_MainWindow(object):
         self.actionToggle_Volume.setText(_translate("MainWindow", "Toggle volume"))
         self.actionToggle_vcoord.setText(_translate("MainWindow", "Toggle v-coord"))
         self.actionToggle_ucoord.setText(_translate("MainWindow", "Toggle u-coord"))
+        self.actionOuvrir_une_session.setText(_translate("MainWindow", "Ouvrir une session"))
 
 
 if __name__ == "__main__":

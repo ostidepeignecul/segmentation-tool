@@ -1,5 +1,6 @@
 import logging
 import copy
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -42,6 +43,7 @@ from services.overlay_loader import OverlayLoader
 from services.overlay_service import OverlayService
 from services.overlay_export import OverlayExport
 from services.endview_export import EndviewExportService
+from services.project_persistence import ProjectPersistence
 from services.split_service import SplitFlawNoflawService
 from services.nde_loader import NdeLoader
 from services.nde_signal_processing_service import (
@@ -83,6 +85,7 @@ class MasterController:
         self.nde_signal_processing_service = NdeSignalProcessingService()
         self.annotation_axis_service = AnnotationAxisService()
         self.session_manager = AnnotationSessionManager()
+        self.project_persistence = ProjectPersistence()
         self._nde_path: Optional[str] = None
         self.overlay_loader = OverlayLoader()
         self.overlay_service = OverlayService()
@@ -250,10 +253,12 @@ class MasterController:
     def _connect_actions(self) -> None:
         """Wire menu actions to controller handlers."""
         self.ui.actionopen_nde.triggered.connect(self._on_open_nde)
+        if hasattr(self.ui, "actionOuvrir_une_session"):
+            self.ui.actionOuvrir_une_session.triggered.connect(self._on_open_session)
         self.ui.actioncharger_npz.triggered.connect(self._on_load_npz)
         if hasattr(self.ui, "actionSauvegarder"):
-            self.ui.actionSauvegarder.triggered.connect(self._on_save)
-        self.ui.actionExporter_npz.triggered.connect(self._on_save)
+            self.ui.actionSauvegarder.triggered.connect(self._on_save_session)
+        self.ui.actionExporter_npz.triggered.connect(self._on_export_overlay_npz)
         if hasattr(self.ui, "actionExporter_endviews"):
             self.ui.actionExporter_endviews.triggered.connect(self._on_export_endviews)
         if hasattr(self.ui, "actionSplit_flaw_noflaw"):
@@ -484,6 +489,7 @@ class MasterController:
         """Global keyboard shortcuts (active anywhere in the window)."""
         parent = self.main_window
         mapping = [
+            (QKeySequence(QKeySequence.StandardKey.Save), self._on_save_session),
             (QKeySequence(Qt.Key.Key_A), self._on_previous_slice),
             (QKeySequence(Qt.Key.Key_D), self._on_next_slice),
             (QKeySequence(Qt.Key.Key_W), self._apply_roi_non_corrosion),
@@ -536,86 +542,58 @@ class MasterController:
             return
 
         try:
-            loaded_model = self.nde_loader.load(file_path)
-            open_selection = self._prompt_nde_open_options(loaded_model)
-            if open_selection is None:
+            if not self._load_nde_file(file_path, prompt_open_options=True):
                 return
-            axis_mode, processing_options = open_selection
-            self.nde_signal_processing_service.apply_processing_to_model(
-                loaded_model,
-                processing_options,
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "Erreur NDE", str(exc))
+
+    def _on_open_session(self) -> None:
+        """Open a persisted `.session` file and restore its full session dump."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self.main_window,
+            "Ouvrir une session",
+            "",
+            "Session Files (*.session);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        try:
+            payload = self.project_persistence.load_session(file_path)
+            nde_path = str(payload.nde_path)
+            if not Path(nde_path).exists():
+                raise FileNotFoundError(f"Fichier NDE introuvable: {nde_path}")
+
+            processing_options = NdeSignalProcessingOptions(
+                apply_hilbert=bool(
+                    payload.signal_processing_selection.get("apply_hilbert", False)
+                ),
+                apply_smoothing=bool(
+                    payload.signal_processing_selection.get("apply_smoothing", False)
+                ),
             )
-            self._annotation_axis_mode = axis_mode
-            self._apply_annotation_axis_mode(loaded_model, axis_mode)
-            volume = loaded_model.get_active_volume()
-            if volume is None or getattr(volume, "ndim", 0) != 3:
-                raise ValueError("Le fichier NDE ne contient pas de volume 3D exploitable.")
-
-            self._update_coordinate_dock_titles_from_model(loaded_model)
-
-            self._initialize_ascan_logger(file_path)
-
-            self.nde_model = loaded_model
-            num_slices = volume.shape[0]
-            self.view_state_model.set_slice_bounds(0, num_slices - 1)
-            self.view_state_model.set_slice(0)
-            self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
-            self.view_state_model.set_secondary_slice(volume.shape[2] // 2)
-            self.view_state_model.set_current_point(None)
-            self.view_state_model.set_apply_volume_range(0, num_slices - 1, include_current=True)
-            self.annotation_controller.reset_overlay_state(preserve_labels=True)
-            self.annotation_model.initialize(volume.shape)
-            self.temp_mask_model.clear()
-            self.temp_mask_model.initialize(volume.shape)
-            self.roi_model.clear()
-            self.annotation_controller.sync_overlay_settings()
-            self.cscan_controller.reset_corrosion()
-            self.mask_modification_controller.reset()
-
-            # Réinitialise les sessions pour éviter les incohérences de shape
-            self.session_manager.reset_for_new_dataset(
+            self._load_nde_file(
+                nde_path,
+                prompt_open_options=False,
+                axis_mode=payload.annotation_axis_mode,
+                processing_options=processing_options,
+            )
+            active_id = self.session_manager.restore_dump(payload.session_manager_dump)
+            if active_id is None:
+                raise ValueError("Aucune session active a restaurer.")
+            self.session_manager.switch_session(
+                active_id,
                 annotation_model=self.annotation_model,
                 temp_mask_model=self.temp_mask_model,
                 roi_model=self.roi_model,
                 view_state_model=self.view_state_model,
+                save_current=False,
             )
-
-            self.tools_panel.set_primary_slice_bounds(0, num_slices - 1)
-            self.tools_panel.set_primary_slice_value(0)
-            self.tools_panel.set_secondary_slice_bounds(0, volume.shape[2] - 1)
-            self.tools_panel.set_secondary_slice_value(volume.shape[2] // 2)
-            self._sync_tools_labels()
-
-            axis_order = loaded_model.metadata.get("axis_order", [])
-            positions = loaded_model.metadata.get("positions") or {}
-            self.view_state_model.set_axis_order(axis_order)
-            axes_info = []
-            for idx, name in enumerate(axis_order):
-                shape_len = volume.shape[idx] if idx < len(volume.shape) else "?"
-                pos_len = len(positions.get(name, [])) if positions.get(name) is not None else "?"
-                axes_info.append(f"{name}: shape={shape_len}, positions={pos_len}")
-            self.logger.info(
-                "NDE loaded | structure=%s | shape=%s | axes=%s | path=%s",
-                loaded_model.metadata.get("structure"),
-                volume.shape,
-                "; ".join(axes_info) if axes_info else "n/a",
-                loaded_model.metadata.get("path"),
-            )
-            self.ascan_service.log_preview(self.logger, self.nde_model, volume)
-
-            self._refresh_views()
-            self._nde_path = file_path
-            self._update_nde_label()
-            self._update_endview_label()
-            self._sync_apply_volume_range_view()
-
-            processing_label = self.nde_signal_processing_service.describe_selection(
-                processing_options
-            )
-            self.status_message(f"NDE charge: {file_path} | {processing_label}")
-
+            self._refresh_session_dialog()
+            self._after_session_switch()
+            self.status_message(f"Session chargee: {file_path}", timeout_ms=5000)
         except Exception as exc:
-            QMessageBox.critical(self.main_window, "Erreur NDE", str(exc))
+            QMessageBox.critical(self.main_window, "Erreur session", str(exc))
 
     def _on_load_npz(self) -> None:
         """Handle loading an NPZ overlay."""
@@ -736,8 +714,8 @@ class MasterController:
         except Exception as exc:
             QMessageBox.critical(self.main_window, "nnUNet", str(exc))
 
-    def _on_save(self) -> None:
-        """Handle saving current session or annotations."""
+    def _on_export_overlay_npz(self) -> None:
+        """Export the current overlay to a standalone NPZ file."""
         volume = self._current_volume()
         if volume is None:
             QMessageBox.warning(self.main_window, "Overlay", "Chargez un NDE avant de sauvegarder.")
@@ -749,9 +727,60 @@ class MasterController:
             )
             if not saved_path:
                 return
-            self.status_message(f"Overlay sauvegardé: {saved_path}")
+            self.status_message(f"Overlay sauvegarde: {saved_path}")
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur sauvegarde overlay", str(exc))
+
+    def _on_save_session(self) -> None:
+        """Persist each in-memory annotation session to its own `.session` file."""
+        if self.nde_model is None:
+            QMessageBox.warning(
+                self.main_window,
+                "Session",
+                "Chargez un NDE avant de sauvegarder une session.",
+            )
+            return
+
+        try:
+            session_dump = self.session_manager.build_dump(
+                annotation_model=self.annotation_model,
+                temp_mask_model=self.temp_mask_model,
+                roi_model=self.roi_model,
+                view_state_model=self.view_state_model,
+            )
+            sessions = session_dump.get("sessions") or {}
+            if not isinstance(sessions, dict) or not sessions:
+                raise ValueError("Aucune session a sauvegarder.")
+
+            nde_path = self._require_nde_path()
+            processing_selection = self._current_signal_processing_selection()
+            saved_paths: list[str] = []
+            for session_id, state in sessions.items():
+                if not isinstance(session_id, str):
+                    raise ValueError("Identifiant de session invalide.")
+                session_name = getattr(state, "name", None)
+                single_session_dump = {
+                    "sessions": {session_id: state},
+                    "active_id": session_id,
+                }
+                saved_path = self.project_persistence.save_session(
+                    self._build_session_save_path(session_id, session_name=session_name),
+                    nde_path=nde_path,
+                    annotation_axis_mode=self._annotation_axis_mode,
+                    signal_processing_selection=processing_selection,
+                    session_manager_dump=single_session_dump,
+                )
+                saved_paths.append(saved_path)
+
+            if len(saved_paths) == 1:
+                self.status_message(f"Session sauvegardee: {saved_paths[0]}", timeout_ms=5000)
+            else:
+                self.status_message(
+                    f"Sessions sauvegardees: {len(saved_paths)} fichiers .session",
+                    timeout_ms=5000,
+                )
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "Erreur sauvegarde session", str(exc))
 
     def _on_export_endviews(self) -> None:
         """Export endviews (RGB + UINT8) via le service dédié."""
@@ -1465,6 +1494,149 @@ class MasterController:
         warning_message = self.annotation_axis_service.apply_axis_mode(model, axis_mode)
         if warning_message:
             self.logger.warning("%s", warning_message)
+
+    def _load_nde_file(
+        self,
+        file_path: str,
+        *,
+        prompt_open_options: bool,
+        axis_mode: Optional[str] = None,
+        processing_options: Optional[NdeSignalProcessingOptions] = None,
+    ) -> bool:
+        """Load an NDE, optionally reusing persisted open parameters."""
+        loaded_model = self.nde_loader.load(file_path)
+        if prompt_open_options:
+            open_selection = self._prompt_nde_open_options(loaded_model)
+            if open_selection is None:
+                return False
+            axis_mode, processing_options = open_selection
+        else:
+            choices = self.annotation_axis_service.axis_mode_choices(loaded_model)
+            axis_mode = self.annotation_axis_service.normalize_axis_mode(axis_mode, choices)
+            processing_options = processing_options or NdeSignalProcessingOptions()
+
+        self.nde_signal_processing_service.apply_processing_to_model(
+            loaded_model,
+            processing_options,
+        )
+        self._annotation_axis_mode = str(axis_mode or "Auto")
+        self._apply_annotation_axis_mode(loaded_model, self._annotation_axis_mode)
+        volume = loaded_model.get_active_volume()
+        if volume is None or getattr(volume, "ndim", 0) != 3:
+            raise ValueError("Le fichier NDE ne contient pas de volume 3D exploitable.")
+
+        self._update_coordinate_dock_titles_from_model(loaded_model)
+        self._initialize_ascan_logger(file_path)
+
+        self.nde_model = loaded_model
+        num_slices = volume.shape[0]
+        self.view_state_model.set_slice_bounds(0, num_slices - 1)
+        self.view_state_model.set_slice(0)
+        self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
+        self.view_state_model.set_secondary_slice(volume.shape[2] // 2)
+        self.view_state_model.set_current_point(None)
+        self.view_state_model.set_apply_volume_range(0, num_slices - 1, include_current=True)
+        self.annotation_controller.reset_overlay_state(preserve_labels=True)
+        self.annotation_model.initialize(volume.shape)
+        self.temp_mask_model.clear()
+        self.temp_mask_model.initialize(volume.shape)
+        self.roi_model.clear()
+        self.annotation_controller.sync_overlay_settings()
+        self.cscan_controller.reset_corrosion()
+        self.mask_modification_controller.reset()
+
+        self.session_manager.reset_for_new_dataset(
+            annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
+            roi_model=self.roi_model,
+            view_state_model=self.view_state_model,
+        )
+
+        self.tools_panel.set_primary_slice_bounds(0, num_slices - 1)
+        self.tools_panel.set_primary_slice_value(0)
+        self.tools_panel.set_secondary_slice_bounds(0, volume.shape[2] - 1)
+        self.tools_panel.set_secondary_slice_value(volume.shape[2] // 2)
+        self._sync_tools_labels()
+
+        axis_order = loaded_model.metadata.get("axis_order", [])
+        positions = loaded_model.metadata.get("positions") or {}
+        self.view_state_model.set_axis_order(axis_order)
+        axes_info = []
+        for idx, name in enumerate(axis_order):
+            shape_len = volume.shape[idx] if idx < len(volume.shape) else "?"
+            pos_len = len(positions.get(name, [])) if positions.get(name) is not None else "?"
+            axes_info.append(f"{name}: shape={shape_len}, positions={pos_len}")
+        self.logger.info(
+            "NDE loaded | structure=%s | shape=%s | axes=%s | path=%s",
+            loaded_model.metadata.get("structure"),
+            volume.shape,
+            "; ".join(axes_info) if axes_info else "n/a",
+            loaded_model.metadata.get("path"),
+        )
+        self.ascan_service.log_preview(self.logger, self.nde_model, volume)
+
+        self._refresh_views()
+        self._nde_path = file_path
+        self._update_nde_label()
+        self._update_endview_label()
+        self._sync_apply_volume_range_view()
+
+        processing_label = self.nde_signal_processing_service.describe_selection(
+            processing_options
+        )
+        self.status_message(f"NDE charge: {file_path} | {processing_label}")
+        return True
+
+    def _current_signal_processing_selection(self) -> dict[str, bool]:
+        """Return the current NDE processing flags stored in model metadata."""
+        if self.nde_model is None:
+            return {
+                "apply_hilbert": False,
+                "apply_smoothing": False,
+            }
+        selection = (self.nde_model.metadata or {}).get("signal_processing_selection")
+        if not isinstance(selection, dict):
+            return {
+                "apply_hilbert": False,
+                "apply_smoothing": False,
+            }
+        return {
+            "apply_hilbert": bool(selection.get("apply_hilbert", False)),
+            "apply_smoothing": bool(selection.get("apply_smoothing", False)),
+        }
+
+    def _build_session_save_path(self, session_id: str, *, session_name: Optional[str] = None) -> str:
+        """Build the deterministic `.session` path tied to a specific session id."""
+        nde_path = Path(self._require_nde_path())
+        normalized_session_id = str(session_id).strip()
+        if not normalized_session_id:
+            raise ValueError("Identifiant de session manquant pour la sauvegarde.")
+        normalized_session_name = self._normalize_session_filename_part(session_name)
+        return str(
+            nde_path.with_name(
+                f"{nde_path.stem}_{normalized_session_name}_{normalized_session_id}.session"
+            )
+        )
+
+    @staticmethod
+    def _normalize_session_filename_part(session_name: Optional[str]) -> str:
+        """Normalize a session name to a Windows-safe filename fragment."""
+        raw_name = str(session_name or "").strip()
+        if not raw_name:
+            return "session"
+        normalized = re.sub(r"\s+", "_", raw_name)
+        normalized = re.sub(r'[<>:"/\\\\|?*]+', "_", normalized)
+        normalized = re.sub(r"_+", "_", normalized).strip("._")
+        return normalized or "session"
+
+    def _require_nde_path(self) -> str:
+        """Return the current NDE path or fail if none is available."""
+        nde_path = self._nde_path
+        if not nde_path and self.nde_model is not None:
+            nde_path = str((self.nde_model.metadata or {}).get("path") or "")
+        if not nde_path:
+            raise ValueError("Chemin NDE indisponible pour la session courante.")
+        return nde_path
 
     def _update_coordinate_dock_titles_from_model(self, model: NdeModel) -> None:
         """Reflect active and secondary axes in dock titles."""

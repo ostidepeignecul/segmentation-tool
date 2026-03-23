@@ -30,6 +30,8 @@
      <string>Fichier</string>
     </property>
     <addaction name="actionopen_nde"/>
+    <addaction name="separator"/>
+    <addaction name="actionOuvrir_une_session"/>
     <addaction name="actionSauvegarder"/>
     <addaction name="separator"/>
     <addaction name="actionExporter_endviews"/>
@@ -215,6 +217,11 @@
   <action name="actionToggle_ucoord">
    <property name="text">
     <string>Toggle u-coord</string>
+   </property>
+  </action>
+  <action name="actionOuvrir_une_session">
+   <property name="text">
+    <string>Ouvrir une session</string>
    </property>
   </action>
  </widget>

@@ -3535,3 +3535,21 @@ L utilisateur voulait un export manuel uniquement depuis la vue C-scan corrosion
 1. Garder la vue corrosion strictement limitee a l UI en n y ajoutant qu un bouton et un signal, toute l orchestration du dialogue Windows restant dans `MasterController`.
 2. Centraliser la validation de l etat corrosion actif dans `CScanController` pour eviter qu un export soit declenche sans projection disponible.
 3. Generer le `PNG` dans `CScanCorrosionService` a partir de la meme palette rouge-orange-jaune-bleu que la vue corrosion, afin d obtenir un rendu exporte coherent avec ce que l utilisateur voit a l ecran.
+
+### 2026-03-23 - Sauvegarde .session individuelle par session d annotation
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#services/annotation_session_manager.py`, `#services/project_persistence.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#session`, `#overlay`, `#persistence`, `#npz`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute `services/project_persistence.py` pour lire et ecrire des fichiers `.session` compresses contenant le chemin du NDE, le mode d annotation, les options de processing et un dump des sessions.
+- Etend `services/annotation_session_manager.py` avec `build_dump()` et `restore_dump()` afin de serialiser et restaurer l etat courant du selecteur de sessions.
+- Separe `Fichier > Sauvegarder` et `Ctrl+S` de `Overlay > Exporter .npz` dans `controllers/master_controller.py` ; l export NPZ reste autonome tandis que la sauvegarde ecrit des fichiers `.session`.
+- Ajoute `Fichier > Ouvrir une session` dans `ui_mainwindow.py` et `untitled.ui`, puis refactorise le chargement NDE via `_load_nde_file()` pour rejouer le meme pipeline lors d une restauration de session.
+- Fait sauvegarder une session par fichier, avec un nom deterministe `<nde>_<nom_session_normalise>_<id_session>.session`, de sorte que les trois sessions visibles dans le Session Selector produisent trois fichiers distincts.
+
+**Contexte :**
+Le bouton Sauvegarder reutilisait le flux d export NPZ alors que l utilisateur voulait un format `.session` distinct, contenant l overlay en memoire et une reference vers le NDE non modifie. Le besoin a ensuite ete precise pour les sessions multiples : chaque session visible dans le selector doit etre sauvegardee individuellement avec son propre ID et son nom, afin qu ouvrir un fichier `.session` ne recharge qu une seule session plutot que tout le gestionnaire.
+
+**Decisions techniques :**
+1. Conserver une separation stricte entre export `.npz` et sauvegarde `.session` pour garantir qu un export ne soit jamais ecrase ou modifie par `Ctrl+S`.
+2. Sauvegarder une seule session par fichier `.session`, meme si plusieurs sessions sont presentes en memoire, afin d aligner la persistance sur les IDs exposes dans le Session Selector et sur le comportement attendu a l ouverture.
+3. Normaliser le nom de session pour le filesystem Windows et centraliser le rechargement NDE dans `_load_nde_file()` pour eviter deux pipelines divergents entre ouverture manuelle et restauration de session.
