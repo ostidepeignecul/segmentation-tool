@@ -329,6 +329,92 @@ class CScanCorrosionService(CScanService):
         self._logger.info("Overlay corrosion sauvegardé: %s", npz_path)
         return npz_path
 
+    def save_cscan_projection(
+        self,
+        *,
+        output_directory: str,
+        nde_filename: str,
+        projection: np.ndarray,
+        value_range: Optional[Tuple[float, float]] = None,
+    ) -> Tuple[str, str]:
+        """Save the displayed corrosion C-scan as NPZ and PNG."""
+        if not output_directory:
+            raise ValueError("Aucun dossier de sortie fourni pour l'export du C-scan corrosion.")
+
+        data = np.asarray(projection, dtype=np.float32)
+        if data.ndim != 2:
+            raise ValueError(f"C-scan corrosion attendu 2D (Z,X), recu shape {data.shape}")
+        if data.size == 0:
+            raise ValueError("Le C-scan corrosion est vide.")
+
+        if value_range is None:
+            value_range = self.compute_display_value_range(data)
+
+        os.makedirs(output_directory, exist_ok=True)
+        base_name = os.path.splitext(os.path.basename(str(nde_filename)))[0] or "unknown"
+        npz_path = os.path.join(output_directory, f"{base_name}_cscan.npz")
+        png_path = os.path.join(output_directory, f"{base_name}_cscan.png")
+        np.savez_compressed(
+            npz_path,
+            projection=data,
+            value_range=np.asarray(value_range, dtype=np.float32),
+        )
+        self._logger.info("C-scan corrosion sauvegardÃ©: %s", npz_path)
+        rgb = self._render_cscan_projection_rgb(data, value_range)
+        saved_png = cv2.imwrite(png_path, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+        if not saved_png:
+            raise ValueError(f"Impossible de sauvegarder l'image PNG: {png_path}")
+        self._logger.info("C-scan corrosion image sauvegardée: %s", png_path)
+        return npz_path, png_path
+
+    @classmethod
+    def _render_cscan_projection_rgb(
+        cls,
+        data: np.ndarray,
+        value_range: Tuple[float, float],
+    ) -> np.ndarray:
+        """Render a corrosion projection to RGB using the corrosion C-scan palette."""
+        vmin, vmax = value_range
+        valid = np.isfinite(data)
+        rgb = np.zeros((*data.shape, 3), dtype=np.uint8)
+        if vmax <= vmin:
+            return rgb
+
+        normalized = np.zeros_like(data, dtype=np.float32)
+        normalized[valid] = (data[valid] - vmin) / (vmax - vmin)
+        normalized = np.clip(normalized, 0.0, 1.0)
+        indices = np.zeros(data.shape, dtype=np.int32)
+        indices[valid] = (normalized[valid] * 255.0).astype(np.int32)
+        lut = cls._build_cscan_export_lut()
+        rgb[valid] = lut[indices[valid]]
+        return rgb
+
+    @staticmethod
+    def _build_cscan_export_lut() -> np.ndarray:
+        """Build the corrosion LUT used for exported PNGs."""
+        stops = [
+            (0.0, (255, 0, 0)),
+            (0.33, (255, 128, 0)),
+            (0.66, (255, 255, 0)),
+            (1.0, (0, 128, 255)),
+        ]
+        lut = np.zeros((256, 3), dtype=np.uint8)
+        for idx in range(len(stops) - 1):
+            start_pos, start_col = stops[idx]
+            end_pos, end_col = stops[idx + 1]
+            start_idx = int(round(start_pos * 255))
+            end_idx = int(round(end_pos * 255))
+            span = max(1, end_idx - start_idx)
+            for channel in range(3):
+                lut[start_idx:end_idx + 1, channel] = np.linspace(
+                    start_col[channel],
+                    end_col[channel],
+                    span + 1,
+                    dtype=np.uint8,
+                )
+        lut[-1, :] = stops[-1][1]
+        return lut
+
     @staticmethod
     def build_ascan_support_map(volume: np.ndarray) -> np.ndarray:
         """Return a (Z,X) support map where a column has at least one finite non-zero A-scan sample."""

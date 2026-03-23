@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 import numpy as np
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import QPushButton
 
 from views.cscan_view import CScanView
 
@@ -12,12 +14,17 @@ from views.cscan_view import CScanView
 class CscanViewCorrosion(CScanView):
     """Displays corrosion distance maps with a red→orange→yellow→blue gradient."""
 
+    export_requested = pyqtSignal()
     _LUT_CACHE: Optional[np.ndarray] = None
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         if CscanViewCorrosion._LUT_CACHE is None:
             CscanViewCorrosion._LUT_CACHE = self._build_lut()
+        self._export_button = QPushButton("Exporter", self)
+        self._export_button.setToolTip("Choisir un dossier d'export pour le C-scan corrosion")
+        self._export_button.clicked.connect(self.export_requested.emit)
+        self.add_header_widget(self._export_button)
 
     @staticmethod
     def _build_lut() -> np.ndarray:

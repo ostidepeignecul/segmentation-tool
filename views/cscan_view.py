@@ -69,6 +69,7 @@ class CScanView(QFrame):
 
         # Header with status + LUT selection
         header = QHBoxLayout()
+        self._header_layout = header
         self._status = QLabel("C-scan non disponible")
         self._status.setAlignment(Qt.AlignmentFlag.AlignLeft)
         header.addWidget(self._status, 1)
@@ -83,6 +84,10 @@ class CScanView(QFrame):
         layout.addWidget(self._view, 1)
 
         self.setStyleSheet("background-color: #181818; color: #cccccc;")
+
+    def add_header_widget(self, widget: QWidget, stretch: int = 0) -> None:
+        """Append a widget to the header row."""
+        self._header_layout.addWidget(widget, int(stretch))
 
     def set_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
         """Set colormap to apply to the projection (lut shape (256,3) floats 0-1)."""

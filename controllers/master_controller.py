@@ -438,6 +438,7 @@ class MasterController:
         if self.cscan_view_corrosion is not None:
             self.cscan_view_corrosion.crosshair_changed.connect(self._on_cscan_crosshair_changed)
             self.cscan_view_corrosion.slice_requested.connect(self._on_cscan_slice_requested)
+            self.cscan_view_corrosion.export_requested.connect(self._on_export_corrosion_cscan)
 
         self.volume_view.volume_needs_update.connect(self._on_volume_needs_update)
         self.volume_view.secondary_slice_changed.connect(self._on_secondary_slice_changed)
@@ -793,6 +794,45 @@ class MasterController:
         final_message = f"{message_rgb}\n\n{message_uint8}"
         self.status_message("Export endviews terminé", timeout_ms=4000)
         QMessageBox.information(self.main_window, "Export endviews", final_message)
+
+    def _on_export_corrosion_cscan(self) -> None:
+        """Open the native Windows folder picker and export the current corrosion C-scan."""
+        if self.nde_model is None:
+            QMessageBox.warning(
+                self.main_window,
+                "Export C-scan corrosion",
+                "Chargez un NDE avant d'exporter le C-scan corrosion.",
+            )
+            return
+
+        nde_path = None
+        try:
+            nde_path = (self.nde_model.metadata or {}).get("path")
+        except Exception:
+            nde_path = None
+
+        initial_dir = str(Path(nde_path).parent) if nde_path else ""
+        output_dir = QFileDialog.getExistingDirectory(
+            self.main_window,
+            "Choisir le dossier d'export du C-scan corrosion",
+            initial_dir,
+        )
+        if not output_dir:
+            return
+
+        try:
+            npz_path, png_path = self.cscan_controller.export_corrosion_projection(
+                output_directory=output_dir,
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self.main_window, "Export C-scan corrosion", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "Export C-scan corrosion", str(exc))
+            return
+
+        saved_path = f"{npz_path} | {png_path}"
+        self.status_message(f"C-scan corrosion sauvegardé: {saved_path}", timeout_ms=5000)
 
     def _on_split_flaw_noflaw(self) -> None:
         """Lance le split flaw/noflaw (export + tri) via le service dédié."""

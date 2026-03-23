@@ -3517,3 +3517,21 @@ Certaines analyses corrosion selectionnent des pics aberrants qui produisent des
 1. Corriger le probleme au niveau du service corrosion plutot que dans la vue, afin de centraliser la logique de plage d affichage et de garder le pipeline MVC coherent.
 2. Conserver `vmin` sur le minimum reel et ne clipper que la borne haute par percentile, pour ne pas masquer artificiellement les petites distances potentiellement critiques.
 3. Ne pas modifier la `distance_map` elle-meme : seules les couleurs sont saturees, ce qui preserve les valeurs brutes pour les mesures et le crosshair.
+
+### 2026-03-23 - Export manuel du C-scan corrosion en NPZ et PNG
+**Tags :** `#branch:annotation`, `#controllers/cscan_controller.py`, `#controllers/master_controller.py`, `#services/cscan_corrosion_service.py`, `#views/cscan_view.py`, `#views/cscan_view_corrosion.py`, `#corrosion`, `#cscan`, `#export`, `#png`, `#npz`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute dans `views/cscan_view.py` un point d extension de l en-tete, puis dans `views/cscan_view_corrosion.py` un bouton `Exporter` et un signal `export_requested`.
+- Branche `controllers/master_controller.py` sur ce signal pour ouvrir l explorateur Windows via `QFileDialog.getExistingDirectory()` avec comme dossier initial le dossier du NDE ouvert.
+- Ajoute dans `controllers/cscan_controller.py` une methode `export_corrosion_projection()` qui verifie qu une analyse corrosion est active et delegue l export au service.
+- Etend `services/cscan_corrosion_service.py` pour sauvegarder le C-scan corrosion affiche sous `<nde>_cscan.npz` et generer en plus `<nde>_cscan.png` a partir de la projection 2D et de la palette corrosion.
+- Fait remonter les deux chemins exportes au `MasterController` pour affichage dans le message de statut, sans introduire d auto-sauvegarde.
+
+**Contexte :**
+L utilisateur voulait un export manuel uniquement depuis la vue C-scan corrosion, avec choix explicite du dossier via l explorateur Windows. Le besoin a ensuite ete etendu pour produire non seulement le `NPZ` contenant la projection, mais aussi un `PNG` visuel directement exploitable, tout en conservant le dossier du NDE comme valeur par defaut et sans melanger rendu, orchestration UI et logique de sauvegarde.
+
+**Decisions techniques :**
+1. Garder la vue corrosion strictement limitee a l UI en n y ajoutant qu un bouton et un signal, toute l orchestration du dialogue Windows restant dans `MasterController`.
+2. Centraliser la validation de l etat corrosion actif dans `CScanController` pour eviter qu un export soit declenche sans projection disponible.
+3. Generer le `PNG` dans `CScanCorrosionService` a partir de la meme palette rouge-orange-jaune-bleu que la vue corrosion, afin d obtenir un rendu exporte coherent avec ce que l utilisateur voit a l ecran.

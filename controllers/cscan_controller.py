@@ -234,3 +234,27 @@ class CScanController:
                 self.on_corrosion_completed(result)
             except Exception:  # noqa: BLE001
                 self.logger.exception("Corrosion completion callback failed")
+
+    def export_corrosion_projection(self, *, output_directory: str) -> tuple[str, str]:
+        """Export the corrosion C-scan currently displayed in the corrosion view."""
+        if not output_directory:
+            raise ValueError("Aucun dossier de sortie sÃ©lectionnÃ©.")
+
+        nde_model = self.get_nde_model()
+        if nde_model is None:
+            raise ValueError("Chargez un NDE avant d'exporter le C-scan corrosion.")
+
+        projection_payload = self.view_state_model.corrosion_projection
+        if not self.view_state_model.corrosion_active or projection_payload is None:
+            raise ValueError("Lancez une analyse corrosion avant d'exporter le C-scan.")
+
+        projection, value_range = projection_payload
+        nde_filename = str((nde_model.metadata or {}).get("path", "unknown"))
+        saved_paths = self.corrosion_service.save_cscan_projection(
+            output_directory=output_directory,
+            nde_filename=nde_filename,
+            projection=projection,
+            value_range=value_range,
+        )
+        self.logger.info("Corrosion C-scan exported: %s | %s", saved_paths[0], saved_paths[1])
+        return saved_paths
