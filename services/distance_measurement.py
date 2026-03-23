@@ -11,6 +11,8 @@ import math
 import cv2
 import time
 
+from services.peak_plateau import peak_indices_from_masked_max
+
 
 class DistanceMeasurementService:
     """
@@ -99,28 +101,14 @@ class DistanceMeasurementService:
             slice_vol = vol[zi]
             slice_mask = msk[zi]
 
-            yA, xA = np.nonzero(slice_mask == class_A)
-            yB, xB = np.nonzero(slice_mask == class_B)
-            if yA.size == 0 and yB.size == 0:
+            has_class_a = bool(np.any(slice_mask == class_A))
+            has_class_b = bool(np.any(slice_mask == class_B))
+            if not has_class_a and not has_class_b:
                 continue
 
-            # Max ultrasound (argmax) restreint aux positions de la classe
-            max_y_A = np.full(w, -1, dtype=np.int32)
-            max_y_B = np.full(w, -1, dtype=np.int32)
-            max_val_A = np.full(w, -np.inf, dtype=np.float32)
-            max_val_B = np.full(w, -np.inf, dtype=np.float32)
-
-            for y, x in zip(yA, xA):
-                val = slice_vol[y, x]
-                if val > max_val_A[x]:
-                    max_val_A[x] = val
-                    max_y_A[x] = y
-
-            for y, x in zip(yB, xB):
-                val = slice_vol[y, x]
-                if val > max_val_B[x]:
-                    max_val_B[x] = val
-                    max_y_B[x] = y
+            # En cas de plateau sature, on retient le milieu discret du sommet.
+            max_y_A = peak_indices_from_masked_max(slice_vol, slice_mask, class_A)
+            max_y_B = peak_indices_from_masked_max(slice_vol, slice_mask, class_B)
 
             if support is not None:
                 support_row = support[zi]

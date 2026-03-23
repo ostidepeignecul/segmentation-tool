@@ -3553,3 +3553,20 @@ Le bouton Sauvegarder reutilisait le flux d export NPZ alors que l utilisateur v
 1. Conserver une separation stricte entre export `.npz` et sauvegarde `.session` pour garantir qu un export ne soit jamais ecrase ou modifie par `Ctrl+S`.
 2. Sauvegarder une seule session par fichier `.session`, meme si plusieurs sessions sont presentes en memoire, afin d aligner la persistance sur les IDs exposes dans le Session Selector et sur le comportement attendu a l ouverture.
 3. Normaliser le nom de session pour le filesystem Windows et centraliser le rechargement NDE dans `_load_nde_file()` pour eviter deux pipelines divergents entre ouverture manuelle et restauration de session.
+
+### 2026-03-23 - Mesure corrosion au centre des plateaux satures
+**Tags :** `#branch:annotation`, `#services/peak_plateau.py`, `#services/ascan_service.py`, `#services/distance_measurement.py`, `#corrosion`, `#ascan`, `#cscan`, `#peak`, `#plateau`, `#saturation`, `#measurement`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute `services/peak_plateau.py` pour centraliser la selection d un pic sur plateau sature en prenant le milieu discret entre le premier et le dernier sample au maximum.
+- Modifie `services/distance_measurement.py` pour produire `peak_map_a` et `peak_map_b` a partir du centre des plateaux max plutot que du premier max rencontre dans chaque colonne.
+- Modifie `services/ascan_service.py` pour appliquer la meme logique dans le fallback A-scan corrosion quand les indices sont resolus depuis le signal local.
+- Verifie le correctif sur des cas synthetiques avec plateau sature et avec pic unique afin de confirmer que le cas nominal reste stable.
+
+**Contexte :**
+Lors de l analyse corrosion, certains A-scan sont satures au sommet du peak, ce qui cree un plateau avec plusieurs valeurs maximales identiques. La mesure FW/BW se calait alors sur le bord du plateau, produisant un positionnement visuel et une distance moins representatifs du vrai centre du sommet. Le diff staged etait vide au moment du brew ; l entree documente le correctif local applique sur les services corrosion.
+
+**Decisions techniques :**
+1. Corriger la selection du pic dans la couche service plutot que dans la vue afin que l A-scan, les peak maps, l overlay et la distance FW/BW partagent la meme logique metier.
+2. Introduire un helper dedie `peak_plateau.py` pour eviter de dupliquer la logique de centre de plateau entre `DistanceMeasurementService` et `AScanService`.
+3. Pour les plateaux de largeur paire, utiliser le milieu discret superieur afin d eviter de retomber sur le premier maximum historique et de deplacer effectivement la mesure vers le centre du plateau.

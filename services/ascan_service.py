@@ -11,6 +11,7 @@ import numpy as np
 
 from models.nde_model import NdeModel
 from services.ascan_debug_logger import ascan_debug_logger
+from services.peak_plateau import pick_plateau_peak_index
 
 
 @dataclass
@@ -291,8 +292,10 @@ class AScanService:
             if not np.isfinite(values).any():
                 return int(round(float(np.mean(valid))))
 
-            peak_local = int(np.nanargmax(values))
-            return int(valid[peak_local])
+            peak_idx = pick_plateau_peak_index(valid, values)
+            if peak_idx is None:
+                return int(round(float(np.mean(valid))))
+            return peak_idx
 
         idx_a = pick_index(ys_a)
         idx_b = pick_index(ys_b)
