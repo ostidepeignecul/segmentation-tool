@@ -89,10 +89,13 @@ class Ui_MainWindow(object):
         self.actionToggle_ucoord.setObjectName("actionToggle_ucoord")
         self.actionOuvrir_une_session = QtGui.QAction(parent=MainWindow)
         self.actionOuvrir_une_session.setObjectName("actionOuvrir_une_session")
+        self.actionEnregistrer_sous = QtGui.QAction(parent=MainWindow)
+        self.actionEnregistrer_sous.setObjectName("actionEnregistrer_sous")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionOuvrir_une_session)
         self.menuFichier.addAction(self.actionSauvegarder)
+        self.menuFichier.addAction(self.actionEnregistrer_sous)
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionExporter_endviews)
         self.menuFichier.addAction(self.actionSplit_flaw_noflaw)
@@ -141,7 +144,7 @@ class Ui_MainWindow(object):
         self.menuSession.setTitle(_translate("MainWindow", "Session"))
         self.actioncharger_npz.setText(_translate("MainWindow", "Charger un fichier .npz/.npy"))
         self.actionopen_nde.setText(_translate("MainWindow", "Ouvrir un fichier .nde"))
-        self.actionSauvegarder.setText(_translate("MainWindow", "Sauvegarder"))
+        self.actionSauvegarder.setText(_translate("MainWindow", "Enregistrer"))
         self.actionParam_tres.setText(_translate("MainWindow", "Paramètres"))
         self.actionQuitter.setText(_translate("MainWindow", "Quitter"))
         self.actionCorrosion_analyse.setText(_translate("MainWindow", "Corrosion analyse"))
@@ -165,6 +168,7 @@ class Ui_MainWindow(object):
         self.actionToggle_vcoord.setText(_translate("MainWindow", "Toggle v-coord"))
         self.actionToggle_ucoord.setText(_translate("MainWindow", "Toggle u-coord"))
         self.actionOuvrir_une_session.setText(_translate("MainWindow", "Ouvrir une session"))
+        self.actionEnregistrer_sous.setText(_translate("MainWindow", "Enregistrer sous"))
 
 
 if __name__ == "__main__":

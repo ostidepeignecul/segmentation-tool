@@ -3570,3 +3570,25 @@ Lors de l analyse corrosion, certains A-scan sont satures au sommet du peak, ce 
 1. Corriger la selection du pic dans la couche service plutot que dans la vue afin que l A-scan, les peak maps, l overlay et la distance FW/BW partagent la meme logique metier.
 2. Introduire un helper dedie `peak_plateau.py` pour eviter de dupliquer la logique de centre de plateau entre `DistanceMeasurementService` et `AScanService`.
 3. Pour les plateaux de largeur paire, utiliser le milieu discret superieur afin d eviter de retomber sur le premier maximum historique et de deplacer effectivement la mesure vers le centre du plateau.
+
+### 2026-03-25 - Workflow de session individuel avec autosave temporaire et refactor MVC
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#controllers/session_workspace_controller.py`, `#services/annotation_session_manager.py`, `#controllers/annotation_controller.py`, `#controllers/corrosion_profile_controller.py`, `#views/session_manager_dialog.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#session`, `#autosave`, `#persistence`, `#mvc`, `#pyqt6`, `#dirty-state`
+
+**Actions effectuees :**
+- Renomme `Sauvegarder` en `Enregistrer`, ajoute `Enregistrer sous` dans le menu Fichier et branche le workflow de sauvegarde sur la session active uniquement.
+- Ajoute l ouverture de `.session` mono-session avec rattachement du chemin charge a la session restauree, de sorte que `Enregistrer` reecrive ensuite le bon fichier.
+- Introduit un suivi `dirty` par session, des confirmations `Enregistrer / Ne pas enregistrer / Annuler` avant quitter, ouvrir un autre NDE, ouvrir une autre session et supprimer une session.
+- Ajoute un autosave temporaire debounced des sessions modifiees vers le dossier temp, base sur le dump complet d une session unique persistable.
+- Extrait la logique de workflow session hors de `MasterController` dans `controllers/session_workspace_controller.py`, en laissant `ProjectPersistence` comme couche bas niveau de lecture/ecriture de fichier.
+- Etend `AnnotationSessionManager` avec la creation de session vide, le renommage, les helpers `build_session_dump()` / `build_active_dump()` et le nom par defaut `New session`.
+- Revoit `SessionManagerDialog` pour separer `Creer` et `Dupliquer`, supprimer l affichage de l ID hardcode, et permettre la creation de sessions vides.
+- Fait remonter les mutations de session depuis l application d annotation, l undo/redo et le commit du profil corrosion afin de marquer correctement la session courante comme modifiee.
+- Fait creer au pipeline corrosion une nouvelle session derivee suffixee `corrosion` au lieu d ecraser silencieusement la session source.
+
+**Contexte :**
+Le workflow precedent melangeait encore orchestration UI, persistance de session, suivi des modifications non enregistrees et autosave dans `MasterController`. En parallele, la sauvegarde devait etre rebranchee pour enregistrer une seule session a la fois, ouvrir directement `Enregistrer sous` si la session n avait pas encore de fichier, et rendre le selecteur de sessions plus propre avec creation vide, duplication explicite et noms alignes sur les fichiers `.session`.
+
+**Decisions techniques :**
+1. Centraliser le workflow document/session dans un `SessionWorkspaceController` dedie plutot que de charger `AnnotationSessionManager` ou `ProjectPersistence` avec des responsabilites UI, afin de conserver une separation MVC defendable.
+2. Reutiliser le dump complet d une session persistable pour l autosave temporaire et pour les confirmations de fermeture, plutot que le systeme undo/redo qui ne contient que des slices appliquees et ne represente pas tout l etat de session.
+3. Faire du nom de fichier `.session` le nom de session visible et sauvegarder une seule session par fichier, afin d eliminer les noms hardcodes/IDs du selecteur et d aligner le comportement utilisateur avec l ouverture/sauvegarde document par document.

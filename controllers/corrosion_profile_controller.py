@@ -30,6 +30,7 @@ class CorrosionProfileController:
         set_position_label: Callable[[int, int], None],
         status_message: Callable[..., None],
         apply_roi_fallback: Callable[[], None],
+        on_session_changed: Optional[Callable[[], None]] = None,
     ) -> None:
         self.view_state_model = view_state_model
         self.annotation_model = annotation_model
@@ -42,6 +43,7 @@ class CorrosionProfileController:
         self._set_position_label = set_position_label
         self._status_message = status_message
         self._apply_roi_fallback = apply_roi_fallback
+        self._on_session_changed = on_session_changed
 
     def on_active_label_changed(self, _label_id: int) -> None:
         self.sync_anchors()
@@ -221,6 +223,8 @@ class CorrosionProfileController:
             self.cscan_controller.update_views(volume)
         self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
         self.sync_anchors()
+        if self._on_session_changed is not None:
+            self._on_session_changed()
         self._status_message("Profil corrosion applique.", timeout_ms=2000)
         return True
 

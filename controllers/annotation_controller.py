@@ -928,20 +928,20 @@ class AnnotationController:
         self.annotation_secondary_view.clear_roi_boxes()
         self.annotation_secondary_view.clear_roi_points()
 
-    def on_apply_temp_mask_requested(self) -> None:
+    def on_apply_temp_mask_requested(self) -> bool:
         """Apply the current temporary mask (free-hand/ROI) into the annotation model."""
         undo_slices: dict[int, np.ndarray] = {}
         redo_slices: dict[int, np.ndarray] = {}
         if self.view_state_model.apply_volume:
             depth, _ = self._resolve_volume_dimensions()
             if depth is None:
-                return
+                return False
             start_idx, end_idx = self._resolve_apply_volume_range(depth)
 
             # In apply-volume mode, apply exactly what is already present in TempMaskModel.
             temp_volume = self.temp_mask_model.get_mask_volume()
             if temp_volume is None:
-                return
+                return False
             coverage_volume = self.temp_mask_model.get_coverage_volume()
             has_pending = False
             max_idx = min(int(end_idx), int(temp_volume.shape[0]) - 1)
@@ -954,7 +954,7 @@ class AnnotationController:
                     has_pending = True
                     break
             if not has_pending:
-                return
+                return False
             undo_slices, redo_slices = self._collect_applied_history_slices(
                 start_idx=int(start_idx),
                 end_idx=int(end_idx),
@@ -974,15 +974,15 @@ class AnnotationController:
             coverage = self.temp_mask_model.get_slice_coverage(target_slice)
 
             if mask_volume is None or temp_slice is None or coverage is None:
-                return
+                return False
             if not np.any(coverage):
-                return
+                return False
             try:
                 current_slice = mask_volume[int(target_slice)]
             except Exception:
-                return
+                return False
             if current_slice.shape != temp_slice.shape:
-                return
+                return False
 
             updated = np.array(current_slice, copy=True)
             updated[coverage] = temp_slice[coverage]
@@ -1022,6 +1022,7 @@ class AnnotationController:
             changed_slice=None if self.view_state_model.apply_volume else target_slice,
         )
         self.refresh_roi_overlay_for_slice(target_slice)
+        return bool(undo_slices or redo_slices)
 
     def on_undo_last_applied_annotation_requested(self) -> bool:
         """Restore the previous slices captured for the last committed apply action."""

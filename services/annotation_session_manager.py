@@ -54,7 +54,7 @@ class AnnotationSessionManager:
         if self._active_id is not None:
             return self._active_id
         return self.create_from_models(
-            name="Session 1",
+            name="New session",
             annotation_model=annotation_model,
             temp_mask_model=temp_mask_model,
             roi_model=roi_model,
@@ -87,9 +87,33 @@ class AnnotationSessionManager:
             for sid, state in self._sessions.items()
         ]
 
+    def has_session(self, session_id: str) -> bool:
+        """Indique si une session existe en memoire."""
+        return session_id in self._sessions
+
     def get_active_session_id(self) -> Optional[str]:
         """Expose l'id de la session active."""
         return self._active_id
+
+    def get_session_name(self, session_id: str) -> Optional[str]:
+        """Retourne le nom d'une session si elle existe."""
+        state = self._sessions.get(session_id)
+        if state is None:
+            return None
+        return state.name
+
+    def get_active_session_name(self) -> Optional[str]:
+        """Expose le nom de la session active."""
+        if self._active_id is None:
+            return None
+        return self.get_session_name(self._active_id)
+
+    def rename_session(self, session_id: str, name: str) -> None:
+        """Met a jour le nom d'une session sans modifier son contenu."""
+        state = self._sessions.get(session_id)
+        if state is None:
+            return
+        state.name = self._normalize_session_name(name)
 
     def create_from_models(
         self,
@@ -122,6 +146,46 @@ class AnnotationSessionManager:
         )
         self._sessions[session_id] = state
         if set_active:
+            self._active_id = session_id
+        return session_id
+
+    def create_empty_session(
+        self,
+        *,
+        name: str,
+        annotation_model: AnnotationModel,
+        temp_mask_model: TempMaskModel,
+        roi_model: RoiModel,
+        view_state_model: ViewStateModel,
+        set_active: bool = True,
+        save_active: bool = True,
+    ) -> str:
+        """Cree une session vide sur le dataset courant sans dupliquer les annotations."""
+        if save_active and self._active_id is not None:
+            self._sessions[self._active_id] = self._snapshot(
+                name=self._sessions[self._active_id].name,
+                annotation_model=annotation_model,
+                temp_mask_model=temp_mask_model,
+                roi_model=roi_model,
+                view_state_model=view_state_model,
+            )
+
+        session_id = uuid.uuid4().hex
+        state = self._empty_state(
+            name=name,
+            annotation_model=annotation_model,
+            temp_mask_model=temp_mask_model,
+            view_state_model=view_state_model,
+        )
+        self._sessions[session_id] = state
+        if set_active:
+            self._apply(
+                state,
+                annotation_model=annotation_model,
+                temp_mask_model=temp_mask_model,
+                roi_model=roi_model,
+                view_state_model=view_state_model,
+            )
             self._active_id = session_id
         return session_id
 
@@ -207,6 +271,51 @@ class AnnotationSessionManager:
             "active_id": self._active_id,
         }
 
+    def build_active_dump(
+        self,
+        *,
+        annotation_model: AnnotationModel,
+        temp_mask_model: TempMaskModel,
+        roi_model: RoiModel,
+        view_state_model: ViewStateModel,
+    ) -> dict[str, Any]:
+        """Capture et retourne uniquement la session active."""
+        active_id = self._active_id
+        if not isinstance(active_id, str):
+            raise ValueError("Aucune session active a sauvegarder.")
+        return self.build_session_dump(
+            active_id,
+            annotation_model=annotation_model,
+            temp_mask_model=temp_mask_model,
+            roi_model=roi_model,
+            view_state_model=view_state_model,
+        )
+
+    def build_session_dump(
+        self,
+        session_id: str,
+        *,
+        annotation_model: AnnotationModel,
+        temp_mask_model: TempMaskModel,
+        roi_model: RoiModel,
+        view_state_model: ViewStateModel,
+    ) -> dict[str, Any]:
+        """Capture et retourne une session unique par son identifiant."""
+        dump = self.build_dump(
+            annotation_model=annotation_model,
+            temp_mask_model=temp_mask_model,
+            roi_model=roi_model,
+            view_state_model=view_state_model,
+        )
+        sessions = dump.get("sessions") or {}
+        target_id = str(session_id).strip()
+        if not target_id or target_id not in sessions:
+            raise ValueError("Session introuvable pour la sauvegarde.")
+        return {
+            "sessions": {target_id: sessions[target_id]},
+            "active_id": target_id,
+        }
+
     def restore_dump(self, payload: dict[str, Any]) -> Optional[str]:
         """Replace les sessions en memoire par un dump precedemment sauvegarde."""
         sessions = payload.get("sessions")
@@ -255,7 +364,7 @@ class AnnotationSessionManager:
         view_state = copy.deepcopy(vars(view_state_model))
 
         return AnnotationSessionState(
-            name=name,
+            name=self._normalize_session_name(name),
             mask_volume=mask_volume,
             label_palette=label_palette,
             label_visibility=label_visibility,
@@ -267,6 +376,47 @@ class AnnotationSessionManager:
             next_roi_id=next_roi_id,
             view_state=view_state,
             overlay_cache=overlay_cache,
+        )
+
+    def _empty_state(
+        self,
+        *,
+        name: str,
+        annotation_model: AnnotationModel,
+        temp_mask_model: TempMaskModel,
+        view_state_model: ViewStateModel,
+    ) -> AnnotationSessionState:
+        shape = self._resolve_volume_shape(
+            annotation_model=annotation_model,
+            temp_mask_model=temp_mask_model,
+        )
+        mask_volume = np.zeros(shape, dtype=np.uint8) if shape is not None else None
+        temp_mask_volume = np.zeros(shape, dtype=np.uint8) if shape is not None else None
+        temp_coverage_volume = np.zeros(shape, dtype=bool) if shape is not None else None
+        view_state = copy.deepcopy(vars(view_state_model))
+        view_state["corrosion_active"] = False
+        view_state["corrosion_projection"] = None
+        view_state["corrosion_interpolated_projection"] = None
+        view_state["corrosion_overlay_volume"] = None
+        view_state["corrosion_overlay_palette"] = None
+        view_state["corrosion_overlay_label_ids"] = None
+        view_state["corrosion_peak_index_map_a"] = None
+        view_state["corrosion_peak_index_map_b"] = None
+        view_state["corrosion_ascan_support_map"] = None
+
+        return AnnotationSessionState(
+            name=self._normalize_session_name(name),
+            mask_volume=mask_volume,
+            label_palette=copy.deepcopy(annotation_model.label_palette),
+            label_visibility=copy.deepcopy(annotation_model.label_visibility),
+            temp_mask_volume=temp_mask_volume,
+            temp_coverage_volume=temp_coverage_volume,
+            temp_palette=copy.deepcopy(temp_mask_model.label_palette),
+            temp_visibility=copy.deepcopy(temp_mask_model.label_visibility),
+            rois=[],
+            next_roi_id=1,
+            view_state=view_state,
+            overlay_cache=None,
         )
 
     def _apply(
@@ -305,3 +455,26 @@ class AnnotationSessionManager:
         # View state
         for key, val in state.view_state.items():
             setattr(view_state_model, key, copy.deepcopy(val))
+
+    @staticmethod
+    def _normalize_session_name(name: str, *, fallback: str = "New session") -> str:
+        normalized = str(name or "").strip()
+        return normalized or fallback
+
+    @staticmethod
+    def _resolve_volume_shape(
+        *,
+        annotation_model: AnnotationModel,
+        temp_mask_model: TempMaskModel,
+    ) -> Optional[tuple[int, int, int]]:
+        for volume in (
+            annotation_model.mask_volume,
+            temp_mask_model.mask_volume,
+            temp_mask_model.coverage_volume,
+        ):
+            if volume is None:
+                continue
+            if getattr(volume, "ndim", 0) != 3:
+                continue
+            return tuple(int(dim) for dim in volume.shape)
+        return None

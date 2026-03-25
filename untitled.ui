@@ -33,6 +33,7 @@
     <addaction name="separator"/>
     <addaction name="actionOuvrir_une_session"/>
     <addaction name="actionSauvegarder"/>
+    <addaction name="actionEnregistrer_sous"/>
     <addaction name="separator"/>
     <addaction name="actionExporter_endviews"/>
     <addaction name="actionSplit_flaw_noflaw"/>
@@ -106,7 +107,7 @@
   </action>
   <action name="actionSauvegarder">
    <property name="text">
-    <string>Sauvegarder</string>
+    <string>Enregistrer</string>
    </property>
   </action>
   <action name="actionParam_tres">
@@ -222,6 +223,11 @@
   <action name="actionOuvrir_une_session">
    <property name="text">
     <string>Ouvrir une session</string>
+   </property>
+  </action>
+  <action name="actionEnregistrer_sous">
+   <property name="text">
+    <string>Enregistrer sous</string>
    </property>
   </action>
  </widget>

@@ -1,12 +1,11 @@
 import logging
 import copy
-import re
 from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -28,6 +27,7 @@ from controllers.corrosion_profile_controller import CorrosionProfileController
 from controllers.dock_layout_controller import DockLayoutController
 from controllers.endview_controller import EndviewController
 from controllers.mask_modification_controller import MaskModificationController
+from controllers.session_workspace_controller import SessionWorkspaceController
 from models.annotation_model import AnnotationModel
 from models.applied_annotation_history_model import AppliedAnnotationHistoryModel
 from models.nde_model import NdeModel
@@ -62,7 +62,6 @@ from views.nde_open_options_dialog import NdeOpenOptionsDialog
 from views.endview_resize_dialog import EndviewResizeDialog
 from views.overlay_settings_view import OverlaySettingsView
 from views.piece3d_view import Piece3DView
-from views.session_manager_dialog import SessionManagerDialog
 
 
 class MasterController:
@@ -115,12 +114,12 @@ class MasterController:
         self._piece_show_interpolated: bool = True
         self._shortcuts: list[QShortcut] = []
         self._omniscan_lut: Optional[np.ndarray] = None
-        self._session_dialog: Optional[SessionManagerDialog] = None
         self._pre_corrosion_session_state = None
         self._pre_corrosion_session_id: Optional[str] = None
         self._annotation_axis_mode: str = "Auto"
         self._annotation_axis_name: str = "UCoordinate"
         self._secondary_axis_name: str = "VCoordinate"
+        self.main_window.closeEvent = self._on_main_window_close_event  # type: ignore[method-assign]
         self._app = QApplication.instance()
         if self._app is not None:
             self._app.aboutToQuit.connect(self._on_app_about_to_quit)
@@ -196,6 +195,30 @@ class MasterController:
             set_position_label=self.tools_panel.set_position_label,
             status_message=self.status_message,
         )
+        self.session_workspace_controller = SessionWorkspaceController(
+            main_window=self.main_window,
+            logger=self.logger,
+            session_manager=self.session_manager,
+            project_persistence=self.project_persistence,
+            annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
+            roi_model=self.roi_model,
+            view_state_model=self.view_state_model,
+            current_nde_path=lambda: self._nde_path,
+            require_nde_path=self._require_nde_path,
+            get_annotation_axis_mode=lambda: self._annotation_axis_mode,
+            get_signal_processing_selection=self._current_signal_processing_selection,
+            load_nde_file=self._load_nde_file,
+            after_session_switch=self._after_session_switch,
+            status_message=self.status_message,
+            has_pending_mask_edits=self.mask_modification_controller.has_pending_edits,
+            commit_pending_mask_edits=self.mask_modification_controller.commit_pending_edits,
+            has_pending_corrosion_edits=self.corrosion_profile_edit_service.has_pending_edits,
+            commit_pending_corrosion_edits=lambda: bool(
+                getattr(self, "corrosion_profile_controller", None)
+                and self.corrosion_profile_controller.commit_pending_edits()
+            ),
+        )
 
         self.cscan_controller = CScanController(
             standard_view=self.cscan_view,
@@ -233,6 +256,7 @@ class MasterController:
             set_position_label=self.tools_panel.set_position_label,
             status_message=self.status_message,
             apply_roi_fallback=self._apply_roi_non_corrosion,
+            on_session_changed=self._mark_active_session_dirty,
         )
 
         self._connect_actions()
@@ -258,6 +282,8 @@ class MasterController:
         self.ui.actioncharger_npz.triggered.connect(self._on_load_npz)
         if hasattr(self.ui, "actionSauvegarder"):
             self.ui.actionSauvegarder.triggered.connect(self._on_save_session)
+        if hasattr(self.ui, "actionEnregistrer_sous"):
+            self.ui.actionEnregistrer_sous.triggered.connect(self._on_save_session_as)
         self.ui.actionExporter_npz.triggered.connect(self._on_export_overlay_npz)
         if hasattr(self.ui, "actionExporter_endviews"):
             self.ui.actionExporter_endviews.triggered.connect(self._on_export_endviews)
@@ -540,6 +566,8 @@ class MasterController:
         )
         if not file_path:
             return
+        if not self._confirm_unsaved_sessions_before_reset("ouvrir un autre fichier NDE"):
+            return
 
         try:
             if not self._load_nde_file(file_path, prompt_open_options=True):
@@ -548,52 +576,8 @@ class MasterController:
             QMessageBox.critical(self.main_window, "Erreur NDE", str(exc))
 
     def _on_open_session(self) -> None:
-        """Open a persisted `.session` file and restore its full session dump."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self.main_window,
-            "Ouvrir une session",
-            "",
-            "Session Files (*.session);;All Files (*)",
-        )
-        if not file_path:
-            return
-
-        try:
-            payload = self.project_persistence.load_session(file_path)
-            nde_path = str(payload.nde_path)
-            if not Path(nde_path).exists():
-                raise FileNotFoundError(f"Fichier NDE introuvable: {nde_path}")
-
-            processing_options = NdeSignalProcessingOptions(
-                apply_hilbert=bool(
-                    payload.signal_processing_selection.get("apply_hilbert", False)
-                ),
-                apply_smoothing=bool(
-                    payload.signal_processing_selection.get("apply_smoothing", False)
-                ),
-            )
-            self._load_nde_file(
-                nde_path,
-                prompt_open_options=False,
-                axis_mode=payload.annotation_axis_mode,
-                processing_options=processing_options,
-            )
-            active_id = self.session_manager.restore_dump(payload.session_manager_dump)
-            if active_id is None:
-                raise ValueError("Aucune session active a restaurer.")
-            self.session_manager.switch_session(
-                active_id,
-                annotation_model=self.annotation_model,
-                temp_mask_model=self.temp_mask_model,
-                roi_model=self.roi_model,
-                view_state_model=self.view_state_model,
-                save_current=False,
-            )
-            self._refresh_session_dialog()
-            self._after_session_switch()
-            self.status_message(f"Session chargee: {file_path}", timeout_ms=5000)
-        except Exception as exc:
-            QMessageBox.critical(self.main_window, "Erreur session", str(exc))
+        """Open a persisted `.session` file and restore the contained active session."""
+        self.session_workspace_controller.open_session_via_dialog()
 
     def _on_load_npz(self) -> None:
         """Handle loading an NPZ overlay."""
@@ -624,6 +608,7 @@ class MasterController:
             self.annotation_controller.sync_overlay_settings()
             self.annotation_controller.refresh_overlay()
             self._sync_tools_labels()
+            self._mark_active_session_dirty()
             self.status_message(f"Overlay chargé: {file_path}")
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur overlay", str(exc))
@@ -680,6 +665,7 @@ class MasterController:
                     self.annotation_controller.sync_overlay_settings()
                     self.annotation_controller.refresh_overlay()
                     self._sync_tools_labels()
+                    self._mark_active_session_dirty()
                     self.status_message(
                         f"nnUNet terminé, masque sauvegardé : {result.output_path}", timeout_ms=5000
                     )
@@ -732,55 +718,12 @@ class MasterController:
             QMessageBox.critical(self.main_window, "Erreur sauvegarde overlay", str(exc))
 
     def _on_save_session(self) -> None:
-        """Persist each in-memory annotation session to its own `.session` file."""
-        if self.nde_model is None:
-            QMessageBox.warning(
-                self.main_window,
-                "Session",
-                "Chargez un NDE avant de sauvegarder une session.",
-            )
-            return
+        """Persist the active annotation session to its bound `.session` file."""
+        self.session_workspace_controller.save_active_session_via_ui(force_dialog=False)
 
-        try:
-            session_dump = self.session_manager.build_dump(
-                annotation_model=self.annotation_model,
-                temp_mask_model=self.temp_mask_model,
-                roi_model=self.roi_model,
-                view_state_model=self.view_state_model,
-            )
-            sessions = session_dump.get("sessions") or {}
-            if not isinstance(sessions, dict) or not sessions:
-                raise ValueError("Aucune session a sauvegarder.")
-
-            nde_path = self._require_nde_path()
-            processing_selection = self._current_signal_processing_selection()
-            saved_paths: list[str] = []
-            for session_id, state in sessions.items():
-                if not isinstance(session_id, str):
-                    raise ValueError("Identifiant de session invalide.")
-                session_name = getattr(state, "name", None)
-                single_session_dump = {
-                    "sessions": {session_id: state},
-                    "active_id": session_id,
-                }
-                saved_path = self.project_persistence.save_session(
-                    self._build_session_save_path(session_id, session_name=session_name),
-                    nde_path=nde_path,
-                    annotation_axis_mode=self._annotation_axis_mode,
-                    signal_processing_selection=processing_selection,
-                    session_manager_dump=single_session_dump,
-                )
-                saved_paths.append(saved_path)
-
-            if len(saved_paths) == 1:
-                self.status_message(f"Session sauvegardee: {saved_paths[0]}", timeout_ms=5000)
-            else:
-                self.status_message(
-                    f"Sessions sauvegardees: {len(saved_paths)} fichiers .session",
-                    timeout_ms=5000,
-                )
-        except Exception as exc:
-            QMessageBox.critical(self.main_window, "Erreur sauvegarde session", str(exc))
+    def _on_save_session_as(self) -> None:
+        """Persist the active annotation session to a user-chosen `.session` file."""
+        self.session_workspace_controller.save_active_session_via_ui(force_dialog=True)
 
     def _on_export_endviews(self) -> None:
         """Export endviews (RGB + UINT8) via le service dédié."""
@@ -1010,6 +953,10 @@ class MasterController:
         """Quit the application."""
         self.main_window.close()
 
+    def _on_main_window_close_event(self, event: Any) -> None:
+        """Intercept window close to protect unsaved sessions."""
+        self.session_workspace_controller.on_main_window_close_event(event)
+
     def _on_app_about_to_quit(self) -> None:
         """Persist UI docking layout before Qt application shutdown."""
         try:
@@ -1100,7 +1047,8 @@ class MasterController:
     def _apply_roi_non_corrosion(self) -> None:
         """Apply all temporary masks through the standard pipeline."""
         self.mask_modification_controller.commit_pending_edits()
-        self.annotation_controller.on_apply_temp_mask_requested()
+        if self.annotation_controller.on_apply_temp_mask_requested():
+            self._mark_active_session_dirty()
 
     def _on_selection_cancel_requested(self) -> None:
         """Cancel mod pending edits first, then fallback to ROI/temp cancel."""
@@ -1111,6 +1059,7 @@ class MasterController:
     def _on_annotation_undo_requested(self) -> None:
         """Undo the last committed annotation apply action."""
         if self.annotation_controller.on_undo_last_applied_annotation_requested():
+            self._mark_active_session_dirty()
             self.status_message("Derniere annotation appliquee annulee.", timeout_ms=1800)
             return
         self.status_message("Aucune annotation appliquee a annuler.", timeout_ms=1800)
@@ -1118,6 +1067,7 @@ class MasterController:
     def _on_annotation_redo_requested(self) -> None:
         """Redo the last committed annotation undo action."""
         if self.annotation_controller.on_redo_last_applied_annotation_requested():
+            self._mark_active_session_dirty()
             self.status_message("Derniere annotation reappliquee.", timeout_ms=1800)
             return
         self.status_message("Aucune annotation a reappliquer.", timeout_ms=1800)
@@ -1551,6 +1501,8 @@ class MasterController:
             roi_model=self.roi_model,
             view_state_model=self.view_state_model,
         )
+        self._clear_session_runtime_state(remove_autosaves=True)
+        self._refresh_session_dialog()
 
         self.tools_panel.set_primary_slice_bounds(0, num_slices - 1)
         self.tools_panel.set_primary_slice_value(0)
@@ -1605,29 +1557,129 @@ class MasterController:
             "apply_smoothing": bool(selection.get("apply_smoothing", False)),
         }
 
-    def _build_session_save_path(self, session_id: str, *, session_name: Optional[str] = None) -> str:
-        """Build the deterministic `.session` path tied to a specific session id."""
-        nde_path = Path(self._require_nde_path())
-        normalized_session_id = str(session_id).strip()
-        if not normalized_session_id:
-            raise ValueError("Identifiant de session manquant pour la sauvegarde.")
-        normalized_session_name = self._normalize_session_filename_part(session_name)
-        return str(
-            nde_path.with_name(
-                f"{nde_path.stem}_{normalized_session_name}_{normalized_session_id}.session"
-            )
+    def _save_active_session(self, *, force_dialog: bool) -> Optional[str]:
+        """Save the active session, optionally forcing the save dialog."""
+        return self.session_workspace_controller.save_active_session(force_dialog=force_dialog)
+
+    def _save_session(
+        self,
+        session_id: str,
+        *,
+        force_dialog: bool,
+        clean_after_save: bool,
+    ) -> Optional[str]:
+        """Save one session by id, optionally forcing the save dialog."""
+        return self.session_workspace_controller.save_session(
+            session_id,
+            force_dialog=force_dialog,
+            clean_after_save=clean_after_save,
+        )
+
+    def _prepare_active_session_for_persistence(self) -> bool:
+        """Apply pending live edits so the saved session reflects the visible document."""
+        return self.session_workspace_controller._prepare_active_session_for_persistence()
+
+    def _persist_session_to_destination(self, session_id: str, destination: str) -> str:
+        """Serialize one session to the provided destination path."""
+        return self.session_workspace_controller._persist_session_to_destination(
+            session_id,
+            destination,
+        )
+
+    def _set_session_dirty(
+        self,
+        session_id: str,
+        dirty: bool,
+        *,
+        schedule_autosave: bool = True,
+    ) -> None:
+        self.session_workspace_controller._set_session_dirty(
+            session_id,
+            dirty,
+            schedule_autosave=schedule_autosave,
+        )
+
+    def _mark_active_session_dirty(self) -> None:
+        self.session_workspace_controller.mark_active_session_dirty()
+
+    def _is_session_dirty(self, session_id: str) -> bool:
+        return self.session_workspace_controller._is_session_dirty(session_id)
+
+    def _active_session_has_pending_runtime_edits(self) -> bool:
+        return self.session_workspace_controller._active_session_has_pending_runtime_edits()
+
+    def _session_has_unsaved_changes(self, session_id: str) -> bool:
+        return self.session_workspace_controller._session_has_unsaved_changes(session_id)
+
+    def _ordered_unsaved_session_ids(self) -> list[str]:
+        return self.session_workspace_controller._ordered_unsaved_session_ids()
+
+    def _confirm_unsaved_sessions_before_reset(self, action_label: str) -> bool:
+        """Prompt the user about unsaved sessions before replacing the dataset/session set."""
+        return self.session_workspace_controller.confirm_unsaved_sessions_before_reset(
+            action_label,
+        )
+
+    def _confirm_unsaved_sessions(self, session_ids: list[str], *, action_label: str) -> bool:
+        return self.session_workspace_controller._confirm_unsaved_sessions(
+            session_ids,
+            action_label=action_label,
+        )
+
+    def _confirm_unsaved_session(self, session_id: str, *, action_label: str) -> bool:
+        return self.session_workspace_controller._confirm_unsaved_session(
+            session_id,
+            action_label=action_label,
+        )
+
+    def _schedule_session_autosave(self, session_id: str) -> None:
+        self.session_workspace_controller._schedule_session_autosave(session_id)
+
+    def _flush_session_autosaves(self) -> None:
+        self.session_workspace_controller._flush_session_autosaves()
+
+    def _autosave_session_path(self, session_id: str) -> str:
+        nde_path = self._require_nde_path()
+        return self.session_workspace_controller._autosave_session_path(
+            session_id,
+            nde_path=nde_path,
+        )
+
+    def _cleanup_session_autosave(self, session_id: str) -> None:
+        self.session_workspace_controller._cleanup_session_autosave(session_id)
+
+    def _clear_session_runtime_state(self, *, remove_autosaves: bool) -> None:
+        self.session_workspace_controller.clear_runtime_state(remove_autosaves=remove_autosaves)
+
+    def _suggest_session_save_path(
+        self,
+        *,
+        session_name: Optional[str],
+        current_path: Optional[str] = None,
+    ) -> str:
+        """Return the default destination proposed by the save dialog."""
+        return self.session_workspace_controller._suggest_session_save_path(
+            session_name=session_name,
+            current_path=current_path,
+        )
+
+    def _extract_single_session_dump(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Reduce any persisted dump to a single active session payload."""
+        return self.session_workspace_controller._extract_single_session_dump(payload)
+
+    @staticmethod
+    def _normalize_session_name(session_name: Optional[str], *, fallback: str = "New session") -> str:
+        return SessionWorkspaceController._normalize_session_name(
+            session_name,
+            fallback=fallback,
         )
 
     @staticmethod
-    def _normalize_session_filename_part(session_name: Optional[str]) -> str:
-        """Normalize a session name to a Windows-safe filename fragment."""
-        raw_name = str(session_name or "").strip()
-        if not raw_name:
-            return "session"
-        normalized = re.sub(r"\s+", "_", raw_name)
-        normalized = re.sub(r'[<>:"/\\\\|?*]+', "_", normalized)
-        normalized = re.sub(r"_+", "_", normalized).strip("._")
-        return normalized or "session"
+    def _session_name_from_path(file_path: str, *, fallback: Optional[str] = None) -> str:
+        return SessionWorkspaceController._session_name_from_path(
+            file_path,
+            fallback=fallback,
+        )
 
     def _require_nde_path(self) -> str:
         """Return the current NDE path or fail if none is available."""
@@ -1725,56 +1777,22 @@ class MasterController:
     # ------------------------------------------------------------------ #
     def _open_session_dialog(self) -> None:
         """Affiche le gestionnaire de sessions et connecte les signaux."""
-        if self._session_dialog is None:
-            self._session_dialog = SessionManagerDialog(parent=self.main_window)
-            self._session_dialog.session_selected.connect(self._on_session_selected)
-            self._session_dialog.session_created.connect(self._on_session_created)
-            self._session_dialog.session_deleted.connect(self._on_session_deleted)
-        self._refresh_session_dialog()
-        self._session_dialog.show()
-        self._session_dialog.raise_()
-        self._session_dialog.activateWindow()
+        self.session_workspace_controller.open_session_dialog()
 
     def _refresh_session_dialog(self) -> None:
-        if self._session_dialog is None:
-            return
-        sessions = self.session_manager.list_sessions()
-        self._session_dialog.set_sessions(sessions)
+        self.session_workspace_controller.refresh_session_dialog()
 
     def _on_session_created(self, name: str) -> None:
-        self.session_manager.create_from_models(
-            name=name,
-            annotation_model=self.annotation_model,
-            temp_mask_model=self.temp_mask_model,
-            roi_model=self.roi_model,
-            view_state_model=self.view_state_model,
-            set_active=True,
-            save_active=True,
-        )
-        self._refresh_session_dialog()
-        self._after_session_switch()
+        self.session_workspace_controller.on_session_created(name)
+
+    def _on_session_duplicated(self, name: str) -> None:
+        self.session_workspace_controller.on_session_duplicated(name)
 
     def _on_session_selected(self, session_id: str) -> None:
-        self.session_manager.switch_session(
-            session_id,
-            annotation_model=self.annotation_model,
-            temp_mask_model=self.temp_mask_model,
-            roi_model=self.roi_model,
-            view_state_model=self.view_state_model,
-            save_current=True,
-        )
-        self._after_session_switch()
+        self.session_workspace_controller.on_session_selected(session_id)
 
     def _on_session_deleted(self, session_id: str) -> None:
-        self.session_manager.delete_session(
-            session_id,
-            annotation_model=self.annotation_model,
-            temp_mask_model=self.temp_mask_model,
-            roi_model=self.roi_model,
-            view_state_model=self.view_state_model,
-        )
-        self._refresh_session_dialog()
-        self._after_session_switch()
+        self.session_workspace_controller.on_session_deleted(session_id)
 
     def _after_session_switch(self) -> None:
         """Synchronise l'état du modèle actif vers les vues."""
@@ -1878,10 +1896,11 @@ class MasterController:
             )
             self.view_state_model.corrosion_active = True
 
-        name = "Corrosion (interpolé)" if self.nde_model is None else f"Corrosion (interpolé) - {self.nde_model.metadata.get('path', 'NDE')}"
+        origin_name = getattr(origin_state, "name", None)
+        name = f"{self._normalize_session_name(origin_name)} corrosion"
 
         # 3) Crée la nouvelle session sans sauvegarder l'active (déjà mise à jour), puis bascule dessus
-        self.session_manager.create_from_models(
+        new_session_id = self.session_manager.create_from_models(
             name=name,
             annotation_model=self.annotation_model,
             temp_mask_model=self.temp_mask_model,
@@ -1890,6 +1909,7 @@ class MasterController:
             set_active=True,
             save_active=False,
         )
+        self.session_workspace_controller.register_unsaved_session(new_session_id, dirty=True)
 
         self._pre_corrosion_session_state = None
         self._pre_corrosion_session_id = None

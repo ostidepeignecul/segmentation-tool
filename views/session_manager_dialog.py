@@ -20,6 +20,7 @@ class SessionManagerDialog(QDialog):
 
     session_selected = pyqtSignal(str)
     session_created = pyqtSignal(str)
+    session_duplicated = pyqtSignal(str)
     session_deleted = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
@@ -30,13 +31,15 @@ class SessionManagerDialog(QDialog):
 
         self._list = QListWidget(self)
         self._name_edit = QLineEdit(self)
-        self._name_edit.setPlaceholderText("Nom de la nouvelle session")
+        self._name_edit.setPlaceholderText("Nom de la session")
 
-        create_btn = QPushButton("Créer (dupliquer l'actuelle)", self)
+        create_btn = QPushButton("Créer", self)
+        duplicate_btn = QPushButton("Dupliquer", self)
         delete_btn = QPushButton("Supprimer", self)
         close_btn = QPushButton("Fermer", self)
 
         create_btn.clicked.connect(self._on_create)
+        duplicate_btn.clicked.connect(self._on_duplicate)
         delete_btn.clicked.connect(self._on_delete)
         close_btn.clicked.connect(self.close)
         self._list.currentItemChanged.connect(self._on_selection_changed)
@@ -48,6 +51,7 @@ class SessionManagerDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addWidget(create_btn)
+        buttons.addWidget(duplicate_btn)
         buttons.addWidget(delete_btn)
         buttons.addWidget(close_btn)
         layout.addLayout(buttons)
@@ -61,7 +65,7 @@ class SessionManagerDialog(QDialog):
         self._list.blockSignals(True)
         self._list.clear()
         for sid, name, is_active in sessions:
-            item = QListWidgetItem(f"{name} ({sid[:8]})")
+            item = QListWidgetItem(name)
             item.setData(256, sid)  # Qt.UserRole
             if is_active:
                 font = item.font()
@@ -87,8 +91,13 @@ class SessionManagerDialog(QDialog):
             self.session_selected.emit(sid)
 
     def _on_create(self) -> None:
-        name = self._name_edit.text().strip() or "Nouvelle session"
+        name = self._name_edit.text().strip()
         self.session_created.emit(name)
+        self._name_edit.clear()
+
+    def _on_duplicate(self) -> None:
+        name = self._name_edit.text().strip()
+        self.session_duplicated.emit(name)
         self._name_edit.clear()
 
     def _on_delete(self) -> None:
