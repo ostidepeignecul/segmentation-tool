@@ -188,6 +188,7 @@ class VolumeView(QFrame):
         self._overlay_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self._overlay_colormap: Optional[Colormap] = None
         self._overlay_opacity: float = 1.0
+        self._nde_opacity: float = 1.0
         self._label_visuals: Dict[int, scene.visuals.Volume] = {}
         self._uploaded_volumes: Dict[int, np.ndarray] = {}
         self._visible_labels: Optional[set[int]] = None
@@ -288,6 +289,16 @@ class VolumeView(QFrame):
             self._volume_visual.cmap = self._base_colormap
         # self._slice_image uses direct RGBA, so no colormap needed.
         pass
+
+    def set_nde_opacity(self, opacity: float) -> None:
+        """Set global NDE volume opacity (0.0 - 1.0)."""
+        try:
+            value = float(opacity)
+        except (TypeError, ValueError):
+            value = 1.0
+        self._nde_opacity = max(0.0, min(1.0, value))
+        if self._volume_visual is not None:
+            self._volume_visual.opacity = self._nde_opacity
 
     def get_display_size(self) -> Tuple[int, int]:
         """Return requested display size or current viewport size."""
@@ -608,6 +619,7 @@ class VolumeView(QFrame):
             method="mip",
             cmap=self._base_colormap,
         )
+        self._volume_visual.opacity = self._nde_opacity
 
         # Configure camera ranges and centre
         self._configure_camera(depth, height, width)

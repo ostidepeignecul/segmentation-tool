@@ -386,6 +386,8 @@ class MasterController:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
         self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
+        self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
+        self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
         self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
         self._sync_tools_coordinate_labels()
         initial_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
@@ -403,6 +405,7 @@ class MasterController:
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
         self.tools_panel.overlay_opacity_changed.connect(self._on_overlay_opacity_changed)
+        self.tools_panel.nde_opacity_changed.connect(self._on_nde_opacity_changed)
         self.tools_panel.endview_colormap_changed.connect(self._on_endview_colormap_changed)
         self.tools_panel.overlay_toggled.connect(self._on_overlay_toggled)
         self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
@@ -970,6 +973,15 @@ class MasterController:
         alpha = float(self.view_state_model.overlay_alpha)
         self.overlay_settings_view.set_overlay_opacity(alpha)
         self.tools_panel.set_overlay_opacity(alpha)
+
+    def _on_nde_opacity_changed(self, opacity: float) -> None:
+        """Keep NDE opacity synchronized across the tools panel and render views."""
+        self.view_state_model.set_nde_alpha(opacity)
+        alpha = float(self.view_state_model.nde_alpha)
+        self.endview_controller.set_nde_opacity(alpha)
+        self.volume_view.set_nde_opacity(alpha)
+        self.tools_panel.set_nde_opacity(alpha)
+        self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
 
     def _on_endview_colormap_changed(self, name: str) -> None:
         normalized = self._normalize_colormap_name(name)
@@ -1721,6 +1733,7 @@ class MasterController:
         """Push the current volume state into all views."""
         volume = self._current_volume()
         if volume is None:
+            self.tools_panel.set_nde_opacity_available(False)
             return
         self.view_state_model.set_slice_bounds(0, volume.shape[0] - 1)
         self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
@@ -1756,11 +1769,15 @@ class MasterController:
 
         # Envoie le volume à la vue 3D en précisant l’ordre des axes
         self.volume_view.set_volume(volume, slice_idx=slice_idx, axis_order=axis_order)
+        self.volume_view.set_nde_opacity(self.view_state_model.nde_alpha)
         self.volume_view.set_secondary_slice_index(
             secondary_slice_idx,
             update_slider=True,
             emit=False,
         )
+        self.endview_controller.set_nde_opacity(self.view_state_model.nde_alpha)
+        self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
+        self.tools_panel.set_nde_opacity_available(True)
 
         # Applique l’overlay après la (re)construction de la scène 3D
         self.annotation_controller.refresh_overlay(rebuild=False)
@@ -1825,6 +1842,8 @@ class MasterController:
         self.annotation_controller.sync_overlay_settings()
         self.annotation_controller.apply_overlay_opacity()
         self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
+        self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
+        self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
         # Rafraîchir le volume puis réappliquer l'overlay pour forcer le push 3D
         self._refresh_views()
         self.corrosion_profile_controller.sync_anchors()

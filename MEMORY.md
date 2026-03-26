@@ -3592,3 +3592,35 @@ Le workflow precedent melangeait encore orchestration UI, persistance de session
 1. Centraliser le workflow document/session dans un `SessionWorkspaceController` dedie plutot que de charger `AnnotationSessionManager` ou `ProjectPersistence` avec des responsabilites UI, afin de conserver une separation MVC defendable.
 2. Reutiliser le dump complet d une session persistable pour l autosave temporaire et pour les confirmations de fermeture, plutot que le systeme undo/redo qui ne contient que des slices appliquees et ne represente pas tout l etat de session.
 3. Faire du nom de fichier `.session` le nom de session visible et sauvegarder une seule session par fichier, afin d eliminer les noms hardcodes/IDs du selecteur et d aligner le comportement utilisateur avec l ouverture/sauvegarde document par document.
+
+### 2026-03-25 - Regle agent locale alignee sur le workflow memory-first
+**Tags :** `#branch:annotation`, `#.agent/rules/agent-context.md`, `#agent`, `#memory-first`, `#brew`, `#workflow`
+
+**Actions effectuees :**
+- Ajoute `.agent/rules/agent-context.md` comme regle locale always-on reprenant le workflow memory-first, la distinction `rag`/`brew`, la contrainte de plan valide et la procedure Ragbrew.
+- Aligne les consignes locales sur les etapes de consultation memoire, lecture directe de `MEMORY.md` en fallback, et rebuild obligatoire de l index apres documentation.
+
+**Contexte :**
+Le diff staged ajoute une regle locale pour que l agent applique directement dans l IDE le meme cadre d execution que celui defini au niveau du depot, en particulier pour les sequences `rag` et `brew`.
+
+**Decisions techniques :**
+1. Dupliquer la regle sous `.agent/rules/agent-context.md` plutot que de s appuyer uniquement sur `AGENTS.md`, afin que le contexte local de l agent reste coherent avec le workflow du projet.
+2. Garder la regle en mode `always_on` pour imposer memory-first et la discipline de documentation sans dependre d un rappel manuel.
+
+### 2026-03-25 - Opacite NDE synchronisee sur endviews et vue 3D
+**Tags :** `#branch:annotation`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#views/endview_view.py`, `#views/tools_panel.py`, `#views/volume_view.py`, `#nde`, `#opacity`, `#pyqt6`, `#vispy`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute `nde_alpha` dans `models/view_state_model.py` avec une valeur par defaut a `1.0` pour conserver un NDE full opaque tant qu aucun reglage n est applique.
+- Complete `views/tools_panel.py` avec un vrai signal `nde_opacity_changed`, un setter de synchro UI et une activation conditionnelle du controle NDE.
+- Ajoute `set_nde_opacity()` dans `views/endview_view.py` pour piloter l opacite de l image de base sur les endviews sans toucher a l overlay.
+- Ajoute `set_nde_opacity()` dans `views/volume_view.py` et reapplique la valeur sur le `VolumeVisual` VisPy lors des rebuilds de scene.
+- Etend `controllers/endview_controller.py` et `controllers/master_controller.py` pour propager l opacite NDE vers toutes les endviews, la vue 3D, le chargement NDE et les switches de session.
+
+**Contexte :**
+Le besoin etait de disposer d une opacite NDE distincte de l overlay, avec le meme mode de pilotage UI, une valeur par defaut a 100 pour cent et une application coherente sur toutes les vues qui affichent le signal NDE brut.
+
+**Decisions techniques :**
+1. Stocker l opacite NDE dans `ViewStateModel` comme etat de vue persistant, afin qu elle survive aux switches de session et reste dans la couche modele.
+2. Appliquer l opacite du NDE directement sur les renderers de base (`QGraphicsPixmapItem` pour les endviews, `VolumeVisual.opacity` pour la 3D) plutot que de melanger cette logique avec l overlay.
+3. Reprendre le meme schema de propagation que pour l opacite overlay, avec `ToolsPanel` comme source UI, `MasterController` comme orchestrateur et les vues limitees au rendu.

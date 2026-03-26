@@ -14,6 +14,7 @@ class ViewStateModel:
 
         # --- Overlay & Display ---
         self.overlay_alpha: float = 0.4
+        self.nde_alpha: float = 1.0
         self.colormap: Optional[str] = None
         self.endview_colormap: str = "Gris"
         self.cscan_colormap: str = "Gris"
@@ -231,6 +232,14 @@ class ViewStateModel:
         except (TypeError, ValueError):
             alpha = 1.0
         self.overlay_alpha = max(0.0, min(1.0, alpha))
+
+    def set_nde_alpha(self, value: float) -> None:
+        """Set global NDE opacity (0.0 - 1.0)."""
+        try:
+            alpha = float(value)
+        except (TypeError, ValueError):
+            alpha = 1.0
+        self.nde_alpha = max(0.0, min(1.0, alpha))
 
     def toggle_volume(self, visible: bool) -> None:
         self.show_volume = bool(visible)

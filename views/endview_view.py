@@ -73,6 +73,8 @@ class EndviewView(QFrame):
         self._default_self_max_size = self.maximumSize()
 
         self._image_item = QGraphicsPixmapItem()
+        self._nde_opacity: float = 1.0
+        self._image_item.setOpacity(self._nde_opacity)
         self._scene.addItem(self._image_item)
         self._overlay_opacity: float = 1.0
         self._overlay_item = QGraphicsPixmapItem()
@@ -159,6 +161,15 @@ class EndviewView(QFrame):
             value = 1.0
         self._overlay_opacity = max(0.0, min(1.0, value))
         self._overlay_item.setOpacity(self._overlay_opacity)
+
+    def set_nde_opacity(self, opacity: float) -> None:
+        """Set base NDE slice opacity (0.0 - 1.0)."""
+        try:
+            value = float(opacity)
+        except (TypeError, ValueError):
+            value = 1.0
+        self._nde_opacity = max(0.0, min(1.0, value))
+        self._image_item.setOpacity(self._nde_opacity)
 
     def update_image(self) -> None:
         """Force re-rendering the base slice."""

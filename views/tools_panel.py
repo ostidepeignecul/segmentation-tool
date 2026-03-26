@@ -39,6 +39,7 @@ class ToolsPanel(QFrame):
     label_selected = pyqtSignal(int)
     paint_size_changed = pyqtSignal(int)
     overlay_opacity_changed = pyqtSignal(float)
+    nde_opacity_changed = pyqtSignal(float)
     endview_colormap_changed = pyqtSignal(str)
 
     _TOOL_MODE_BY_TEXT = {
@@ -218,7 +219,7 @@ class ToolsPanel(QFrame):
         self._wired = True
         self.set_nde_name("")
         self.set_endview_name("")
-        self._set_nde_opacity_available(False)
+        self.set_nde_opacity_available(False)
 
     def _configure_slice_controls(
         self,
@@ -462,6 +463,15 @@ class ToolsPanel(QFrame):
             percent,
         )
 
+    def set_nde_opacity(self, opacity: float) -> None:
+        """Update the NDE opacity widgets without re-emitting signals."""
+        percent = int(round(max(0.0, min(1.0, float(opacity))) * 100.0))
+        self._set_pair_value(
+            self._nde_opacity_slider,
+            self._nde_opacity_spinbox,
+            percent,
+        )
+
     def _on_threshold_changed(self, value: int) -> None:
         """Update threshold label and emit value."""
         self._update_threshold_label(value)
@@ -491,6 +501,7 @@ class ToolsPanel(QFrame):
             slider=self._nde_opacity_slider,
             spinbox=self._nde_opacity_spinbox,
         )
+        self.nde_opacity_changed.emit(float(int(value)) / 100.0)
 
     def _on_primary_slice_changed(self, value: int) -> None:
         self._sync_pair_from_source(
@@ -571,7 +582,7 @@ class ToolsPanel(QFrame):
             return
         self._secondary_axis_label.setText(str(name).strip() if name else "V-Coordinate")
 
-    def _set_nde_opacity_available(self, available: bool) -> None:
+    def set_nde_opacity_available(self, available: bool) -> None:
         enabled = bool(available)
         tooltip = "" if enabled else "Opacité NDE non disponible pour l'instant."
         for widget in (self._nde_opacity_slider, self._nde_opacity_spinbox, self._nde_opacity_label):
