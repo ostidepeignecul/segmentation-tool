@@ -102,12 +102,6 @@ class ToolsPanel(QFrame):
     def attach_designer_widgets(
         self,
         *,
-        primary_axis_label: QLabel,
-        primary_slice_slider: QSlider,
-        primary_slice_spinbox: QSpinBox,
-        secondary_axis_label: QLabel,
-        secondary_slice_slider: QSlider,
-        secondary_slice_spinbox: QSpinBox,
         tool_combo: QComboBox,
         colormap_combo: QComboBox,
         threshold_slider: QSlider,
@@ -117,9 +111,6 @@ class ToolsPanel(QFrame):
         overlay_opacity_spinbox: QSpinBox,
         nde_opacity_slider: QSlider,
         nde_opacity_spinbox: QSpinBox,
-        nde_label: QLabel,
-        endview_label: QLabel,
-        position_label: QLabel,
         apply_volume_checkbox: QCheckBox,
         threshold_auto_checkbox: QCheckBox,
         roi_persistence_checkbox: QCheckBox,
@@ -136,12 +127,6 @@ class ToolsPanel(QFrame):
         if self._wired:
             return
 
-        self._primary_axis_label = primary_axis_label
-        self._secondary_axis_label = secondary_axis_label
-        self._primary_slider = primary_slice_slider
-        self._secondary_slider = secondary_slice_slider
-        self._primary_spinbox = primary_slice_spinbox
-        self._secondary_spinbox = secondary_slice_spinbox
         self._tool_combo = tool_combo
         self._colormap_combo = colormap_combo
         self._threshold_slider = threshold_slider
@@ -152,9 +137,6 @@ class ToolsPanel(QFrame):
         self._nde_opacity_slider = nde_opacity_slider
         self._nde_opacity_spinbox = nde_opacity_spinbox
         self._nde_opacity_label = nde_opacity_label
-        self._nde_label = nde_label
-        self._endview_label = endview_label
-        self._position_label = position_label
         self._apply_volume_checkbox = apply_volume_checkbox
         self._threshold_auto_checkbox = threshold_auto_checkbox
         self._overlay_checkbox = overlay_checkbox
@@ -166,17 +148,6 @@ class ToolsPanel(QFrame):
         self._apply_roi_button = apply_roi_button
         self._label_container = label_container
         self._ensure_label_layout()
-
-        self._configure_slice_controls(
-            slider=self._primary_slider,
-            spinbox=self._primary_spinbox,
-            handler=self._on_primary_slice_changed,
-        )
-        self._configure_slice_controls(
-            slider=self._secondary_slider,
-            spinbox=self._secondary_spinbox,
-            handler=self._on_secondary_slice_changed,
-        )
 
         self._prepare_tool_combo()
         self._tool_combo.currentIndexChanged.connect(self._on_tool_combo_changed)
@@ -217,8 +188,6 @@ class ToolsPanel(QFrame):
             self._paint_size_slider.valueChanged.connect(self.paint_size_changed.emit)
 
         self._wired = True
-        self.set_nde_name("")
-        self.set_endview_name("")
         self.set_nde_opacity_available(False)
 
     def _configure_slice_controls(

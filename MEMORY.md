@@ -3624,3 +3624,20 @@ Le besoin etait de disposer d une opacite NDE distincte de l overlay, avec le me
 1. Stocker l opacite NDE dans `ViewStateModel` comme etat de vue persistant, afin qu elle survive aux switches de session et reste dans la couche modele.
 2. Appliquer l opacite du NDE directement sur les renderers de base (`QGraphicsPixmapItem` pour les endviews, `VolumeVisual.opacity` pour la 3D) plutot que de melanger cette logique avec l overlay.
 3. Reprendre le meme schema de propagation que pour l opacite overlay, avec `ToolsPanel` comme source UI, `MasterController` comme orchestrateur et les vues limitees au rendu.
+
+### 2026-03-26 - Navigation endview relocalisee dans les vues U V
+**Tags :** `#branch:annotation`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/endview_view.py`, `#views/tools_panel.py`, `#endview`, `#navigation`, `#titlebar`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Retire du `ToolsPanel` les labels NDE Endview position et les controles de navigation primaire secondaire, avec mise a jour de `toolspanel.ui`, `ui_toolspanel.py` et `views/tools_panel.py` pour ne garder que les outils, opacites et colormap.
+- Etend `views/endview_view.py` avec une UI locale de navigation composee d un titre d axe, d un slider, d un spinbox et d une ligne de statut affichant le nom d endview et, pour la vue d annotation, la position courante.
+- Etend `controllers/endview_controller.py` avec des helpers pour pousser bornes de navigation, noms d axes, noms d endview distincts primaire secondaire et texte de position sur la vue principale.
+- Rebranche `controllers/master_controller.py` pour piloter directement les controles des vues U et V, mettre le chemin NDE complet dans le titlebar principal, et synchroniser un nom d endview propre a chaque vue a partir de `current_slice` et `secondary_slice`.
+
+**Contexte :**
+Le workflow precedent affichait encore la navigation des endviews dans le dock outils alors que les vues U et V etaient deja distinctes. Le besoin etait de rapprocher les controles de leur vue respective, de montrer le chemin NDE dans la fenetre principale, et de differencier explicitement le nom de l endview principale de celui de l endview secondaire.
+
+**Decisions techniques :**
+1. Conserver `EndviewView` comme composant de base et lui ajouter une petite UI locale, plutot que creer un nouveau widget composite, afin de limiter l impact sur `AnnotationView`, la vue corrosion et le layout ADS existant.
+2. Garder `MasterController` comme orchestrateur des indices `current_slice` et `secondary_slice`, mais deplacer l affichage de navigation dans les vues pour respecter une separation MVC ou la vue possede ses widgets et le controleur pousse seulement l etat.
+3. Gerer deux setters distincts pour les noms d endview primaire et secondaire dans `EndviewController`, afin d eviter que la vue orthogonale reutilise par erreur le nom calcule pour la vue principale.

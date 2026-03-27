@@ -155,6 +155,12 @@ class MasterController:
             secondary_stacked_layout=self.secondary_annotation_stack,
             view_state_model=self.view_state_model,
         )
+        self.endview_controller.set_primary_status_position_visible(True)
+        self.endview_controller.set_secondary_status_position_visible(False)
+        self.endview_controller.set_axis_names(
+            primary=self._annotation_axis_name,
+            secondary=self._secondary_axis_name,
+        )
 
         self.annotation_service = AnnotationService()
 
@@ -192,7 +198,7 @@ class MasterController:
             mask_modification_service=self.mask_modification_service,
             refresh_overlay=self.annotation_controller.refresh_overlay,
             refresh_roi_overlay_for_slice=self.annotation_controller.refresh_roi_overlay_for_slice,
-            set_position_label=self.tools_panel.set_position_label,
+            set_position_label=self._set_annotation_position_label,
             status_message=self.status_message,
         )
         self.session_workspace_controller = SessionWorkspaceController(
@@ -253,7 +259,7 @@ class MasterController:
             cscan_corrosion_service=self.cscan_corrosion_service,
             corrosion_profile_edit_service=self.corrosion_profile_edit_service,
             get_volume=self._current_volume,
-            set_position_label=self.tools_panel.set_position_label,
+            set_position_label=self._set_annotation_position_label,
             status_message=self.status_message,
             apply_roi_fallback=self._apply_roi_non_corrosion,
             on_session_changed=self._mark_active_session_dirty,
@@ -264,7 +270,7 @@ class MasterController:
         self._register_shortcuts()
         self.annotation_controller.apply_overlay_opacity()
         self._sync_tools_labels()
-        self._update_nde_label()
+        self._update_main_window_title()
         self._update_endview_label()
         self._sync_display_toggle_actions()
         self.session_manager.ensure_default(
@@ -349,12 +355,6 @@ class MasterController:
     def _connect_signals(self) -> None:
         """Wire view signals to controller handlers."""
         self.tools_panel.attach_designer_widgets(
-            primary_axis_label=self._tools_ui.label_3,
-            primary_slice_slider=self._tools_ui.horizontalSlider_2,
-            primary_slice_spinbox=self._tools_ui.spinBox_2,
-            secondary_axis_label=self._tools_ui.label_7,
-            secondary_slice_slider=self._tools_ui.horizontalSlider_4,
-            secondary_slice_spinbox=self._tools_ui.spinBox,
             tool_combo=self._tools_ui.comboBox,
             colormap_combo=self._tools_ui.comboBox_2,
             threshold_slider=self._tools_ui.horizontalSlider,
@@ -364,9 +364,6 @@ class MasterController:
             overlay_opacity_spinbox=self._tools_ui.spinBox_4,
             nde_opacity_slider=self._tools_ui.horizontalSlider_5,
             nde_opacity_spinbox=self._tools_ui.spinBox_3,
-            nde_label=self._tools_ui.label,
-            endview_label=self._tools_ui.label_5,
-            position_label=self._tools_ui.label_4,
             apply_volume_checkbox=self._tools_ui.checkBox,
             threshold_auto_checkbox=self._tools_ui.checkBox_2,
             roi_persistence_checkbox=self._tools_ui.checkBox_3,
@@ -389,15 +386,13 @@ class MasterController:
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
         self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
         self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
-        self._sync_tools_coordinate_labels()
+        self._sync_coordinate_view_labels()
         initial_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
         if initial_tool_mode:
             self.tools_panel.select_tool_mode(initial_tool_mode)
             self.annotation_controller.on_tool_mode_changed(initial_tool_mode)
             self.mask_modification_controller.on_tool_mode_changed(initial_tool_mode)
 
-        self.tools_panel.slice_changed.connect(self._on_slice_changed)
-        self.tools_panel.secondary_slice_changed.connect(self._on_secondary_slice_changed)
         self.tools_panel.tool_mode_changed.connect(self.annotation_controller.on_tool_mode_changed)
         self.tools_panel.tool_mode_changed.connect(self.mask_modification_controller.on_tool_mode_changed)
         self.tools_panel.paint_size_changed.connect(self.annotation_controller.on_paint_size_changed)
@@ -452,6 +447,7 @@ class MasterController:
                 self._on_secondary_slice_changed
             )
         if self.annotation_view_corrosion is not None:
+            self.annotation_view_corrosion.slice_changed.connect(self._on_slice_changed)
             self.annotation_view_corrosion.point_selected.connect(self._on_endview_point_selected)
             self.annotation_view_corrosion.drag_update.connect(self._on_endview_drag_update)
         self.endview_controller.bind_corrosion_profile_signals(
@@ -1132,7 +1128,6 @@ class MasterController:
         clamped = max(0, min(volume.shape[0] - 1, int(index)))
         self.view_state_model.set_slice(index)
         clamped = self.view_state_model.current_slice
-        self.tools_panel.set_primary_slice_value(clamped)
         self.endview_controller.set_slice(clamped)
         self.annotation_controller.on_slice_changed(clamped)
         self.mask_modification_controller.on_slice_changed(clamped)
@@ -1165,7 +1160,6 @@ class MasterController:
         self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
         self.view_state_model.set_secondary_slice(index)
         clamped = self.view_state_model.secondary_slice
-        self.tools_panel.set_secondary_slice_value(clamped)
         self.volume_view.set_secondary_slice_index(clamped, update_slider=True, emit=False)
         current_point = self.view_state_model.current_point
         current_x = int(current_point[0]) if current_point is not None else None
@@ -1183,10 +1177,11 @@ class MasterController:
         self._update_ascan_trace(point=(clamped, current_y))
         synced_point = self.view_state_model.current_point
         if synced_point is not None:
-            self.tools_panel.set_position_label(synced_point[0], synced_point[1])
+            self._set_annotation_position_label(synced_point[0], synced_point[1])
         else:
-            self.tools_panel.set_position_label(clamped, current_y)
+            self._set_annotation_position_label(clamped, current_y)
         self.annotation_controller.refresh_secondary_roi_overlay()
+        self._update_endview_label()
 
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
@@ -1209,7 +1204,7 @@ class MasterController:
         if point is None:
             return
         x, y = point
-        self.tools_panel.set_position_label(x, y)
+        self._set_annotation_position_label(x, y)
         self._update_ascan_trace(point=(x, y))
         self._on_secondary_slice_changed(x)
 
@@ -1219,7 +1214,7 @@ class MasterController:
         if point is None:
             return
         x, y = point
-        self.tools_panel.set_position_label(x, y)
+        self._set_annotation_position_label(x, y)
 
     def _on_cscan_crosshair_changed(self, slice_idx: int, x: int) -> None:
         """Handle crosshair movement on the C-Scan view."""
@@ -1233,7 +1228,6 @@ class MasterController:
             current_point=self.view_state_model.current_point,
         )
         clamped_slice = self.view_state_model.current_slice
-        self.tools_panel.set_primary_slice_value(clamped_slice)
         self.endview_controller.set_slice(clamped_slice)
         self.annotation_controller.on_slice_changed(clamped_slice)
         self.mask_modification_controller.on_slice_changed(clamped_slice)
@@ -1380,10 +1374,12 @@ class MasterController:
             self.view_state_model.show_overlay,
         )
 
-    def _sync_tools_coordinate_labels(self) -> None:
-        """Push primary/secondary axis names into the tools panel."""
-        self.tools_panel.set_primary_axis_name(self._annotation_axis_name)
-        self.tools_panel.set_secondary_axis_name(self._secondary_axis_name)
+    def _sync_coordinate_view_labels(self) -> None:
+        """Push primary/secondary axis names into the endview-local controls."""
+        self.endview_controller.set_axis_names(
+            primary=self._annotation_axis_name,
+            secondary=self._secondary_axis_name,
+        )
 
     # ------------------------------------------------------------------ #
     # Internal helpers
@@ -1516,11 +1512,8 @@ class MasterController:
         self._clear_session_runtime_state(remove_autosaves=True)
         self._refresh_session_dialog()
 
-        self.tools_panel.set_primary_slice_bounds(0, num_slices - 1)
-        self.tools_panel.set_primary_slice_value(0)
-        self.tools_panel.set_secondary_slice_bounds(0, volume.shape[2] - 1)
-        self.tools_panel.set_secondary_slice_value(volume.shape[2] // 2)
         self._sync_tools_labels()
+        self._clear_annotation_position_label()
 
         axis_order = loaded_model.metadata.get("axis_order", [])
         positions = loaded_model.metadata.get("positions") or {}
@@ -1541,7 +1534,7 @@ class MasterController:
 
         self._refresh_views()
         self._nde_path = file_path
-        self._update_nde_label()
+        self._update_main_window_title()
         self._update_endview_label()
         self._sync_apply_volume_range_view()
 
@@ -1712,7 +1705,7 @@ class MasterController:
         self._secondary_axis_name = titles.secondary_axis_name
         self.ucoordinate_dock.setWindowTitle(titles.primary_title)
         self.vcoordinate_dock.setWindowTitle(titles.secondary_title)
-        self._sync_tools_coordinate_labels()
+        self._sync_coordinate_view_labels()
 
     def _sync_secondary_endview_state(self) -> None:
         """Apply secondary slice/crosshair state to the secondary endview."""
@@ -1734,6 +1727,9 @@ class MasterController:
         volume = self._current_volume()
         if volume is None:
             self.tools_panel.set_nde_opacity_available(False)
+            self.endview_controller.set_primary_endview_name("-")
+            self.endview_controller.set_secondary_endview_name("-")
+            self._clear_annotation_position_label()
             return
         self.view_state_model.set_slice_bounds(0, volume.shape[0] - 1)
         self.view_state_model.set_secondary_slice_bounds(0, volume.shape[2] - 1)
@@ -1742,10 +1738,9 @@ class MasterController:
         slice_idx = self.view_state_model.clamp_slice(self.view_state_model.current_slice)
         self.view_state_model.set_secondary_slice(self.view_state_model.secondary_slice)
         secondary_slice_idx = self.view_state_model.secondary_slice
-        self.tools_panel.set_primary_slice_bounds(0, volume.shape[0] - 1)
-        self.tools_panel.set_secondary_slice_bounds(0, volume.shape[2] - 1)
-        self.tools_panel.set_primary_slice_value(slice_idx)
-        self.tools_panel.set_secondary_slice_value(secondary_slice_idx)
+        self.endview_controller.set_slice_bounds(0, volume.shape[0] - 1)
+        self.endview_controller.set_secondary_slice_bounds(0, volume.shape[2] - 1)
+        self._sync_coordinate_view_labels()
 
         # Met à jour l’Endview (pas de changement ici)
         self.endview_controller.set_volume(volume)
@@ -1787,6 +1782,12 @@ class MasterController:
         self.endview_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
+        self._update_endview_label()
+        current_point = self.view_state_model.current_point or self.view_state_model.cursor_position
+        if current_point is not None:
+            self._set_annotation_position_label(*current_point)
+        else:
+            self._clear_annotation_position_label()
 
 
     # ------------------------------------------------------------------ #
@@ -1817,7 +1818,7 @@ class MasterController:
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
         self._sync_display_toggle_actions()
-        self._sync_tools_coordinate_labels()
+        self._sync_coordinate_view_labels()
         current_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
         if current_tool_mode:
             self.tools_panel.select_tool_mode(current_tool_mode)
@@ -2108,20 +2109,39 @@ class MasterController:
         else:
             self._piece_toggle_btn.setText("Afficher version interpolee")
 
-    def _update_nde_label(self) -> None:
-        """Reflect the opened NDE file into the tools panel label."""
-        name = Path(self._nde_path).name if self._nde_path else "-"
-        self.tools_panel.set_nde_name(name)
+    def _update_main_window_title(self) -> None:
+        """Reflect the current NDE absolute path in the main window title bar."""
+        nde_path = str(
+            self._nde_path
+            or ((self.nde_model.metadata or {}).get("path") if self.nde_model is not None else "")
+            or ""
+        ).strip()
+        title = "Segmentation Tool"
+        if nde_path:
+            title = f"{title} - {nde_path}"
+        self.main_window.setWindowTitle(title)
 
     def _update_endview_label(self) -> None:
-        """Reflect the current slice as an endview identifier."""
+        """Reflect the current primary and secondary endview identifiers."""
         volume = self._current_volume()
         if volume is None:
-            self.tools_panel.set_endview_name("-")
+            self.endview_controller.set_primary_endview_name("-")
+            self.endview_controller.set_secondary_endview_name("-")
             return
-        slice_idx = int(self.view_state_model.current_slice)
-        name = f"endview_{slice_idx * 1500:012d}.png"
-        self.tools_panel.set_endview_name(name)
+        primary_slice_idx = int(self.view_state_model.current_slice)
+        secondary_slice_idx = int(self.view_state_model.secondary_slice)
+        primary_name = f"endview_{primary_slice_idx * 1500:012d}.png"
+        secondary_name = f"endview_{secondary_slice_idx * 1500:012d}.png"
+        self.endview_controller.set_primary_endview_name(primary_name)
+        self.endview_controller.set_secondary_endview_name(secondary_name)
+
+    def _set_annotation_position_label(self, x: int, y: int) -> None:
+        """Reflect the active annotation cursor into the primary endview status."""
+        self.endview_controller.set_primary_status_position(int(x), int(y))
+
+    def _clear_annotation_position_label(self) -> None:
+        """Clear the primary endview cursor text when no position is active."""
+        self.endview_controller.clear_primary_status_position()
 
     def _initialize_ascan_logger(self, source: str) -> None:
         """Initialize the A-Scan debug logging session."""

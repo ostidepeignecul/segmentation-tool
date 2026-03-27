@@ -79,6 +79,58 @@ class EndviewController:
         if self.secondary_corrosion_view is not None:
             self.secondary_corrosion_view.set_slice(int(slice_idx))
 
+    def set_slice_bounds(self, minimum: int, maximum: int) -> None:
+        self.standard_view.set_navigation_bounds(int(minimum), int(maximum))
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_navigation_bounds(int(minimum), int(maximum))
+
+    def set_secondary_slice_bounds(self, minimum: int, maximum: int) -> None:
+        if self.secondary_view is not None:
+            self.secondary_view.set_navigation_bounds(int(minimum), int(maximum))
+        if self.secondary_corrosion_view is not None:
+            self.secondary_corrosion_view.set_navigation_bounds(int(minimum), int(maximum))
+
+    def set_axis_names(self, *, primary: str, secondary: str) -> None:
+        self.standard_view.set_navigation_axis_name(primary)
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_navigation_axis_name(primary)
+        if self.secondary_view is not None:
+            self.secondary_view.set_navigation_axis_name(secondary)
+        if self.secondary_corrosion_view is not None:
+            self.secondary_corrosion_view.set_navigation_axis_name(secondary)
+
+    def set_primary_endview_name(self, name: str) -> None:
+        self.standard_view.set_endview_name(name)
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_endview_name(name)
+
+    def set_secondary_endview_name(self, name: str) -> None:
+        if self.secondary_view is not None:
+            self.secondary_view.set_endview_name(name)
+        if self.secondary_corrosion_view is not None:
+            self.secondary_corrosion_view.set_endview_name(name)
+
+    def set_primary_status_position(self, x: int, y: int) -> None:
+        self.standard_view.set_status_position(int(x), int(y))
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_status_position(int(x), int(y))
+
+    def clear_primary_status_position(self) -> None:
+        self.standard_view.clear_status_position()
+        if self.corrosion_view is not None:
+            self.corrosion_view.clear_status_position()
+
+    def set_primary_status_position_visible(self, visible: bool) -> None:
+        self.standard_view.set_status_position_visible(bool(visible))
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_status_position_visible(bool(visible))
+
+    def set_secondary_status_position_visible(self, visible: bool) -> None:
+        if self.secondary_view is not None:
+            self.secondary_view.set_status_position_visible(bool(visible))
+        if self.secondary_corrosion_view is not None:
+            self.secondary_corrosion_view.set_status_position_visible(bool(visible))
+
     def set_cross_visible(self, visible: bool) -> None:
         self.standard_view.set_cross_visible(bool(visible))
         if self.corrosion_view is not None:

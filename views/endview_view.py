@@ -10,10 +10,14 @@ from PyQt6.QtCore import QEvent, QPointF, Qt, pyqtSignal
 from PyQt6.QtGui import QImage, QMouseEvent, QPixmap, QPen
 from PyQt6.QtWidgets import (
     QFrame,
+    QHBoxLayout,
     QGraphicsLineItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
+    QLabel,
+    QSlider,
+    QSpinBox,
     QVBoxLayout,
 )
 
@@ -52,6 +56,10 @@ class EndviewView(QFrame):
         self._pixmaps = _PixmapBundle()
         self._display_size: Optional[Tuple[int, int]] = None
         self._zoom_factor: float = 1.0
+        self._navigation_axis_name: str = "Slice"
+        self._status_endview_name: str = "-"
+        self._status_position: Optional[Tuple[int, int]] = None
+        self._show_status_position: bool = False
 
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
@@ -95,11 +103,34 @@ class EndviewView(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._view)
+        layout.addWidget(self._view, 1)
+
+        self._navigation_row = QHBoxLayout()
+        self._navigation_row.setContentsMargins(0, 0, 0, 0)
+        self._navigation_title = QLabel(self._navigation_axis_name)
+        self._navigation_slider = QSlider(Qt.Orientation.Horizontal)
+        self._navigation_slider.setMinimum(0)
+        self._navigation_slider.setMaximum(0)
+        self._navigation_slider.valueChanged.connect(self._on_navigation_value_changed)
+        self._navigation_spinbox = QSpinBox()
+        self._navigation_spinbox.setMinimum(0)
+        self._navigation_spinbox.setMaximum(0)
+        self._navigation_spinbox.setKeyboardTracking(False)
+        self._navigation_spinbox.valueChanged.connect(self._on_navigation_value_changed)
+        self._navigation_row.addWidget(self._navigation_title)
+        self._navigation_row.addWidget(self._navigation_slider, 1)
+        self._navigation_row.addWidget(self._navigation_spinbox)
+        layout.addLayout(self._navigation_row)
+
+        self._status = QLabel("Endview vide")
+        self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._status)
 
         self.setStyleSheet("background-color: #202020; color: #bbbbbb;")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFocusProxy(self._view)
+        self._set_navigation_enabled(False)
+        self._refresh_status()
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -117,22 +148,34 @@ class EndviewView(QFrame):
         """Assign the oriented/normalized volume (shape: num_slices, H, W)."""
         if volume is None or volume.size == 0:
             self._volume = None
+            self._current_slice = 0
             self._image_item.setPixmap(QPixmap())
             self._overlay_item.setPixmap(QPixmap())
+            self._set_navigation_bounds(0, 0)
+            self._set_navigation_value(0)
+            self._set_navigation_enabled(False)
+            self._refresh_status()
             return
         self._volume = np.asarray(volume)
         self._current_slice = min(self._current_slice, self._volume.shape[0] - 1)
+        self._set_navigation_bounds(0, self._volume.shape[0] - 1)
+        self._set_navigation_value(self._current_slice)
+        self._set_navigation_enabled(True)
         self._refresh_pixmaps()
+        self._refresh_status()
 
     def set_slice(self, index: int) -> None:
         """Update the currently displayed slice index."""
         if self._volume is None:
             return
         index = int(max(0, min(self._volume.shape[0] - 1, index)))
+        self._set_navigation_value(index)
         if index == self._current_slice:
+            self._refresh_status()
             return
         self._current_slice = index
         self._refresh_pixmaps()
+        self._refresh_status()
 
     def set_overlay(
         self,
@@ -174,6 +217,39 @@ class EndviewView(QFrame):
     def update_image(self) -> None:
         """Force re-rendering the base slice."""
         self._refresh_pixmaps()
+
+    def set_navigation_axis_name(self, name: str) -> None:
+        """Display the axis name that the local slider controls."""
+        self._navigation_axis_name = str(name).strip() if name else "Slice"
+        self._navigation_title.setText(self._navigation_axis_name)
+
+    def set_navigation_bounds(self, minimum: int, maximum: int) -> None:
+        """Update slider/spinbox bounds without emitting navigation signals."""
+        self._set_navigation_bounds(int(minimum), int(maximum))
+
+    def set_navigation_value(self, value: int) -> None:
+        """Update slider/spinbox value without emitting navigation signals."""
+        self._set_navigation_value(int(value))
+
+    def set_endview_name(self, name: str) -> None:
+        """Display the current logical endview name in the local status line."""
+        self._status_endview_name = str(name).strip() if name else "-"
+        self._refresh_status()
+
+    def set_status_position(self, x: int, y: int) -> None:
+        """Display the active cursor position in the local status line."""
+        self._status_position = (int(x), int(y))
+        self._refresh_status()
+
+    def clear_status_position(self) -> None:
+        """Clear the cursor position from the local status line."""
+        self._status_position = None
+        self._refresh_status()
+
+    def set_status_position_visible(self, visible: bool) -> None:
+        """Control whether the local status line should include cursor position."""
+        self._show_status_position = bool(visible)
+        self._refresh_status()
 
     def set_crosshair(self, x: int, y: int) -> None:
         """Expose crosshair updates to controllers for synchronized highlighting."""
@@ -622,3 +698,46 @@ class EndviewView(QFrame):
         new_index = max(0, min(self._volume.shape[0] - 1, self._current_slice + step))
         if new_index != self._current_slice:
             self.slice_changed.emit(new_index)
+
+    def _on_navigation_value_changed(self, value: int) -> None:
+        if self._volume is None:
+            return
+        clamped = max(0, min(self._volume.shape[0] - 1, int(value)))
+        self._set_navigation_value(clamped)
+        self.slice_changed.emit(clamped)
+
+    def _set_navigation_bounds(self, minimum: int, maximum: int) -> None:
+        minimum = int(minimum)
+        maximum = max(minimum, int(maximum))
+        for widget in (self._navigation_slider, self._navigation_spinbox):
+            widget.blockSignals(True)
+            widget.setMinimum(minimum)
+            widget.setMaximum(maximum)
+            widget.blockSignals(False)
+
+    def _set_navigation_value(self, value: int) -> None:
+        minimum = int(self._navigation_slider.minimum())
+        maximum = int(self._navigation_slider.maximum())
+        clamped = max(minimum, min(maximum, int(value)))
+        for widget in (self._navigation_slider, self._navigation_spinbox):
+            if widget.value() != clamped:
+                widget.blockSignals(True)
+                widget.setValue(clamped)
+                widget.blockSignals(False)
+
+    def _set_navigation_enabled(self, enabled: bool) -> None:
+        for widget in (self._navigation_title, self._navigation_slider, self._navigation_spinbox):
+            widget.setEnabled(bool(enabled))
+
+    def _refresh_status(self) -> None:
+        if self._volume is None:
+            self._status.setText("Endview vide")
+            return
+
+        parts = [
+            f"Endview: {self._status_endview_name or '-'}",
+        ]
+        if self._show_status_position and self._status_position is not None:
+            x, y = self._status_position
+            parts.append(f"position x = {int(x)} ; y = {int(y)}")
+        self._status.setText(" | ".join(parts))
