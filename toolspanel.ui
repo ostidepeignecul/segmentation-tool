@@ -142,13 +142,6 @@
             </widget>
            </item>
            <item>
-            <widget class="QCheckBox" name="checkBox_4">
-             <property name="text">
-              <string>Force threshold (erase)</string>
-             </property>
-            </widget>
-           </item>
-           <item>
             <widget class="QLabel" name="label_6">
              <property name="text">
               <string>Paint zise : </string>
@@ -163,24 +156,50 @@
             </widget>
            </item>
            <item>
-            <widget class="QCheckBox" name="checkBox">
-             <property name="text">
-              <string>Appliquer au volume</string>
+            <widget class="QFrame" name="frame_4">
+             <property name="frameShape">
+              <enum>QFrame::Shape::StyledPanel</enum>
              </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="checkBox_2">
-             <property name="text">
-              <string>Box percentiles</string>
+             <property name="frameShadow">
+              <enum>QFrame::Shadow::Raised</enum>
              </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="checkBox_3">
-             <property name="text">
-              <string>Persistance de ROI</string>
-             </property>
+             <layout class="QGridLayout" name="gridLayout_7">
+              <item row="3" column="0">
+               <widget class="QCheckBox" name="checkBox_5">
+                <property name="text">
+                 <string>Apply auto</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="2">
+               <widget class="QCheckBox" name="checkBox_2">
+                <property name="text">
+                 <string>Box percentiles</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QCheckBox" name="checkBox_3">
+                <property name="text">
+                 <string>Persistance de ROI</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="0" rowspan="2" colspan="2">
+               <widget class="QCheckBox" name="checkBox">
+                <property name="text">
+                 <string>Appliquer au volume</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QCheckBox" name="checkBox_4">
+                <property name="text">
+                 <string>Force threshold (erase)</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
             </widget>
            </item>
            <item>

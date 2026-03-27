@@ -365,6 +365,7 @@ class MasterController:
             overlay_opacity_spinbox=self._tools_ui.spinBox_4,
             nde_opacity_slider=self._tools_ui.horizontalSlider_5,
             nde_opacity_spinbox=self._tools_ui.spinBox_3,
+            apply_auto_checkbox=getattr(self._tools_ui, "checkBox_5", None),
             force_threshold_erase_checkbox=getattr(self._tools_ui, "checkBox_4", None),
             apply_volume_checkbox=self._tools_ui.checkBox,
             threshold_auto_checkbox=self._tools_ui.checkBox_2,
@@ -374,18 +375,15 @@ class MasterController:
             selection_cancel_button=self._tools_ui.pushButton_4,
             apply_roi_button=self._tools_ui.pushButton_7,
             label_container=self._tools_ui.scrollAreaWidgetContents,
-            overlay_checkbox=getattr(self._tools_ui, "checkBox_5", None),
-            cross_checkbox=getattr(self._tools_ui, "checkBox_6", None),
             nde_opacity_label=getattr(self._tools_ui, "label_10", None),
         )
 
-        self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
-        self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
         self.tools_panel.set_force_threshold_erase_checked(
             getattr(self.view_state_model, "force_threshold_erase", False)
         )
+        self.tools_panel.set_apply_auto_checked(getattr(self.view_state_model, "apply_auto", False))
         self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
         self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
         self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)
@@ -413,13 +411,12 @@ class MasterController:
         self.tools_panel.force_threshold_erase_toggled.connect(
             self.annotation_controller.on_force_threshold_erase_toggled
         )
+        self.tools_panel.apply_auto_toggled.connect(self.annotation_controller.on_apply_auto_toggled)
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
         self.tools_panel.overlay_opacity_changed.connect(self._on_overlay_opacity_changed)
         self.tools_panel.nde_opacity_changed.connect(self._on_nde_opacity_changed)
         self.tools_panel.endview_colormap_changed.connect(self._on_endview_colormap_changed)
-        self.tools_panel.overlay_toggled.connect(self._on_overlay_toggled)
-        self.tools_panel.cross_toggled.connect(self._on_cross_toggled)
         self.tools_panel.roi_persistence_toggled.connect(self.annotation_controller.on_roi_persistence_toggled)
         self.tools_panel.roi_recompute_requested.connect(self.annotation_controller.on_roi_recompute_requested)
         self.tools_panel.roi_delete_requested.connect(self._on_roi_delete_requested)
@@ -436,15 +433,15 @@ class MasterController:
         )
 
         self.annotation_view.slice_changed.connect(self._on_slice_changed)
-        self.annotation_view.mouse_clicked.connect(self.annotation_controller.on_annotation_mouse_clicked)
+        self.annotation_view.mouse_clicked.connect(self._on_annotation_mouse_clicked)
         self.annotation_view.freehand_started.connect(self.annotation_controller.on_annotation_freehand_started)
         self.annotation_view.freehand_point_added.connect(self.annotation_controller.on_annotation_freehand_point_added)
-        self.annotation_view.freehand_completed.connect(self.annotation_controller.on_annotation_freehand_completed)
-        self.annotation_view.line_drawn.connect(self.annotation_controller.on_annotation_line_drawn)
-        self.annotation_view.box_drawn.connect(self.annotation_controller.on_annotation_box_drawn)
+        self.annotation_view.freehand_completed.connect(self._on_annotation_freehand_completed)
+        self.annotation_view.line_drawn.connect(self._on_annotation_line_drawn)
+        self.annotation_view.box_drawn.connect(self._on_annotation_box_drawn)
         self.annotation_view.mod_drag_started.connect(self.mask_modification_controller.on_drag_started)
         self.annotation_view.mod_drag_moved.connect(self.mask_modification_controller.on_drag_moved)
-        self.annotation_view.mod_drag_finished.connect(self.mask_modification_controller.on_drag_finished)
+        self.annotation_view.mod_drag_finished.connect(self._on_mod_drag_finished)
         self.annotation_view.mod_double_clicked.connect(self.mask_modification_controller.on_double_clicked)
         self.annotation_view.restriction_rect_changed.connect(
             self.annotation_controller.on_restriction_rect_changed
@@ -1216,7 +1213,6 @@ class MasterController:
     def _on_cross_toggled(self, enabled: bool) -> None:
         """Handle crosshair visibility toggle."""
         self.view_state_model.set_show_cross(enabled)
-        self.tools_panel.set_cross_checked(enabled)
         self._set_action_checked(getattr(self.ui, "actionToggle_cross", None), enabled)
         self.endview_controller.set_cross_visible(enabled)
         self.cscan_controller.set_cross_visible(enabled)
@@ -1225,8 +1221,40 @@ class MasterController:
     def _on_overlay_toggled(self, enabled: bool) -> None:
         """Handle overlay visibility toggle from menu or tools panel."""
         self.annotation_controller.on_overlay_toggled(enabled)
-        self.tools_panel.set_overlay_checked(enabled)
         self._set_action_checked(getattr(self.ui, "actionToggle_overlay", None), enabled)
+
+    def _on_annotation_freehand_completed(self, points: Any) -> None:
+        """Create the ROI preview, then optionally apply it immediately."""
+        preview_created = self.annotation_controller.on_annotation_freehand_completed(points)
+        self._apply_annotation_preview_if_needed(preview_created)
+
+    def _on_annotation_mouse_clicked(self, pos: Any, button: Any) -> None:
+        """Handle point-based annotation tools, then auto-apply when enabled."""
+        preview_created = self.annotation_controller.on_annotation_mouse_clicked(pos, button)
+        self._apply_annotation_preview_if_needed(preview_created)
+
+    def _on_annotation_line_drawn(self, points: Any) -> None:
+        """Handle line ROI completion, then auto-apply when enabled."""
+        preview_created = self.annotation_controller.on_annotation_line_drawn(points)
+        self._apply_annotation_preview_if_needed(preview_created)
+
+    def _on_annotation_box_drawn(self, box: Any) -> None:
+        """Handle box ROI completion, then auto-apply when enabled."""
+        preview_created = self.annotation_controller.on_annotation_box_drawn(box)
+        self._apply_annotation_preview_if_needed(preview_created)
+
+    def _on_mod_drag_finished(self, pos: Any) -> None:
+        """Finish mod drag and auto-apply its pending temp preview when requested."""
+        self.mask_modification_controller.on_drag_finished(pos)
+        if not self.mask_modification_controller.has_pending_edits():
+            return
+        self._apply_annotation_preview_if_needed(True)
+
+    def _apply_annotation_preview_if_needed(self, preview_created: bool) -> None:
+        """Auto-commit the temp annotation preview when the toggle is enabled."""
+        if not preview_created or not getattr(self.view_state_model, "apply_auto", False):
+            return
+        self._apply_roi_non_corrosion()
 
     def _on_endview_point_selected(self, pos: Any) -> None:
         """Handle point selection for crosshair sync."""
@@ -1854,13 +1882,12 @@ class MasterController:
     def _after_session_switch(self) -> None:
         """Synchronise l'état du modèle actif vers les vues."""
         self.annotation_controller.clear_apply_history()
-        self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
-        self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
         self.tools_panel.set_force_threshold_erase_checked(
             getattr(self.view_state_model, "force_threshold_erase", False)
         )
+        self.tools_panel.set_apply_auto_checked(getattr(self.view_state_model, "apply_auto", False))
         self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
         self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
         self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)

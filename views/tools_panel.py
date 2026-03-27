@@ -30,14 +30,13 @@ class ToolsPanel(QFrame):
     annotation_action_changed = pyqtSignal(str)
     threshold_changed = pyqtSignal(int)
     force_threshold_erase_toggled = pyqtSignal(bool)
+    apply_auto_toggled = pyqtSignal(bool)
     threshold_auto_toggled = pyqtSignal(bool)
     apply_volume_toggled = pyqtSignal(bool)
     roi_persistence_toggled = pyqtSignal(bool)
     roi_recompute_requested = pyqtSignal()
     roi_delete_requested = pyqtSignal()
     selection_cancel_requested = pyqtSignal()
-    overlay_toggled = pyqtSignal(bool)
-    cross_toggled = pyqtSignal(bool)
     label_selected = pyqtSignal(int)
     paint_size_changed = pyqtSignal(int)
     overlay_opacity_changed = pyqtSignal(float)
@@ -87,10 +86,9 @@ class ToolsPanel(QFrame):
         self._nde_opacity_spinbox: Optional[QSpinBox] = None
         self._nde_opacity_label: Optional[QLabel] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
+        self._apply_auto_checkbox: Optional[QCheckBox] = None
         self._force_threshold_erase_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
-        self._overlay_checkbox: Optional[QCheckBox] = None
-        self._cross_checkbox: Optional[QCheckBox] = None
         self._roi_persistence_checkbox: Optional[QCheckBox] = None
         self._roi_recompute_button: Optional[QPushButton] = None
         self._roi_delete_button: Optional[QPushButton] = None
@@ -120,6 +118,7 @@ class ToolsPanel(QFrame):
         overlay_opacity_spinbox: QSpinBox,
         nde_opacity_slider: QSlider,
         nde_opacity_spinbox: QSpinBox,
+        apply_auto_checkbox: Optional[QCheckBox],
         force_threshold_erase_checkbox: Optional[QCheckBox],
         apply_volume_checkbox: QCheckBox,
         threshold_auto_checkbox: QCheckBox,
@@ -129,8 +128,6 @@ class ToolsPanel(QFrame):
         selection_cancel_button: QPushButton,
         apply_roi_button: QPushButton,
         label_container: QWidget,
-        overlay_checkbox: Optional[QCheckBox] = None,
-        cross_checkbox: Optional[QCheckBox] = None,
         nde_opacity_label: Optional[QLabel] = None,
     ) -> None:
         """Receive Designer-created widgets and wire them to the exposed signals."""
@@ -148,11 +145,10 @@ class ToolsPanel(QFrame):
         self._nde_opacity_slider = nde_opacity_slider
         self._nde_opacity_spinbox = nde_opacity_spinbox
         self._nde_opacity_label = nde_opacity_label
+        self._apply_auto_checkbox = apply_auto_checkbox
         self._force_threshold_erase_checkbox = force_threshold_erase_checkbox
         self._apply_volume_checkbox = apply_volume_checkbox
         self._threshold_auto_checkbox = threshold_auto_checkbox
-        self._overlay_checkbox = overlay_checkbox
-        self._cross_checkbox = cross_checkbox
         self._roi_persistence_checkbox = roi_persistence_checkbox
         self._roi_recompute_button = roi_recompute_button
         self._roi_delete_button = roi_delete_button
@@ -188,12 +184,10 @@ class ToolsPanel(QFrame):
             self._force_threshold_erase_checkbox.toggled.connect(
                 self.force_threshold_erase_toggled.emit
             )
+        if self._apply_auto_checkbox is not None:
+            self._apply_auto_checkbox.toggled.connect(self.apply_auto_toggled.emit)
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)
-        if self._overlay_checkbox is not None:
-            self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
-        if self._cross_checkbox is not None:
-            self._cross_checkbox.toggled.connect(self.cross_toggled.emit)
         self._roi_persistence_checkbox.toggled.connect(self.roi_persistence_toggled.emit)
         self._roi_recompute_button.clicked.connect(self.roi_recompute_requested)
         self._roi_delete_button.clicked.connect(self.roi_delete_requested)
@@ -390,6 +384,14 @@ class ToolsPanel(QFrame):
         self._force_threshold_erase_checkbox.setChecked(bool(enabled))
         self._force_threshold_erase_checkbox.blockSignals(False)
 
+    def set_apply_auto_checked(self, enabled: bool) -> None:
+        """Set apply-auto checkbox state without emitting signals."""
+        if self._apply_auto_checkbox is None:
+            return
+        self._apply_auto_checkbox.blockSignals(True)
+        self._apply_auto_checkbox.setChecked(bool(enabled))
+        self._apply_auto_checkbox.blockSignals(False)
+
     def set_apply_volume_checked(self, enabled: bool) -> None:
         """Set apply-volume checkbox state without emitting signals."""
         if self._apply_volume_checkbox is None:
@@ -405,22 +407,6 @@ class ToolsPanel(QFrame):
         self._roi_persistence_checkbox.blockSignals(True)
         self._roi_persistence_checkbox.setChecked(bool(enabled))
         self._roi_persistence_checkbox.blockSignals(False)
-
-    def set_overlay_checked(self, enabled: bool) -> None:
-        """Set overlay checkbox state without emitting signals when present."""
-        if self._overlay_checkbox is None:
-            return
-        self._overlay_checkbox.blockSignals(True)
-        self._overlay_checkbox.setChecked(bool(enabled))
-        self._overlay_checkbox.blockSignals(False)
-
-    def set_cross_checked(self, enabled: bool) -> None:
-        """Set cross checkbox state without emitting signals when present."""
-        if self._cross_checkbox is None:
-            return
-        self._cross_checkbox.blockSignals(True)
-        self._cross_checkbox.setChecked(bool(enabled))
-        self._cross_checkbox.blockSignals(False)
 
     def current_tool_mode(self) -> Optional[str]:
         """Return the currently selected drawing tool mode."""

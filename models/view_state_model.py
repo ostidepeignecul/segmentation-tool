@@ -34,6 +34,7 @@ class ViewStateModel:
         self.roi_persistence: bool = False
         self.annotation_action: str = "draw"
         self.force_threshold_erase: bool = False
+        self.apply_auto: bool = False
         self.active_label: Optional[int] = next(
             (int(label_id) for label_id in PERSISTENT_LABEL_IDS if int(label_id) > 0),
             None,
@@ -143,6 +144,9 @@ class ViewStateModel:
 
     def set_force_threshold_erase(self, enabled: bool) -> None:
         self.force_threshold_erase = bool(enabled)
+
+    def set_apply_auto(self, enabled: bool) -> None:
+        self.apply_auto = bool(enabled)
 
     def set_threshold(self, threshold: int) -> None:
         self.threshold = int(threshold)

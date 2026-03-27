@@ -297,6 +297,10 @@ class AnnotationController:
         """Allow erase mode to use the current threshold when requested."""
         self.view_state_model.set_force_threshold_erase(enabled)
 
+    def on_apply_auto_toggled(self, enabled: bool) -> None:
+        """Persist automatic apply-on-close for ROI free-hand tools."""
+        self.view_state_model.set_apply_auto(enabled)
+
     def on_label_selected(self, label_id: int) -> None:
         """Handle active label selection from the tools panel."""
         self.view_state_model.set_active_label(label_id)
@@ -420,28 +424,27 @@ class AnnotationController:
         self.annotation_view.clear_temp_shapes()
         self.refresh_roi_overlay_for_slice(slice_idx)
 
-    def on_annotation_mouse_clicked(self, pos: Any, button: Any) -> None:
+    def on_annotation_mouse_clicked(self, pos: Any, button: Any) -> bool:
         """Handle mouse click in annotation view (grow tool or paint brush)."""
         if not isinstance(pos, (tuple, list)) or len(pos) != 2:
-            return
+            return False
 
         if self.view_state_model.tool_mode == "paint":
-            self._handle_paint_click(pos)
-            return
+            return self._handle_paint_click(pos)
 
         if self.view_state_model.tool_mode != "grow":
-            return
+            return False
         point = (int(pos[0]), int(pos[1]))
         label = self._effective_annotation_label()
         if label is None:
-            return
+            return False
         threshold = self._effective_annotation_threshold()
         thin_line_width = self.view_state_model.roi_thin_line_max_width
 
         try:
             slice_idx = int(self.view_state_model.current_slice)
         except Exception:
-            return
+            return False
 
         shape = (
             self.annotation_model.mask_shape_hw()
@@ -451,10 +454,10 @@ class AnnotationController:
         if slice_data is not None and shape is None and slice_data.ndim >= 2:
             shape = (int(slice_data.shape[0]), int(slice_data.shape[1]))
         if slice_data is None or shape is None:
-            return
+            return False
         restriction_mask = self._restriction_mask(shape)
         if restriction_mask is not None and not restriction_mask[point[1], point[0]]:
-            return
+            return False
         if int(label) == 0:
             blocked_mask = self._build_label0_blocked_mask(
                 slice_idx, shape, include_temp=True
@@ -465,7 +468,7 @@ class AnnotationController:
         if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
             depth, _ = self._resolve_volume_dimensions()
             if depth is None:
-                return
+                return False
             start_idx, end_idx = self._resolve_apply_volume_range(depth)
             blocked_mask_provider = None
             if int(label) == 0:
@@ -510,16 +513,17 @@ class AnnotationController:
                 blocked_mask=blocked_mask,
             )
             if grow_mask is None:
-                return
+                return False
 
         self.refresh_roi_overlay_for_slice(slice_idx)
+        return True
 
-    def on_annotation_line_drawn(self, points: Any) -> None:
+    def on_annotation_line_drawn(self, points: Any) -> bool:
         """Handle freehand line completion (line grow tool)."""
         if self.view_state_model.tool_mode != "line":
-            return
+            return False
         if not isinstance(points, (list, tuple)):
-            return
+            return False
         clean_points: list[tuple[int, int]] = []
         for pt in points:
             if not isinstance(pt, (list, tuple)) or len(pt) != 2:
@@ -529,18 +533,18 @@ class AnnotationController:
             except Exception:
                 continue
         if not clean_points:
-            return
+            return False
 
         label = self._effective_annotation_label()
         if label is None:
-            return
+            return False
         threshold = self._effective_annotation_threshold()
         thin_line_width = self.view_state_model.roi_thin_line_max_width
 
         try:
             slice_idx = int(self.view_state_model.current_slice)
         except Exception:
-            return
+            return False
 
         shape = (
             self.annotation_model.mask_shape_hw()
@@ -550,7 +554,7 @@ class AnnotationController:
         if slice_data is not None and shape is None and slice_data.ndim >= 2:
             shape = (int(slice_data.shape[0]), int(slice_data.shape[1]))
         if slice_data is None or shape is None:
-            return
+            return False
         restriction_mask = self._restriction_mask(shape)
         if int(label) == 0:
             blocked_mask = self._build_label0_blocked_mask(
@@ -563,7 +567,7 @@ class AnnotationController:
         if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
             depth, _ = self._resolve_volume_dimensions()
             if depth is None:
-                return
+                return False
             start_idx, end_idx = self._resolve_apply_volume_range(depth)
             blocked_mask_provider = None
             if int(label) == 0:
@@ -608,9 +612,10 @@ class AnnotationController:
                 blocked_mask=blocked_mask,
             )
             if line_mask is None:
-                return
+                return False
 
         self.refresh_roi_overlay_for_slice(slice_idx)
+        return True
 
     def on_annotation_freehand_started(self, pos: Any) -> None:
         """Handle free-hand start."""
@@ -626,12 +631,12 @@ class AnnotationController:
         if not isinstance(pos, (tuple, list)) or len(pos) != 2:
             return
 
-    def on_annotation_freehand_completed(self, points: Any) -> None:
-        """Handle free-hand completion."""
+    def on_annotation_freehand_completed(self, points: Any) -> bool:
+        """Handle free-hand completion and report whether a temp mask was created."""
         if self.view_state_model.tool_mode not in ("free_hand", "peak"):
-            return
+            return False
         if not isinstance(points, (list, tuple)):
-            return
+            return False
 
         clean_points: list[tuple[int, int]] = []
         for pt in points:
@@ -642,16 +647,16 @@ class AnnotationController:
             except Exception:
                 continue
         if len(clean_points) < 3:
-            return
+            return False
 
         label = self._effective_annotation_label()
         if label is None:
-            return
+            return False
         threshold = self._effective_annotation_threshold()
         try:
             slice_idx = int(self.view_state_model.current_slice)
         except Exception:
-            return
+            return False
 
         shape = self.annotation_model.mask_shape_hw() or self.temp_mask_model.mask_shape_hw()
         slice_data = self._slice_data(slice_idx)
@@ -660,7 +665,7 @@ class AnnotationController:
         if shape is None:
             _, shape = self._resolve_volume_dimensions()
         if shape is None:
-            return
+            return False
 
         restriction_mask = self._restriction_mask(shape)
         if int(label) == 0:
@@ -675,7 +680,7 @@ class AnnotationController:
         if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
             depth, _ = self._resolve_volume_dimensions()
             if depth is None:
-                return
+                return False
             start_idx, end_idx = self._resolve_apply_volume_range(depth)
             blocked_mask_provider = None
             if int(label) == 0:
@@ -760,36 +765,37 @@ class AnnotationController:
                     use_box_percentiles=self.view_state_model.threshold_auto,
                 )
             if free_hand_mask is None:
-                return
+                return False
 
         self.refresh_roi_overlay_for_slice(slice_idx)
+        return True
 
-    def on_annotation_box_drawn(self, box: Any) -> None:
+    def on_annotation_box_drawn(self, box: Any) -> bool:
         """Handle box draw completion (stub)."""
         mask_volume = self.annotation_model.get_mask_volume()
         if mask_volume is None:
             mask_volume = self.temp_mask_model.get_mask_volume()
         if mask_volume is None:
-            return
+            return False
         label = self._effective_annotation_label()
         if label is None:
-            return
+            return False
         threshold = self._effective_annotation_threshold()
 
         try:
             slice_idx = int(self.view_state_model.current_slice)
             h, w = mask_volume.shape[1], mask_volume.shape[2]
         except Exception:
-            return
+            return False
 
         box_tuple = self._normalize_rect_input(box)
         if box_tuple is None:
-            return
+            return False
         restriction_rect = self.view_state_model.restriction_rect
         if restriction_rect is not None:
             box_tuple = self._intersect_rects(box_tuple, restriction_rect)
             if box_tuple is None:
-                return
+                return False
         restriction_mask = self._restriction_mask((h, w))
         if int(label) == 0:
             blocked_mask = self._build_label0_blocked_mask(
@@ -843,16 +849,17 @@ class AnnotationController:
                 use_box_percentiles=self.view_state_model.threshold_auto,
             )
         self.refresh_roi_overlay_for_slice(slice_idx)
+        return True
 
-    def _handle_paint_click(self, pos: tuple[Any, Any]) -> None:
+    def _handle_paint_click(self, pos: tuple[Any, Any]) -> bool:
         """Paint the effective annotation label into the temp mask (requires Apply)."""
         label = self._effective_annotation_label()
         if label is None:
-            return
+            return False
         try:
             slice_idx = int(self.view_state_model.current_slice)
         except Exception:
-            return
+            return False
 
         # Determine shape/depth
         mask_shape = self.annotation_model.mask_shape_hw() or self.temp_mask_model.mask_shape_hw()
@@ -862,10 +869,10 @@ class AnnotationController:
                 mask_shape = (int(slice_data.shape[0]), int(slice_data.shape[1]))
         depth, _ = self._resolve_volume_dimensions()
         if depth is None or mask_shape is None:
-            return
+            return False
         restriction_mask = self._restriction_mask(mask_shape)
         if restriction_mask is not None and not restriction_mask[int(pos[1]), int(pos[0])]:
-            return
+            return False
 
         # Ensure temp volume exists and matches shape
         temp_vol = self.temp_mask_model.get_mask_volume()
@@ -883,11 +890,11 @@ class AnnotationController:
         effective_radius = max(0, int(radius) - 1)
         disk = self.annotation_service.build_disk_mask(mask_shape, (int(pos[0]), int(pos[1])), effective_radius)
         if disk is None:
-            return
+            return False
         if restriction_mask is not None:
             disk = np.logical_and(disk > 0, restriction_mask).astype(np.uint8)
             if not np.any(disk):
-                return
+                return False
         if label == 0:
             blocked_mask = self._build_label0_blocked_mask(
                 slice_idx, mask_shape, include_temp=True
@@ -897,12 +904,13 @@ class AnnotationController:
         if blocked_mask is not None:
             disk = np.where(blocked_mask, 0, disk)
             if not np.any(disk):
-                return
+                return False
 
         color = self.annotation_model.get_label_palette().get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
         self.temp_mask_model.ensure_label(label, color, visible=True)
         self.temp_mask_model.set_slice_mask(slice_idx, disk, label=label, persistent=False)
         self.refresh_roi_overlay_for_slice(slice_idx)
+        return True
 
     def refresh_roi_overlay_for_slice(self, slice_idx: int) -> None:
         """Refresh ROI preview overlay for the given slice."""

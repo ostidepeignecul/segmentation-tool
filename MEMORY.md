@@ -3697,3 +3697,21 @@ Le commit `924b706e962564b110ac54dfdd89673fdb48930b` corrigeait un decalage entr
 1. Restaurer l etat du `ToolsPanel` depuis `ViewStateModel` dans `MasterController` plutot que laisser la vue deduire seule ses valeurs, afin de garder une source de verite unique par session.
 2. Garder `Erase` avec un threshold effectif a `0` par defaut pour ne pas casser le comportement introduit precedemment, puis ajouter un opt-in explicite `Force threshold (erase)` dans le modele de vue pour les cas de seuillage volontaire.
 3. Ajouter le nouveau controle dans le dock existant et utiliser des setters silencieux dans `ToolsPanel` pour eviter les emissions de signaux parasites lors des restaurations de session et de l initialisation UI.
+
+### 2026-03-27 - Apply auto sur tous les tools ROI et nettoyage overlay cross
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/tools_panel.py`, `#apply-auto`, `#temp-mask`, `#roi`, `#tools_panel`, `#overlay`, `#cross`, `#session`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Reorganise `toolspanel.ui` et `ui_toolspanel.py` pour regrouper `Apply auto`, `Force threshold (erase)`, `Apply volume`, `Box percentiles` et `ROI persistence` dans le meme bloc options du `ToolsPanel`.
+- Etend `views/tools_panel.py` avec le nouveau toggle `apply_auto_toggled`, un setter silencieux `set_apply_auto_checked()`, et retire les anciens reliquats `overlay/cross` qui ne doivent plus etre portes par le panneau.
+- Etend `models/view_state_model.py` avec l etat persistant `apply_auto`, puis rebranche `controllers/master_controller.py` pour restaurer ce toggle au demarrage et apres `_after_session_switch()`.
+- Ajoute dans `controllers/annotation_controller.py` le setter `on_apply_auto_toggled()` et fait retourner un booleen aux handlers ROI/temp mask (`grow`, `paint`, `line`, `free_hand`, `peak`, `box`) pour indiquer si une preview exploitable a ete creee.
+- Centralise dans `controllers/master_controller.py` des wrappers d interaction qui declenchent le pipeline standard `_apply_roi_non_corrosion()` quand `Apply auto` est actif, y compris sur la fin de drag du tool `mod`.
+
+**Contexte :**
+Le nouveau checkbox `Apply auto` avait ete ajoute dans le `ToolsPanel` pour appliquer automatiquement le temp mask a la fin d une action utilisateur, mais il fallait d une part le persister par session, et d autre part etendre le comportement au dela du seul free hand. En parallele, le panneau gardait encore un vieux contrat optionnel pour `overlay` et `cross` alors que ces toggles vivent desormais dans le menu `Affichage`.
+
+**Decisions techniques :**
+1. Garder `ViewStateModel` comme source de verite du toggle `Apply auto`, afin que l etat suive naturellement les snapshots et restaurations de session sans logique speciale cote persistence.
+2. Lancer l auto-apply depuis `MasterController` apres creation reussie de la preview par chaque tool, pour reutiliser le pipeline standard d apply, l historique undo/redo et le marquage dirty de session.
+3. Supprimer le contrat `overlay/cross` du `ToolsPanel` plutot que le maintenir optionnel par inertie, afin d eliminer les collisions de mapping avec le nouveau checkbox `Apply auto` et d aligner clairement l UI sur la source d etat du menu `Affichage`.
