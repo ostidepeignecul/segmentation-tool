@@ -395,6 +395,10 @@ class AnnotationView(EndviewView):
                     if self._restriction_dragging:
                         self._handle_restriction_release(event)
                         return True
+                    if self._tool_mode == "box":
+                        handled = self._handle_box_release(event)
+                        if handled:
+                            return True
                     if (
                         event.modifiers() & Qt.KeyboardModifier.AltModifier
                         and event.button() == Qt.MouseButton.LeftButton
@@ -442,24 +446,36 @@ class AnnotationView(EndviewView):
         if coords is None:
             return False
         self._view.setFocus(Qt.FocusReason.MouseFocusReason)
-        if self._box_start is None:
-            self._box_start = coords
-            self.set_temp_box((coords[0], coords[1], coords[0], coords[1]))
-        else:
-            box = (self._box_start[0], self._box_start[1], coords[0], coords[1])
-            self.box_drawn.emit(box)
-            self.clear_temp_shapes()
+        self._box_start = coords
+        self.set_temp_box((coords[0], coords[1], coords[0], coords[1]))
         # Do not consume to allow base handler to update crosshair/drag if needed
         return False
 
     def _handle_box_move(self, event: QMouseEvent) -> None:
         if self._box_start is None:
             return
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
         coords = self._clamped_scene_coords_from_event(event)
         if coords is None:
             return
         box = (self._box_start[0], self._box_start[1], coords[0], coords[1])
         self.set_temp_box(box)
+
+    def _handle_box_release(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if self._box_start is None:
+            return False
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is None:
+            self.clear_temp_shapes()
+            return False
+        start = self._box_start
+        box = (start[0], start[1], coords[0], coords[1])
+        self.clear_temp_shapes()
+        self.box_drawn.emit(box)
+        return False
 
     def _handle_line_press(self, event: QMouseEvent) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:

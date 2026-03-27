@@ -27,6 +27,7 @@ class ToolsPanel(QFrame):
     secondary_slice_changed = pyqtSignal(int)
     apply_roi_requested = pyqtSignal()
     tool_mode_changed = pyqtSignal(str)
+    annotation_action_changed = pyqtSignal(str)
     threshold_changed = pyqtSignal(int)
     threshold_auto_toggled = pyqtSignal(bool)
     apply_volume_toggled = pyqtSignal(bool)
@@ -51,6 +52,10 @@ class ToolsPanel(QFrame):
         "mod": "mod",
         "peak": "peak",
     }
+    _ANNOTATION_ACTION_BY_TEXT = {
+        "draw": "draw",
+        "erase": "erase",
+    }
     _COLORMAP_BY_TEXT = {
         "omniscan": "OmniScan",
         "gray": "Gris",
@@ -70,6 +75,7 @@ class ToolsPanel(QFrame):
         self._endview_label: Optional[QLabel] = None
         self._position_label: Optional[QLabel] = None
         self._tool_combo: Optional[QComboBox] = None
+        self._action_combo: Optional[QComboBox] = None
         self._colormap_combo: Optional[QComboBox] = None
         self._threshold_slider: Optional[QSlider] = None
         self._threshold_label: Optional[QLabel] = None
@@ -103,6 +109,7 @@ class ToolsPanel(QFrame):
         self,
         *,
         tool_combo: QComboBox,
+        action_combo: Optional[QComboBox],
         colormap_combo: QComboBox,
         threshold_slider: QSlider,
         threshold_label: QLabel,
@@ -128,6 +135,7 @@ class ToolsPanel(QFrame):
             return
 
         self._tool_combo = tool_combo
+        self._action_combo = action_combo
         self._colormap_combo = colormap_combo
         self._threshold_slider = threshold_slider
         self._threshold_label = threshold_label
@@ -151,6 +159,9 @@ class ToolsPanel(QFrame):
 
         self._prepare_tool_combo()
         self._tool_combo.currentIndexChanged.connect(self._on_tool_combo_changed)
+        self._prepare_action_combo()
+        if self._action_combo is not None:
+            self._action_combo.currentIndexChanged.connect(self._on_action_combo_changed)
         self._prepare_colormap_combo()
         self._colormap_combo.currentIndexChanged.connect(self._on_colormap_combo_changed)
 
@@ -212,6 +223,15 @@ class ToolsPanel(QFrame):
             mode = self._TOOL_MODE_BY_TEXT.get(text)
             if mode is not None:
                 self._tool_combo.setItemData(idx, mode)
+
+    def _prepare_action_combo(self) -> None:
+        if self._action_combo is None:
+            return
+        for idx in range(self._action_combo.count()):
+            text = self._action_combo.itemText(idx).strip().lower()
+            action = self._ANNOTATION_ACTION_BY_TEXT.get(text)
+            if action is not None:
+                self._action_combo.setItemData(idx, action)
 
     def _prepare_colormap_combo(self) -> None:
         if self._colormap_combo is None:
@@ -390,10 +410,41 @@ class ToolsPanel(QFrame):
         self._tool_combo.setCurrentIndex(target_index)
         self._tool_combo.blockSignals(False)
 
+    def current_annotation_action(self) -> str:
+        """Return the current annotation action (`draw` or `erase`)."""
+        if self._action_combo is None:
+            return "draw"
+        data = self._action_combo.currentData()
+        if data is not None:
+            return str(data)
+        text = self._action_combo.currentText().strip().lower()
+        return self._ANNOTATION_ACTION_BY_TEXT.get(text, "draw")
+
+    def set_annotation_action(self, action: str) -> None:
+        """Select the current annotation action without re-emitting signals."""
+        if self._action_combo is None:
+            return
+        target_action = str(action).strip().lower() or "draw"
+        target_index = self._action_combo.findData(target_action)
+        if target_index < 0:
+            for idx in range(self._action_combo.count()):
+                text = self._action_combo.itemText(idx).strip().lower()
+                if self._ANNOTATION_ACTION_BY_TEXT.get(text) == target_action:
+                    target_index = idx
+                    break
+        if target_index < 0:
+            return
+        self._action_combo.blockSignals(True)
+        self._action_combo.setCurrentIndex(target_index)
+        self._action_combo.blockSignals(False)
+
     def _on_tool_combo_changed(self, _index: int) -> None:
         mode = self.current_tool_mode()
         if mode:
             self.tool_mode_changed.emit(mode)
+
+    def _on_action_combo_changed(self, _index: int) -> None:
+        self.annotation_action_changed.emit(self.current_annotation_action())
 
     def current_endview_colormap(self) -> Optional[str]:
         """Return the selected endview/3D colormap."""

@@ -3641,3 +3641,22 @@ Le workflow precedent affichait encore la navigation des endviews dans le dock o
 1. Conserver `EndviewView` comme composant de base et lui ajouter une petite UI locale, plutot que creer un nouveau widget composite, afin de limiter l impact sur `AnnotationView`, la vue corrosion et le layout ADS existant.
 2. Garder `MasterController` comme orchestrateur des indices `current_slice` et `secondary_slice`, mais deplacer l affichage de navigation dans les vues pour respecter une separation MVC ou la vue possede ses widgets et le controleur pousse seulement l etat.
 3. Gerer deux setters distincts pour les noms d endview primaire et secondaire dans `EndviewController`, afin d eviter que la vue orthogonale reutilise par erreur le nom calcule pour la vue principale.
+
+### 2026-03-27 - Action Draw Erase et box finalisee au relachement
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/annotation_view.py`, `#views/tools_panel.py`, `#annotation`, `#draw`, `#erase`, `#threshold`, `#shortcuts`, `#box`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute dans `toolspanel.ui` et `ui_toolspanel.py` un combo `Action` avec `Draw` et `Erase`, place a cote du choix d outil dans le dock d annotation.
+- Etend `views/tools_panel.py` avec un signal `annotation_action_changed`, des helpers de lecture selection et de synchro UI pour piloter le nouveau combo d action.
+- Etend `models/view_state_model.py` avec un etat `annotation_action`, initialise le label actif sur un label de dessin `> 0`, et expose un label effectif ainsi qu un threshold effectif forces a `0` quand l action `Erase` est active.
+- Rebranche `controllers/master_controller.py` pour connecter le combo d action, ajouter les raccourcis clavier `R` pour `Draw` et `E` pour `Erase`, puis retirer le label `0` de la liste des labels actifs tout en conservant sa logique d effacement dans les modeles et les settings NDE.
+- Rebranche `controllers/annotation_controller.py` pour que les outils `grow`, `line`, `free hand`, `peak`, `box` et `paint` utilisent le label effectif et le threshold effectif, afin que `Erase` supprime 100 pour cent de la zone sans modifier le threshold memorise pour `Draw`.
+- Modifie `views/annotation_view.py` pour finaliser une ROI `box` au relachement du premier clic gauche au lieu d attendre un second clic, avec preview conservee pendant le drag.
+
+**Contexte :**
+Le besoin etait de separer clairement l intention utilisateur entre dessin et effacement, de ne plus exposer `label 0` comme label actif dans l interface, et de garantir qu en mode `Erase` la zone marquee soit entierement effacee sans etre filtree par le threshold. En parallele, le mode `box` devait etre fluidifie en supprimant le deuxieme clic de validation.
+
+**Decisions techniques :**
+1. Decoupler l action `Draw` ou `Erase` du `active_label` dans `ViewStateModel`, plutot que surcharger directement la selection de label, afin de preserver les workflows existants de modification de masque, corrosion et persistance de session.
+2. Conserver le slider de threshold comme etat de `Draw`, mais appliquer un threshold effectif a `0` uniquement dans `AnnotationController` quand l action `Erase` est active, pour eviter toute perte du reglage utilisateur.
+3. Garder `label 0` dans la palette et dans les mecanismes d effacement deja existants, tout en le filtrant de la liste des labels actifs du `ToolsPanel`, afin de reutiliser l infrastructure d erase sans exposer un faux label de dessin.

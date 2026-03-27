@@ -297,6 +297,24 @@ class AnnotationController:
         """Handle active label selection from the tools panel."""
         self.view_state_model.set_active_label(label_id)
 
+    def _effective_annotation_label(self) -> Optional[int]:
+        label = self.view_state_model.effective_annotation_label()
+        if label is None:
+            return None
+        try:
+            return int(label)
+        except Exception:
+            return None
+
+    def _effective_annotation_threshold(self) -> int:
+        threshold = self.view_state_model.effective_annotation_threshold()
+        if threshold is None:
+            return 0
+        try:
+            return int(threshold)
+        except Exception:
+            return 0
+
     def on_apply_volume_toggled(self, enabled: bool) -> None:
         """Handle apply-to-volume toggle (stub)."""
         self.view_state_model.set_apply_volume(enabled)
@@ -409,11 +427,11 @@ class AnnotationController:
 
         if self.view_state_model.tool_mode != "grow":
             return
-        if self.view_state_model.active_label is None:
-            return
         point = (int(pos[0]), int(pos[1]))
-        label = self.view_state_model.active_label
-        threshold = self.view_state_model.threshold if self.view_state_model.threshold is not None else 0
+        label = self._effective_annotation_label()
+        if label is None:
+            return
+        threshold = self._effective_annotation_threshold()
         thin_line_width = self.view_state_model.roi_thin_line_max_width
 
         try:
@@ -496,8 +514,6 @@ class AnnotationController:
         """Handle freehand line completion (line grow tool)."""
         if self.view_state_model.tool_mode != "line":
             return
-        if self.view_state_model.active_label is None:
-            return
         if not isinstance(points, (list, tuple)):
             return
         clean_points: list[tuple[int, int]] = []
@@ -511,8 +527,10 @@ class AnnotationController:
         if not clean_points:
             return
 
-        label = self.view_state_model.active_label
-        threshold = self.view_state_model.threshold if self.view_state_model.threshold is not None else 0
+        label = self._effective_annotation_label()
+        if label is None:
+            return
+        threshold = self._effective_annotation_threshold()
         thin_line_width = self.view_state_model.roi_thin_line_max_width
 
         try:
@@ -608,8 +626,6 @@ class AnnotationController:
         """Handle free-hand completion."""
         if self.view_state_model.tool_mode not in ("free_hand", "peak"):
             return
-        if self.view_state_model.active_label is None:
-            return
         if not isinstance(points, (list, tuple)):
             return
 
@@ -624,7 +640,10 @@ class AnnotationController:
         if len(clean_points) < 3:
             return
 
-        label = self.view_state_model.active_label
+        label = self._effective_annotation_label()
+        if label is None:
+            return
+        threshold = self._effective_annotation_threshold()
         try:
             slice_idx = int(self.view_state_model.current_slice)
         except Exception:
@@ -670,7 +689,7 @@ class AnnotationController:
                     points=clean_points,
                     shape=shape,
                     label=label,
-                    threshold=self.view_state_model.threshold,
+                    threshold=threshold,
                     prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
                     ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
                     vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
@@ -690,7 +709,7 @@ class AnnotationController:
                     points=clean_points,
                     shape=shape,
                     label=label,
-                    threshold=self.view_state_model.threshold,
+                    threshold=threshold,
                     persistent=self.view_state_model.roi_persistence,
                     roi_model=self.roi_model,
                     temp_mask_model=self.temp_mask_model,
@@ -707,7 +726,7 @@ class AnnotationController:
                     points=clean_points,
                     shape=shape,
                     label=label,
-                    threshold=self.view_state_model.threshold,
+                    threshold=threshold,
                     prefer_second_peak=self.view_state_model.roi_peak_prefer_second,
                     ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
                     vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
@@ -726,7 +745,7 @@ class AnnotationController:
                     points=clean_points,
                     shape=shape,
                     label=label,
-                    threshold=self.view_state_model.threshold,
+                    threshold=threshold,
                     persistent=self.view_state_model.roi_persistence,
                     roi_model=self.roi_model,
                     temp_mask_model=self.temp_mask_model,
@@ -748,9 +767,10 @@ class AnnotationController:
             mask_volume = self.temp_mask_model.get_mask_volume()
         if mask_volume is None:
             return
-        if self.view_state_model.active_label is None:
+        label = self._effective_annotation_label()
+        if label is None:
             return
-        label = self.view_state_model.active_label
+        threshold = self._effective_annotation_threshold()
 
         try:
             slice_idx = int(self.view_state_model.current_slice)
@@ -792,7 +812,7 @@ class AnnotationController:
                 box=box_tuple,
                 shape=(h, w),
                 label=label,
-                threshold=self.view_state_model.threshold,
+                threshold=threshold,
                 persistent=self.view_state_model.roi_persistence,
                 roi_model=self.roi_model,
                 temp_mask_model=self.temp_mask_model,
@@ -808,7 +828,7 @@ class AnnotationController:
                 box=box_tuple,
                 shape=(h, w),
                 label=label,
-                threshold=self.view_state_model.threshold,
+                threshold=threshold,
                 persistent=self.view_state_model.roi_persistence,
                 roi_model=self.roi_model,
                 temp_mask_model=self.temp_mask_model,
@@ -821,10 +841,10 @@ class AnnotationController:
         self.refresh_roi_overlay_for_slice(slice_idx)
 
     def _handle_paint_click(self, pos: tuple[Any, Any]) -> None:
-        """Paint the active label (including 0) into the temp mask (requires Apply)."""
-        if self.view_state_model.active_label is None:
+        """Paint the effective annotation label into the temp mask (requires Apply)."""
+        label = self._effective_annotation_label()
+        if label is None:
             return
-        label = int(self.view_state_model.active_label)
         try:
             slice_idx = int(self.view_state_model.current_slice)
         except Exception:

@@ -269,7 +269,7 @@ class MasterController:
         self._connect_signals()
         self._register_shortcuts()
         self.annotation_controller.apply_overlay_opacity()
-        self._sync_tools_labels()
+        self._apply_annotation_action(getattr(self.view_state_model, "annotation_action", "draw"))
         self._update_main_window_title()
         self._update_endview_label()
         self._sync_display_toggle_actions()
@@ -356,6 +356,7 @@ class MasterController:
         """Wire view signals to controller handlers."""
         self.tools_panel.attach_designer_widgets(
             tool_combo=self._tools_ui.comboBox,
+            action_combo=getattr(self._tools_ui, "comboBox_3", None),
             colormap_combo=self._tools_ui.comboBox_2,
             threshold_slider=self._tools_ui.horizontalSlider,
             threshold_label=self._tools_ui.label_2,
@@ -386,6 +387,9 @@ class MasterController:
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
         self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
         self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
+        self.tools_panel.set_annotation_action(
+            getattr(self.view_state_model, "annotation_action", "draw")
+        )
         self._sync_coordinate_view_labels()
         initial_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
         if initial_tool_mode:
@@ -395,6 +399,7 @@ class MasterController:
 
         self.tools_panel.tool_mode_changed.connect(self.annotation_controller.on_tool_mode_changed)
         self.tools_panel.tool_mode_changed.connect(self.mask_modification_controller.on_tool_mode_changed)
+        self.tools_panel.annotation_action_changed.connect(self._apply_annotation_action)
         self.tools_panel.paint_size_changed.connect(self.annotation_controller.on_paint_size_changed)
         self.tools_panel.threshold_changed.connect(self.annotation_controller.on_threshold_changed)
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
@@ -518,6 +523,8 @@ class MasterController:
             (QKeySequence(Qt.Key.Key_A), self._on_previous_slice),
             (QKeySequence(Qt.Key.Key_D), self._on_next_slice),
             (QKeySequence(Qt.Key.Key_W), self._apply_roi_non_corrosion),
+            (QKeySequence(Qt.Key.Key_R), self._select_draw_action),
+            (QKeySequence(Qt.Key.Key_E), self._select_erase_action),
             (QKeySequence(QKeySequence.StandardKey.Undo), self._on_annotation_undo_requested),
             (QKeySequence("Ctrl+Shift+Z"), self._on_annotation_redo_requested),
             (QKeySequence(Qt.Key.Key_Escape), self._on_selection_cancel_requested),
@@ -1005,6 +1012,18 @@ class MasterController:
         )
         self.nde_settings_view.set_apply_volume_range(start_idx, end_idx)
 
+    def _apply_annotation_action(self, action: str) -> None:
+        """Synchronize the draw/erase action between the tools panel and the view state."""
+        normalized = self.view_state_model.set_annotation_action(action)
+        self.tools_panel.set_annotation_action(normalized)
+        self._sync_tools_labels(select_label_id=self.view_state_model.active_label)
+
+    def _select_draw_action(self) -> None:
+        self._apply_annotation_action("draw")
+
+    def _select_erase_action(self) -> None:
+        self._apply_annotation_action("erase")
+
     def _on_erase_label_target_changed(self, label_id: Optional[int]) -> None:
         """Handle changes to the label-0 erase target setting."""
         if label_id is None:
@@ -1287,10 +1306,19 @@ class MasterController:
         self.annotation_model.ensure_persistent_labels()
         self.temp_mask_model.ensure_persistent_labels()
         palette = self.annotation_model.get_label_palette()
-        labels = sorted(palette.keys()) if palette else []
+        labels = sorted(lbl for lbl in palette.keys() if int(lbl) != 0) if palette else []
         current = select_label_id if select_label_id is not None else self.view_state_model.active_label
+        try:
+            current = None if current is None else int(current)
+        except Exception:
+            current = None
+        if current == 0:
+            current = None
         if current not in labels:
-            current = next((label_id for label_id in PERSISTENT_LABEL_IDS if label_id in labels), None)
+            current = next(
+                (label_id for label_id in PERSISTENT_LABEL_IDS if int(label_id) != 0 and label_id in labels),
+                (labels[0] if labels else None),
+            )
         self.view_state_model.set_active_label(current)
         self.tools_panel.set_labels(labels, current=current)
         self.mask_modification_controller.on_active_label_changed(-1 if current is None else int(current))
@@ -1839,7 +1867,7 @@ class MasterController:
             cscan=self.view_state_model.cscan_colormap,
         )
 
-        self._sync_tools_labels()
+        self._apply_annotation_action(getattr(self.view_state_model, "annotation_action", "draw"))
         self.annotation_controller.sync_overlay_settings()
         self.annotation_controller.apply_overlay_opacity()
         self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)

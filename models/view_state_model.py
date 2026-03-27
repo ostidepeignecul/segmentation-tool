@@ -32,7 +32,11 @@ class ViewStateModel:
         self.roi_peak_vertical_max_length: int = 0
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
-        self.active_label: Optional[int] = PERSISTENT_LABEL_IDS[0]
+        self.annotation_action: str = "draw"
+        self.active_label: Optional[int] = next(
+            (int(label_id) for label_id in PERSISTENT_LABEL_IDS if int(label_id) > 0),
+            None,
+        )
         self.label0_erase_target: Optional[int] = None
         self.roi_thin_line_max_width: int = 2
         self.apply_volume_start: int = 0
@@ -121,8 +125,20 @@ class ViewStateModel:
     # ------------------------------------------------------------------ #
     # Tool & threshold
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def normalize_annotation_action(action: Optional[str]) -> str:
+        value = str(action or "").strip().casefold()
+        if value == "erase":
+            return "erase"
+        return "draw"
+
     def set_tool_mode(self, mode: str) -> None:
         self.tool_mode = mode
+
+    def set_annotation_action(self, action: str) -> str:
+        normalized = self.normalize_annotation_action(action)
+        self.annotation_action = normalized
+        return normalized
 
     def set_threshold(self, threshold: int) -> None:
         self.threshold = int(threshold)
@@ -169,6 +185,19 @@ class ViewStateModel:
             self.active_label = None
         else:
             self.active_label = int(label_id)
+
+    def is_erase_action(self) -> bool:
+        return self.normalize_annotation_action(self.annotation_action) == "erase"
+
+    def effective_annotation_label(self) -> Optional[int]:
+        if self.is_erase_action():
+            return 0
+        return self.active_label
+
+    def effective_annotation_threshold(self) -> Optional[int]:
+        if self.is_erase_action():
+            return 0
+        return self.threshold
 
     def set_label0_erase_target(self, label_id: Optional[int]) -> None:
         """Set the target label that label 0 is allowed to erase (None = all)."""
