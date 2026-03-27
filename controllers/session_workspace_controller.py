@@ -462,11 +462,12 @@ class SessionWorkspaceController:
         return clicked is not cancel_button
 
     def _schedule_session_autosave(self, session_id: str) -> None:
-        target_id = str(session_id).strip()
-        if not target_id or not self.session_manager.has_session(target_id):
-            return
-        self._pending_autosave_session_ids.add(target_id)
-        self._session_autosave_timer.start(900)
+        """
+        Désactivé pour éviter le gel de l'UI.
+        L'autosave synchrone avec gzip sur le volume 3D figeait le thread principal.
+        Le tracking 'dirty' est conservé pour la confirmation avant de quitter.
+        """
+        pass
 
     def _flush_session_autosaves(self) -> None:
         pending_ids = sorted(self._pending_autosave_session_ids)
