@@ -22,6 +22,7 @@ class ProjectPersistence:
     """Read/write `.session` files for the full annotation session manager dump."""
 
     VERSION = 1
+    COMPRESS_LEVEL = 1
 
     def save_session(
         self,
@@ -52,7 +53,7 @@ class ProjectPersistence:
             ),
             session_manager_dump=session_manager_dump,
         )
-        with gzip.open(file_path, "wb") as stream:
+        with gzip.open(file_path, "wb", compresslevel=self.COMPRESS_LEVEL) as stream:
             pickle.dump(payload, stream, protocol=pickle.HIGHEST_PROTOCOL)
         return str(file_path)
 

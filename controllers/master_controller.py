@@ -1906,7 +1906,9 @@ class MasterController:
                 self.session_manager._sessions[origin_id] = origin_state  # noqa: SLF001
 
         # 2) Prépare un état interpolé pour la nouvelle session
-        interpolated_view_state = copy.deepcopy(self.view_state_model)
+        interpolated_view_state = self.session_manager.clone_view_state_model(
+            self.view_state_model
+        )
         if result.interpolated_projection is not None and result.interpolated_value_range is not None:
             interpolated_view_state.corrosion_projection = (
                 result.interpolated_projection,

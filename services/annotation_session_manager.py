@@ -291,6 +291,14 @@ class AnnotationSessionManager:
             view_state_model=view_state_model,
         )
 
+    @classmethod
+    def clone_view_state_model(cls, source: ViewStateModel) -> ViewStateModel:
+        """Clone a ViewStateModel without duplicating large NumPy payloads."""
+        cloned = ViewStateModel()
+        for key, value in vars(source).items():
+            setattr(cloned, key, cls._copy_view_state_value(value))
+        return cloned
+
     def build_session_dump(
         self,
         session_id: str,
@@ -301,18 +309,21 @@ class AnnotationSessionManager:
         view_state_model: ViewStateModel,
     ) -> dict[str, Any]:
         """Capture et retourne une session unique par son identifiant."""
-        dump = self.build_dump(
-            annotation_model=annotation_model,
-            temp_mask_model=temp_mask_model,
-            roi_model=roi_model,
-            view_state_model=view_state_model,
-        )
-        sessions = dump.get("sessions") or {}
         target_id = str(session_id).strip()
-        if not target_id or target_id not in sessions:
+        if self._active_id is not None and self._active_id in self._sessions:
+            self._sessions[self._active_id] = self._snapshot(
+                name=self._sessions[self._active_id].name,
+                annotation_model=annotation_model,
+                temp_mask_model=temp_mask_model,
+                roi_model=roi_model,
+                view_state_model=view_state_model,
+            )
+        if not target_id or target_id not in self._sessions:
             raise ValueError("Session introuvable pour la sauvegarde.")
         return {
-            "sessions": {target_id: sessions[target_id]},
+            "sessions": {
+                target_id: self._build_persistable_session_state(self._sessions[target_id]),
+            },
             "active_id": target_id,
         }
 
@@ -361,7 +372,7 @@ class AnnotationSessionManager:
         rois = copy.deepcopy(roi_model._rois)  # noqa: SLF001
         next_roi_id = roi_model._next_id  # noqa: SLF001
 
-        view_state = copy.deepcopy(vars(view_state_model))
+        view_state = self._copy_view_state_mapping(vars(view_state_model))
 
         return AnnotationSessionState(
             name=self._normalize_session_name(name),
@@ -393,7 +404,7 @@ class AnnotationSessionManager:
         mask_volume = np.zeros(shape, dtype=np.uint8) if shape is not None else None
         temp_mask_volume = np.zeros(shape, dtype=np.uint8) if shape is not None else None
         temp_coverage_volume = np.zeros(shape, dtype=bool) if shape is not None else None
-        view_state = copy.deepcopy(vars(view_state_model))
+        view_state = self._copy_view_state_mapping(vars(view_state_model))
         view_state["corrosion_active"] = False
         view_state["corrosion_projection"] = None
         view_state["corrosion_interpolated_projection"] = None
@@ -454,7 +465,51 @@ class AnnotationSessionManager:
 
         # View state
         for key, val in state.view_state.items():
-            setattr(view_state_model, key, copy.deepcopy(val))
+            setattr(view_state_model, key, self._copy_view_state_value(val))
+
+    def _build_persistable_session_state(
+        self,
+        state: AnnotationSessionState,
+    ) -> AnnotationSessionState:
+        """Return a disk-oriented clone without derived runtime caches."""
+        return AnnotationSessionState(
+            name=self._normalize_session_name(state.name),
+            mask_volume=state.mask_volume,
+            label_palette=copy.deepcopy(state.label_palette),
+            label_visibility=copy.deepcopy(state.label_visibility),
+            temp_mask_volume=state.temp_mask_volume,
+            temp_coverage_volume=state.temp_coverage_volume,
+            temp_palette=copy.deepcopy(state.temp_palette),
+            temp_visibility=copy.deepcopy(state.temp_visibility),
+            rois=copy.deepcopy(state.rois),
+            next_roi_id=state.next_roi_id,
+            view_state=self._copy_view_state_mapping(state.view_state),
+            overlay_cache=None,
+        )
+
+    @classmethod
+    def _copy_view_state_mapping(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            str(key): cls._copy_view_state_value(value)
+            for key, value in payload.items()
+        }
+
+    @classmethod
+    def _copy_view_state_value(cls, value: Any) -> Any:
+        if isinstance(value, np.ndarray):
+            return value
+        if isinstance(value, tuple):
+            return tuple(cls._copy_view_state_value(item) for item in value)
+        if isinstance(value, list):
+            return [cls._copy_view_state_value(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                copy.deepcopy(key): cls._copy_view_state_value(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, set):
+            return {cls._copy_view_state_value(item) for item in value}
+        return copy.deepcopy(value)
 
     @staticmethod
     def _normalize_session_name(name: str, *, fallback: str = "New session") -> str:

@@ -5,8 +5,36 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QObject, QRunnable, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+
+
+class SessionSaveSignals(QObject):
+    finished = pyqtSignal(str, str)  # session_id, path
+    error = pyqtSignal(str, object)  # session_id, exception
+
+
+class SessionSaveWorker(QRunnable):
+    def __init__(
+        self,
+        session_id: str,
+        destination: str,
+        persistence: ProjectPersistence,
+        payload_args: dict[str, Any],
+    ) -> None:
+        super().__init__()
+        self.session_id = session_id
+        self.destination = destination
+        self.persistence = persistence
+        self.payload_args = payload_args
+        self.signals = SessionSaveSignals()
+
+    def run(self) -> None:
+        try:
+            saved_path = self.persistence.save_session(self.destination, **self.payload_args)
+            self.signals.finished.emit(self.session_id, saved_path)
+        except Exception as exc:
+            self.signals.error.emit(self.session_id, exc)
 
 from models.annotation_model import AnnotationModel
 from models.roi_model import RoiModel
@@ -69,6 +97,10 @@ class SessionWorkspaceController:
         self._session_dirty_flags: dict[str, bool] = {}
         self._session_autosave_paths: dict[str, str] = {}
         self._pending_autosave_session_ids: set[str] = set()
+        self._active_save_workers: set[SessionSaveWorker] = set()
+        self._autosave_inflight_session_ids: set[str] = set()
+        self._autosave_cleanup_pending_ids: set[str] = set()
+        self._autosave_cleanup_retry_counts: dict[str, int] = {}
         self._session_autosave_timer = QTimer(self.main_window)
         self._session_autosave_timer.setSingleShot(True)
         self._session_autosave_timer.timeout.connect(self._flush_session_autosaves)
@@ -148,18 +180,16 @@ class SessionWorkspaceController:
             return
 
         try:
-            saved_path = self.save_active_session(force_dialog=force_dialog)
-            if saved_path:
-                self._status_message(f"Session sauvegardee: {saved_path}", timeout_ms=5000)
+            self.save_active_session(force_dialog=force_dialog, sync=False)
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur sauvegarde session", str(exc))
 
-    def save_active_session(self, *, force_dialog: bool) -> Optional[str]:
+    def save_active_session(self, *, force_dialog: bool, sync: bool = False) -> Optional[str]:
         """Save the active session, optionally forcing the save dialog."""
         active_id = self.session_manager.get_active_session_id()
         if active_id is None:
             raise ValueError("Aucune session active a sauvegarder.")
-        return self.save_session(active_id, force_dialog=force_dialog, clean_after_save=True)
+        return self.save_session(active_id, force_dialog=force_dialog, clean_after_save=True, sync=sync)
 
     def save_session(
         self,
@@ -167,6 +197,7 @@ class SessionWorkspaceController:
         *,
         force_dialog: bool,
         clean_after_save: bool,
+        sync: bool = False,
     ) -> Optional[str]:
         """Save one session by id, optionally forcing the save dialog."""
         target_id = str(session_id).strip()
@@ -202,11 +233,13 @@ class SessionWorkspaceController:
         if not destination:
             raise ValueError("Chemin de sauvegarde de session introuvable.")
 
-        saved_path = self._persist_session_to_destination(target_id, destination)
-        self._session_file_paths[target_id] = saved_path
-        if clean_after_save:
-            self._set_session_dirty(target_id, False, schedule_autosave=False)
-        return saved_path
+        return self._persist_session_to_destination(
+            target_id,
+            destination,
+            sync=sync,
+            clean_after_save=clean_after_save,
+            is_autosave=False,
+        )
 
     def confirm_unsaved_sessions_before_reset(self, action_label: str) -> bool:
         """Prompt the user about unsaved sessions before replacing the workspace."""
@@ -356,22 +389,81 @@ class SessionWorkspaceController:
             self.mark_active_session_dirty()
         return True
 
-    def _persist_session_to_destination(self, session_id: str, destination: str) -> str:
-        """Serialize one session to the provided destination path."""
+    def _persist_session_to_destination(
+        self, 
+        session_id: str, 
+        destination: str,
+        *,
+        sync: bool = False,
+        clean_after_save: bool = False,
+        is_autosave: bool = False,
+    ) -> Optional[str]:
+        """Serialize one session to the provided destination path in background."""
+        normalized_session_id = str(session_id).strip()
         session_dump = self.session_manager.build_session_dump(
-            session_id,
+            normalized_session_id,
             annotation_model=self.annotation_model,
             temp_mask_model=self.temp_mask_model,
             roi_model=self.roi_model,
             view_state_model=self.view_state_model,
         )
-        return self.project_persistence.save_session(
-            destination,
-            nde_path=self._require_nde_path(),
-            annotation_axis_mode=self._get_annotation_axis_mode(),
-            signal_processing_selection=self._get_signal_processing_selection(),
-            session_manager_dump=session_dump,
+        payload_args = {
+            "nde_path": self._require_nde_path(),
+            "annotation_axis_mode": self._get_annotation_axis_mode(),
+            "signal_processing_selection": self._get_signal_processing_selection(),
+            "session_manager_dump": session_dump,
+        }
+
+        if sync:
+            saved_path = self.project_persistence.save_session(destination, **payload_args)
+            if not is_autosave:
+                self._session_file_paths[session_id] = saved_path
+            if clean_after_save:
+                self._set_session_dirty(session_id, False, schedule_autosave=False)
+            return saved_path
+
+        worker = SessionSaveWorker(
+            session_id=normalized_session_id,
+            destination=destination,
+            persistence=self.project_persistence,
+            payload_args=payload_args,
         )
+        worker.setAutoDelete(False)
+        self._active_save_workers.add(worker)
+        if is_autosave:
+            self._autosave_inflight_session_ids.add(normalized_session_id)
+
+        def finalize_worker(sid: str) -> None:
+            target_id = str(sid).strip()
+            self._active_save_workers.discard(worker)
+            if not is_autosave:
+                return
+            self._autosave_inflight_session_ids.discard(target_id)
+            if target_id in self._autosave_cleanup_pending_ids:
+                self._cleanup_session_autosave(target_id)
+
+        def on_finished(sid: str, path: str) -> None:
+            if not is_autosave:
+                self._session_file_paths[sid] = path
+                self._status_message(f"Session sauvegardee: {path}", timeout_ms=5000)
+            if clean_after_save:
+                self._set_session_dirty(sid, False, schedule_autosave=False)
+            finalize_worker(sid)
+
+        def on_error(sid: str, exc: object) -> None:
+            err_msg = str(exc)
+            self.logger.exception(f"Erreur Async Save Session {sid}: {err_msg}")
+            if not is_autosave:
+                QMessageBox.critical(self.main_window, "Erreur sauvegarde", err_msg)
+            finalize_worker(sid)
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+
+        QThreadPool.globalInstance().start(worker)
+        if not is_autosave:
+            self._status_message("Sauvegarde de session en cours...", timeout_ms=3000)
+        return None
 
     def _set_session_dirty(
         self,
@@ -455,19 +547,15 @@ class SessionWorkspaceController:
 
         clicked = box.clickedButton()
         if clicked is save_button:
-            saved_path = self.save_session(session_id, force_dialog=False, clean_after_save=True)
+            saved_path = self.save_session(session_id, force_dialog=False, clean_after_save=True, sync=True)
             return bool(saved_path)
         if clicked is discard_button:
             return True
         return clicked is not cancel_button
 
     def _schedule_session_autosave(self, session_id: str) -> None:
-        """
-        Désactivé pour éviter le gel de l'UI.
-        L'autosave synchrone avec gzip sur le volume 3D figeait le thread principal.
-        Le tracking 'dirty' est conservé pour la confirmation avant de quitter.
-        """
-        pass
+        self._pending_autosave_session_ids.add(session_id)
+        self._session_autosave_timer.start(30000)
 
     def _flush_session_autosaves(self) -> None:
         pending_ids = sorted(self._pending_autosave_session_ids)
@@ -480,14 +568,25 @@ class SessionWorkspaceController:
                 continue
             if not nde_path:
                 continue
+            if session_id in self._autosave_inflight_session_ids:
+                self._pending_autosave_session_ids.add(session_id)
+                continue
             destination = self._session_autosave_paths.get(session_id)
             if not destination:
                 destination = self._autosave_session_path(session_id, nde_path=nde_path)
                 self._session_autosave_paths[session_id] = destination
             try:
-                self._persist_session_to_destination(session_id, destination)
+                self._persist_session_to_destination(
+                    session_id,
+                    destination,
+                    sync=False,
+                    clean_after_save=False,
+                    is_autosave=True,
+                )
             except Exception:
                 self.logger.exception("Unable to autosave temporary session %s", session_id)
+        if self._pending_autosave_session_ids:
+            self._session_autosave_timer.start(1000)
 
     @staticmethod
     def _autosave_session_path(session_id: str, *, nde_path: str) -> str:
@@ -501,13 +600,39 @@ class SessionWorkspaceController:
         return str(base_dir / f"{session_id}.session")
 
     def _cleanup_session_autosave(self, session_id: str) -> None:
-        path_str = self._session_autosave_paths.pop(str(session_id).strip(), None)
+        target_id = str(session_id).strip()
+        if not target_id:
+            return
+        path_str = self._session_autosave_paths.get(target_id)
         if not path_str:
+            self._autosave_cleanup_pending_ids.discard(target_id)
+            self._autosave_cleanup_retry_counts.pop(target_id, None)
+            return
+        if target_id in self._autosave_inflight_session_ids:
+            self._autosave_cleanup_pending_ids.add(target_id)
             return
         try:
             path = Path(path_str)
             if path.exists():
                 path.unlink()
+            self._session_autosave_paths.pop(target_id, None)
+            self._autosave_cleanup_pending_ids.discard(target_id)
+            self._autosave_cleanup_retry_counts.pop(target_id, None)
+        except PermissionError:
+            retry_count = self._autosave_cleanup_retry_counts.get(target_id, 0) + 1
+            self._autosave_cleanup_retry_counts[target_id] = retry_count
+            self._autosave_cleanup_pending_ids.add(target_id)
+            if retry_count <= 5:
+                QTimer.singleShot(
+                    250 * retry_count,
+                    lambda sid=target_id: self._cleanup_session_autosave(sid),
+                )
+                return
+            self.logger.warning(
+                "Temporary session autosave still locked after %d retries: %s",
+                retry_count,
+                path_str,
+            )
         except Exception:
             self.logger.exception("Unable to remove temporary session autosave: %s", path_str)
 

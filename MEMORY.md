@@ -3660,3 +3660,22 @@ Le besoin etait de separer clairement l intention utilisateur entre dessin et ef
 1. Decoupler l action `Draw` ou `Erase` du `active_label` dans `ViewStateModel`, plutot que surcharger directement la selection de label, afin de preserver les workflows existants de modification de masque, corrosion et persistance de session.
 2. Conserver le slider de threshold comme etat de `Draw`, mais appliquer un threshold effectif a `0` uniquement dans `AnnotationController` quand l action `Erase` est active, pour eviter toute perte du reglage utilisateur.
 3. Garder `label 0` dans la palette et dans les mecanismes d effacement deja existants, tout en le filtrant de la liste des labels actifs du `ToolsPanel`, afin de reutiliser l infrastructure d erase sans exposer un faux label de dessin.
+
+### 2026-03-27 - Autosave asynchrone robuste et sauvegarde session allegee
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#controllers/session_workspace_controller.py`, `#services/annotation_session_manager.py`, `#services/project_persistence.py`, `#session`, `#autosave`, `#persistence`, `#performance`, `#corrosion`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Rebranche `controllers/session_workspace_controller.py` sur un vrai worker asynchrone `SessionSaveWorker` via `QThreadPool`, avec conservation explicite des workers actifs pour eviter la destruction prematuree de `SessionSaveSignals`.
+- Ajoute dans `controllers/session_workspace_controller.py` un suivi des autosaves en vol, un nettoyage differe des fichiers temporaires verrouilles et un retry court pour eviter les `PermissionError` Windows pendant `unlink()`.
+- Etend `services/annotation_session_manager.py` avec une copie legere du `ViewStateModel` qui ne duplique plus les `np.ndarray` derives, reutilisee dans les snapshots de session, l application de session, le dump persistant et la creation de la session corrosion.
+- Fait retourner `build_session_dump()` sous `services/annotation_session_manager.py` un etat persistable sans `overlay_cache`, afin d eviter de serialiser un cache derive reconstructible.
+- Abaisse le niveau de compression gzip dans `services/project_persistence.py` a `COMPRESS_LEVEL = 1` pour privilegier la vitesse de sauvegarde des `.session`.
+- Remplace dans `controllers/master_controller.py` le `copy.deepcopy(self.view_state_model)` du flux corrosion par la copie legere centralisee du gestionnaire de sessions.
+
+**Contexte :**
+Le flux de sauvegarde de session restait lent meme apres passage en worker, car une partie du travail couteux etait faite avant l ecriture disque: copies profondes des etats corrosion dans le `view_state`, payload persistant trop lourd, et compression gzip maximale. En parallele, l autosave temporaire provoquait des erreurs `PermissionError` et `RuntimeError` quand un fichier temp etait supprime pendant qu un worker l ecrivait encore ou quand les signaux du worker etaient detruits trop tot.
+
+**Decisions techniques :**
+1. Stabiliser d abord le cycle de vie des autosaves en conservant explicitement les workers et en deferant le nettoyage des fichiers temporaires, plutot que masquer les exceptions ou desactiver l autosave.
+2. Traiter les tableaux corrosion comme des donnees derivees quasi immuables dans les copies de `view_state`, afin d eliminer les `deepcopy` couteux sans casser le switch de session ni la restauration.
+3. Distinguer l etat en memoire utile au runtime du payload persistant disque, en excluant `overlay_cache` du dump `.session` et en baissant la compression pour privilegier la rapidite sur le stockage local.
