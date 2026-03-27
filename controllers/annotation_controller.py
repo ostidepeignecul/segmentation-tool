@@ -293,6 +293,10 @@ class AnnotationController:
         """Handle auto-threshold toggle (stub)."""
         self.view_state_model.set_threshold_auto(enabled)
 
+    def on_force_threshold_erase_toggled(self, enabled: bool) -> None:
+        """Allow erase mode to use the current threshold when requested."""
+        self.view_state_model.set_force_threshold_erase(enabled)
+
     def on_label_selected(self, label_id: int) -> None:
         """Handle active label selection from the tools panel."""
         self.view_state_model.set_active_label(label_id)

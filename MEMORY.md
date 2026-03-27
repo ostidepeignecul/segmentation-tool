@@ -3679,3 +3679,21 @@ Le flux de sauvegarde de session restait lent meme apres passage en worker, car 
 1. Stabiliser d abord le cycle de vie des autosaves en conservant explicitement les workers et en deferant le nettoyage des fichiers temporaires, plutot que masquer les exceptions ou desactiver l autosave.
 2. Traiter les tableaux corrosion comme des donnees derivees quasi immuables dans les copies de `view_state`, afin d eliminer les `deepcopy` couteux sans casser le switch de session ni la restauration.
 3. Distinguer l etat en memoire utile au runtime du payload persistant disque, en excluant `overlay_cache` du dump `.session` et en baissant la compression pour privilegier la rapidite sur le stockage local.
+
+### 2026-03-27 - Etat ToolsPanel restaure par session et threshold erase optionnel
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/tools_panel.py`, `#session`, `#tools_panel`, `#state-management`, `#threshold`, `#erase`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Rebranche `controllers/master_controller.py` pour reappliquer au demarrage et apres `_after_session_switch()` les etats `threshold`, `Box percentiles`, `Apply volume`, `ROI persistence`, `paint size` et la synchro du range volume, afin que le `ToolsPanel` refl ete bien la session active.
+- Etend `views/tools_panel.py` avec des setters silencieux pour les checkboxes de threshold auto, apply volume, ROI persistence et, dans le diff stage courant, pour le nouveau checkbox `Force threshold (erase)`.
+- Ajoute dans `toolspanel.ui` et `ui_toolspanel.py` le checkbox `Force threshold (erase)` et remappe dans `MasterController` le checkbox du crosshair sur `checkBox_6` apres l insertion du nouveau controle.
+- Etend `models/view_state_model.py` avec `force_threshold_erase`, expose son setter, et ne force plus `effective_annotation_threshold()` a `0` en mode `Erase` quand l opt-in est coche.
+- Rebranche `controllers/annotation_controller.py` et `controllers/master_controller.py` pour propager le toggle `force_threshold_erase` depuis le `ToolsPanel` jusqu au modele de vue.
+
+**Contexte :**
+Le commit `924b706e962564b110ac54dfdd89673fdb48930b` corrigeait un decalage entre l etat reel des sessions et l etat affiche par le dock outils, visible au chargement initial et apres un switch de session. Le diff stage courant ajoute ensuite un besoin plus fin en annotation : conserver `Erase` comme effacement total par defaut, tout en permettant explicitement d appliquer le threshold courant quand l utilisateur veut un erase seuille.
+
+**Decisions techniques :**
+1. Restaurer l etat du `ToolsPanel` depuis `ViewStateModel` dans `MasterController` plutot que laisser la vue deduire seule ses valeurs, afin de garder une source de verite unique par session.
+2. Garder `Erase` avec un threshold effectif a `0` par defaut pour ne pas casser le comportement introduit precedemment, puis ajouter un opt-in explicite `Force threshold (erase)` dans le modele de vue pour les cas de seuillage volontaire.
+3. Ajouter le nouveau controle dans le dock existant et utiliser des setters silencieux dans `ToolsPanel` pour eviter les emissions de signaux parasites lors des restaurations de session et de l initialisation UI.

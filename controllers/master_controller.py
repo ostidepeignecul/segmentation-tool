@@ -365,6 +365,7 @@ class MasterController:
             overlay_opacity_spinbox=self._tools_ui.spinBox_4,
             nde_opacity_slider=self._tools_ui.horizontalSlider_5,
             nde_opacity_spinbox=self._tools_ui.spinBox_3,
+            force_threshold_erase_checkbox=getattr(self._tools_ui, "checkBox_4", None),
             apply_volume_checkbox=self._tools_ui.checkBox,
             threshold_auto_checkbox=self._tools_ui.checkBox_2,
             roi_persistence_checkbox=self._tools_ui.checkBox_3,
@@ -374,7 +375,7 @@ class MasterController:
             apply_roi_button=self._tools_ui.pushButton_7,
             label_container=self._tools_ui.scrollAreaWidgetContents,
             overlay_checkbox=getattr(self._tools_ui, "checkBox_5", None),
-            cross_checkbox=getattr(self._tools_ui, "checkBox_4", None),
+            cross_checkbox=getattr(self._tools_ui, "checkBox_6", None),
             nde_opacity_label=getattr(self._tools_ui, "label_10", None),
         )
 
@@ -382,6 +383,9 @@ class MasterController:
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
+        self.tools_panel.set_force_threshold_erase_checked(
+            getattr(self.view_state_model, "force_threshold_erase", False)
+        )
         self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
         self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
         self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)
@@ -406,6 +410,9 @@ class MasterController:
         self.tools_panel.annotation_action_changed.connect(self._apply_annotation_action)
         self.tools_panel.paint_size_changed.connect(self.annotation_controller.on_paint_size_changed)
         self.tools_panel.threshold_changed.connect(self.annotation_controller.on_threshold_changed)
+        self.tools_panel.force_threshold_erase_toggled.connect(
+            self.annotation_controller.on_force_threshold_erase_toggled
+        )
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
         self.tools_panel.overlay_opacity_changed.connect(self._on_overlay_opacity_changed)
@@ -1851,6 +1858,9 @@ class MasterController:
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
+        self.tools_panel.set_force_threshold_erase_checked(
+            getattr(self.view_state_model, "force_threshold_erase", False)
+        )
         self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
         self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
         self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)

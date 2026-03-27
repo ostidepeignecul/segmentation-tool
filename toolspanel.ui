@@ -142,6 +142,13 @@
             </widget>
            </item>
            <item>
+            <widget class="QCheckBox" name="checkBox_4">
+             <property name="text">
+              <string>Force threshold (erase)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
             <widget class="QLabel" name="label_6">
              <property name="text">
               <string>Paint zise : </string>

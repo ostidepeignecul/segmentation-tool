@@ -29,6 +29,7 @@ class ToolsPanel(QFrame):
     tool_mode_changed = pyqtSignal(str)
     annotation_action_changed = pyqtSignal(str)
     threshold_changed = pyqtSignal(int)
+    force_threshold_erase_toggled = pyqtSignal(bool)
     threshold_auto_toggled = pyqtSignal(bool)
     apply_volume_toggled = pyqtSignal(bool)
     roi_persistence_toggled = pyqtSignal(bool)
@@ -86,6 +87,7 @@ class ToolsPanel(QFrame):
         self._nde_opacity_spinbox: Optional[QSpinBox] = None
         self._nde_opacity_label: Optional[QLabel] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
+        self._force_threshold_erase_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
         self._overlay_checkbox: Optional[QCheckBox] = None
         self._cross_checkbox: Optional[QCheckBox] = None
@@ -118,6 +120,7 @@ class ToolsPanel(QFrame):
         overlay_opacity_spinbox: QSpinBox,
         nde_opacity_slider: QSlider,
         nde_opacity_spinbox: QSpinBox,
+        force_threshold_erase_checkbox: Optional[QCheckBox],
         apply_volume_checkbox: QCheckBox,
         threshold_auto_checkbox: QCheckBox,
         roi_persistence_checkbox: QCheckBox,
@@ -145,6 +148,7 @@ class ToolsPanel(QFrame):
         self._nde_opacity_slider = nde_opacity_slider
         self._nde_opacity_spinbox = nde_opacity_spinbox
         self._nde_opacity_label = nde_opacity_label
+        self._force_threshold_erase_checkbox = force_threshold_erase_checkbox
         self._apply_volume_checkbox = apply_volume_checkbox
         self._threshold_auto_checkbox = threshold_auto_checkbox
         self._overlay_checkbox = overlay_checkbox
@@ -180,6 +184,10 @@ class ToolsPanel(QFrame):
             handler=self._on_nde_opacity_value_changed,
         )
 
+        if self._force_threshold_erase_checkbox is not None:
+            self._force_threshold_erase_checkbox.toggled.connect(
+                self.force_threshold_erase_toggled.emit
+            )
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)
         if self._overlay_checkbox is not None:
@@ -373,6 +381,14 @@ class ToolsPanel(QFrame):
         self._threshold_auto_checkbox.blockSignals(True)
         self._threshold_auto_checkbox.setChecked(bool(enabled))
         self._threshold_auto_checkbox.blockSignals(False)
+
+    def set_force_threshold_erase_checked(self, enabled: bool) -> None:
+        """Set erase-threshold checkbox state without emitting signals."""
+        if self._force_threshold_erase_checkbox is None:
+            return
+        self._force_threshold_erase_checkbox.blockSignals(True)
+        self._force_threshold_erase_checkbox.setChecked(bool(enabled))
+        self._force_threshold_erase_checkbox.blockSignals(False)
 
     def set_apply_volume_checked(self, enabled: bool) -> None:
         """Set apply-volume checkbox state without emitting signals."""
