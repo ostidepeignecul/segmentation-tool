@@ -370,6 +370,7 @@ class MasterController:
             apply_volume_checkbox=self._tools_ui.checkBox,
             threshold_auto_checkbox=self._tools_ui.checkBox_2,
             roi_persistence_checkbox=self._tools_ui.checkBox_3,
+            volume_view_checkbox=getattr(self._tools_ui, "checkBox_6", None),
             roi_recompute_button=self._tools_ui.pushButton_2,
             roi_delete_button=self._tools_ui.pushButton_3,
             selection_cancel_button=self._tools_ui.pushButton_4,
@@ -387,6 +388,9 @@ class MasterController:
         self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
         self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
         self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)
+        self.tools_panel.set_volume_view_overlay_checked(
+            getattr(self.view_state_model, "show_volume_view_overlay", True)
+        )
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
         self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
@@ -414,6 +418,9 @@ class MasterController:
         self.tools_panel.apply_auto_toggled.connect(self.annotation_controller.on_apply_auto_toggled)
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
+        self.tools_panel.volume_view_overlay_toggled.connect(
+            self.annotation_controller.on_volume_view_overlay_toggled
+        )
         self.tools_panel.overlay_opacity_changed.connect(self._on_overlay_opacity_changed)
         self.tools_panel.nde_opacity_changed.connect(self._on_nde_opacity_changed)
         self.tools_panel.endview_colormap_changed.connect(self._on_endview_colormap_changed)
@@ -1891,6 +1898,9 @@ class MasterController:
         self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
         self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
         self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)
+        self.tools_panel.set_volume_view_overlay_checked(
+            getattr(self.view_state_model, "show_volume_view_overlay", True)
+        )
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
         self._sync_display_toggle_actions()
         self._sync_coordinate_view_labels()

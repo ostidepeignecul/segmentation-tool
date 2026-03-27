@@ -199,6 +199,13 @@
                 </property>
                </widget>
               </item>
+              <item row="3" column="2">
+               <widget class="QCheckBox" name="checkBox_6">
+                <property name="text">
+                 <string>Volume view</string>
+                </property>
+               </widget>
+              </item>
              </layout>
             </widget>
            </item>

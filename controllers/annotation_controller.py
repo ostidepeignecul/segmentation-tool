@@ -142,12 +142,18 @@ class AnnotationController:
         self.view_state_model.toggle_overlay(enabled)
         self.refresh_overlay(rebuild=False)
 
+    def on_volume_view_overlay_toggled(self, enabled: bool) -> None:
+        """Gère l'envoi optionnel de l'overlay vers la vue volume."""
+        self.view_state_model.set_show_volume_view_overlay(enabled)
+        self.refresh_overlay(rebuild=False)
+
     def refresh_overlay(
         self, *, defer_volume: bool = False, rebuild: bool = True, changed_slice: Optional[int] = None
     ) -> None:
         """Recalcule et pousse l'overlay vers les vues selon l'état actuel."""
-        show_volume_overlay = self.view_state_model.show_overlay
-        if not show_volume_overlay:
+        show_overlay = self.view_state_model.show_overlay
+        show_volume_view_overlay = self.view_state_model.show_volume_view_overlay
+        if not show_overlay:
             self.logger.info("Overlay hidden by toggle; clearing 2D/3D views.")
             self.annotation_view.set_overlay(None)
             if self.annotation_secondary_view is not None:
@@ -207,7 +213,7 @@ class AnnotationController:
             visible_count if visible_labels is not None else "all",
         )
 
-        if show_volume_overlay:
+        if show_overlay:
             self.annotation_view.set_overlay(overlay_data, visible_labels=visible_labels)
             secondary_overlay = self.annotation_axis_service.build_secondary_overlay_data(overlay_data)
             if self.annotation_secondary_view is not None:
@@ -222,13 +228,16 @@ class AnnotationController:
                 )
             if self.annotation_corrosion_view is not None:
                 self.annotation_corrosion_view.set_overlay(overlay_data, visible_labels=visible_labels)
-            self.volume_view.set_overlay(
-                overlay_data,
-                visible_labels=visible_labels,
-                defer_3d=defer_volume,
-                changed_slice=changed_slice,
-                changed_labels=changed_labels,
-            )
+            if show_volume_view_overlay:
+                self.volume_view.set_overlay(
+                    overlay_data,
+                    visible_labels=visible_labels,
+                    defer_3d=defer_volume,
+                    changed_slice=changed_slice,
+                    changed_labels=changed_labels,
+                )
+            else:
+                self.volume_view.set_overlay(None)
 
     def clear_labels(self) -> None:
         """Efface tous les labels de la vue de paramètres overlay."""

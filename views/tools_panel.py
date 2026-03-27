@@ -34,6 +34,7 @@ class ToolsPanel(QFrame):
     threshold_auto_toggled = pyqtSignal(bool)
     apply_volume_toggled = pyqtSignal(bool)
     roi_persistence_toggled = pyqtSignal(bool)
+    volume_view_overlay_toggled = pyqtSignal(bool)
     roi_recompute_requested = pyqtSignal()
     roi_delete_requested = pyqtSignal()
     selection_cancel_requested = pyqtSignal()
@@ -90,6 +91,7 @@ class ToolsPanel(QFrame):
         self._force_threshold_erase_checkbox: Optional[QCheckBox] = None
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
         self._roi_persistence_checkbox: Optional[QCheckBox] = None
+        self._volume_view_checkbox: Optional[QCheckBox] = None
         self._roi_recompute_button: Optional[QPushButton] = None
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
@@ -123,6 +125,7 @@ class ToolsPanel(QFrame):
         apply_volume_checkbox: QCheckBox,
         threshold_auto_checkbox: QCheckBox,
         roi_persistence_checkbox: QCheckBox,
+        volume_view_checkbox: Optional[QCheckBox],
         roi_recompute_button: QPushButton,
         roi_delete_button: QPushButton,
         selection_cancel_button: QPushButton,
@@ -150,6 +153,7 @@ class ToolsPanel(QFrame):
         self._apply_volume_checkbox = apply_volume_checkbox
         self._threshold_auto_checkbox = threshold_auto_checkbox
         self._roi_persistence_checkbox = roi_persistence_checkbox
+        self._volume_view_checkbox = volume_view_checkbox
         self._roi_recompute_button = roi_recompute_button
         self._roi_delete_button = roi_delete_button
         self._selection_cancel_button = selection_cancel_button
@@ -189,6 +193,8 @@ class ToolsPanel(QFrame):
         self._threshold_auto_checkbox.toggled.connect(self.threshold_auto_toggled.emit)
         self._apply_volume_checkbox.toggled.connect(self.apply_volume_toggled.emit)
         self._roi_persistence_checkbox.toggled.connect(self.roi_persistence_toggled.emit)
+        if self._volume_view_checkbox is not None:
+            self._volume_view_checkbox.toggled.connect(self.volume_view_overlay_toggled.emit)
         self._roi_recompute_button.clicked.connect(self.roi_recompute_requested)
         self._roi_delete_button.clicked.connect(self.roi_delete_requested)
         self._selection_cancel_button.clicked.connect(self.selection_cancel_requested)
@@ -407,6 +413,14 @@ class ToolsPanel(QFrame):
         self._roi_persistence_checkbox.blockSignals(True)
         self._roi_persistence_checkbox.setChecked(bool(enabled))
         self._roi_persistence_checkbox.blockSignals(False)
+
+    def set_volume_view_overlay_checked(self, enabled: bool) -> None:
+        """Set volume-view overlay checkbox state without emitting signals."""
+        if self._volume_view_checkbox is None:
+            return
+        self._volume_view_checkbox.blockSignals(True)
+        self._volume_view_checkbox.setChecked(bool(enabled))
+        self._volume_view_checkbox.blockSignals(False)
 
     def current_tool_mode(self) -> Optional[str]:
         """Return the currently selected drawing tool mode."""

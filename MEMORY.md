@@ -3715,3 +3715,21 @@ Le nouveau checkbox `Apply auto` avait ete ajoute dans le `ToolsPanel` pour appl
 1. Garder `ViewStateModel` comme source de verite du toggle `Apply auto`, afin que l etat suive naturellement les snapshots et restaurations de session sans logique speciale cote persistence.
 2. Lancer l auto-apply depuis `MasterController` apres creation reussie de la preview par chaque tool, pour reutiliser le pipeline standard d apply, l historique undo/redo et le marquage dirty de session.
 3. Supprimer le contrat `overlay/cross` du `ToolsPanel` plutot que le maintenir optionnel par inertie, afin d eliminer les collisions de mapping avec le nouveau checkbox `Apply auto` et d aligner clairement l UI sur la source d etat du menu `Affichage`.
+
+### 2026-03-27 - Push overlay VolumeView rendu optionnel
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/tools_panel.py`, `#overlay`, `#volume_view`, `#tools_panel`, `#3d-visualization`, `#session`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute dans `toolspanel.ui` et `ui_toolspanel.py` une case `Volume view` dediee au controle du push overlay vers la vue 3D.
+- Etend `views/tools_panel.py` avec le signal `volume_view_overlay_toggled`, le stockage du nouveau checkbox Designer et un setter silencieux `set_volume_view_overlay_checked()`.
+- Etend `models/view_state_model.py` avec l etat persistant `show_volume_view_overlay`, initialise a `True`, pour separer le toggle global overlay du push specifique a `VolumeView`.
+- Rebranche `controllers/master_controller.py` pour injecter `checkBox_6`, connecter son signal vers `AnnotationController`, et restaurer son etat au demarrage ainsi qu apres `_after_session_switch()`.
+- Modifie `controllers/annotation_controller.py` pour que `refresh_overlay()` continue de pousser l overlay 2D quand `show_overlay` est actif, mais n envoie l overlay a `volume_view` que si `show_volume_view_overlay` est coche; sinon la 3D est nettoyee seule.
+
+**Contexte :**
+Le besoin etait de rendre facultatif le push de l overlay d annotation dans `VolumeView` sans changer le comportement des overlays 2D. L utilisateur devait pouvoir activer ou desactiver cette projection 3D depuis le `ToolsPanel`, tout en conservant le toggle global overlay comme commande de visibilite generale.
+
+**Decisions techniques :**
+1. Introduire un etat dedie dans `ViewStateModel` plutot que reutiliser `show_overlay`, afin de dissocier clairement la visibilite overlay globale de l envoi specifique a la vue 3D.
+2. Garder `AnnotationController.refresh_overlay()` comme point unique de push overlay vers les vues 2D et 3D, pour preserver l orchestration MVC et eviter des branches de logique dispersees.
+3. Restaurer explicitement la checkbox `Volume view` depuis `MasterController` pendant l initialisation et les switches de session, afin que le choix utilisateur soit coherent avec l etat de la session active.
