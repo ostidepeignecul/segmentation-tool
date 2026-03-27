@@ -3733,3 +3733,21 @@ Le besoin etait de rendre facultatif le push de l overlay d annotation dans `Vol
 1. Introduire un etat dedie dans `ViewStateModel` plutot que reutiliser `show_overlay`, afin de dissocier clairement la visibilite overlay globale de l envoi specifique a la vue 3D.
 2. Garder `AnnotationController.refresh_overlay()` comme point unique de push overlay vers les vues 2D et 3D, pour preserver l orchestration MVC et eviter des branches de logique dispersees.
 3. Restaurer explicitement la checkbox `Volume view` depuis `MasterController` pendant l initialisation et les switches de session, afin que le choix utilisateur soit coherent avec l etat de la session active.
+
+### 2026-03-27 - Export nnU-Net autonome depuis le split dataset
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#services/split_service.py`, `#nnunet`, `#split`, `#export`, `#dataset`, `#ucoord`, `#vcoord`, `#prefix-suffix`, `#mvc`
+
+**Actions effectuees :**
+- Etend `services/split_service.py` avec un contexte d export partage et un nouveau flux `export_nnunet_dataset()` qui genere un dataset local autonome dans `imagesTr/` et `labelsTr/`.
+- Fait reutiliser par `services/split_service.py` le volume source ou traite deja charge dans l application, calcule la normalisation grayscale uint8, et exporte les deux orientations primaire et secondaire en suffixant automatiquement les noms avec `_ucoord` ou `_vcoord`.
+- Conserve dans `services/split_service.py` le split `flaw/noflaw` existant, mais le refactorise autour des memes helpers de contexte, de min/max et d ecriture PNG pour eviter la duplication de logique.
+- Rebranche `controllers/master_controller.py` pour que l action `Split flaw/noflaw` ouvre d abord un choix de type d export (`flaw/noflaw` ou `nnU-Net`), puis reutilise les memes prompts dossier, prefixe et suffixe avant d appeler le bon flux de service.
+- Ajoute dans `controllers/master_controller.py` un helper centralise `_current_signal_processing_options()` pour propager les options Hilbert/lissage du modele actif vers les deux exports.
+
+**Contexte :**
+Le besoin etait d ajouter un export de dataset compatible nnU-Net directement dans le repo courant, sans dependance runtime vers `nnunet-pipeline`, tout en gardant le split `flaw/noflaw` existant. L utilisateur voulait choisir librement le dossier de sortie, conserver les options de prefixe/suffixe deja en place, et produire aussi bien les endviews `UCoordinate` que `VCoordinate` avec un suffixe d axe ajoute automatiquement.
+
+**Decisions techniques :**
+1. Garder toute la logique de generation du dataset dans `services/split_service.py` plutot que pointer vers un autre repo, afin que le projet reste autonome et conforme a l architecture MVC existante.
+2. Reutiliser l action menu existante et ajouter un prompt de mode dans `controllers/master_controller.py`, afin d eviter de toucher les fichiers UI deja modifies localement et de limiter le changement a l orchestration controller.
+3. Produire directement des paires de noms identiques entre `imagesTr/` et `labelsTr`, avec suffixe automatique d axe ajoute apres le suffixe utilisateur, afin de rester compatible avec un renommage ulterieur sans imposer de convention externe supplementaire.

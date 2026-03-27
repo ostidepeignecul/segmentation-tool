@@ -294,7 +294,7 @@ class MasterController:
         if hasattr(self.ui, "actionExporter_endviews"):
             self.ui.actionExporter_endviews.triggered.connect(self._on_export_endviews)
         if hasattr(self.ui, "actionSplit_flaw_noflaw"):
-            self.ui.actionSplit_flaw_noflaw.triggered.connect(self._on_split_flaw_noflaw)
+            self.ui.actionSplit_flaw_noflaw.triggered.connect(self._on_dataset_export_requested)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionParam_tres_2.triggered.connect(self.annotation_controller.open_overlay_settings)
         if hasattr(self.ui, "actionParam_tres_3"):
@@ -892,6 +892,124 @@ class MasterController:
             QMessageBox.information(self.main_window, "Split flaw/noflaw", message)
         else:
             QMessageBox.critical(self.main_window, "Split flaw/noflaw", message)
+
+    def _on_dataset_export_requested(self) -> None:
+        """Launch the dataset export flow selected by the user."""
+        if self.nde_model is None:
+            QMessageBox.warning(self.main_window, "Split flaw/noflaw", "Chargez un NDE avant de lancer le split.")
+            return
+
+        export_mode = self._prompt_split_export_mode()
+        if export_mode is None:
+            return
+
+        nde_path = None
+        try:
+            nde_path = (self.nde_model.metadata or {}).get("path")
+        except Exception:
+            nde_path = None
+
+        initial_dir = str(Path(nde_path).parent) if nde_path else ""
+        dialog_title = "Export nnU-Net" if export_mode == "nnunet" else "Split flaw/noflaw"
+        output_prompt = (
+            "Choisir le dossier parent du dataset nnU-Net"
+            if export_mode == "nnunet"
+            else "Choisir le dossier parent pour l'export endviews split"
+        )
+        output_root = QFileDialog.getExistingDirectory(
+            self.main_window,
+            output_prompt,
+            initial_dir,
+        )
+        if not output_root:
+            return
+
+        affixes = self._prompt_export_filename_affixes(dialog_title=dialog_title)
+        if affixes is None:
+            return
+        prefix, suffix = affixes
+        processing_options = self._current_signal_processing_options()
+
+        if export_mode == "nnunet":
+            self.status_message("Export nnU-Net en cours...", timeout_ms=2000)
+            success, message = self.split_flaw_noflaw_service.export_nnunet_dataset(
+                nde_model=self.nde_model,
+                annotation_model=self.annotation_model,
+                nde_file=nde_path,
+                output_root=output_root,
+                filename_prefix=prefix,
+                filename_suffix=suffix,
+                signal_processing_options=processing_options,
+            )
+            if success:
+                self.status_message("Export nnU-Net termine", timeout_ms=5000)
+                QMessageBox.information(self.main_window, dialog_title, message)
+            else:
+                QMessageBox.critical(self.main_window, dialog_title, message)
+            return
+
+        self.status_message("Split flaw/noflaw en cours...", timeout_ms=2000)
+        success, message = self.split_flaw_noflaw_service.split_endviews(
+            nde_model=self.nde_model,
+            annotation_model=self.annotation_model,
+            nde_file=nde_path,
+            output_root=output_root,
+            filename_prefix=prefix,
+            filename_suffix=suffix,
+            signal_processing_options=processing_options,
+        )
+
+        if success:
+            self.status_message("Split flaw/noflaw termine", timeout_ms=5000)
+            QMessageBox.information(self.main_window, dialog_title, message)
+        else:
+            QMessageBox.critical(self.main_window, dialog_title, message)
+
+    def _prompt_split_export_mode(self) -> Optional[str]:
+        """Ask whether the dataset export should target flaw/noflaw or nnU-Net."""
+        choices = [
+            "flaw/noflaw",
+            "nnU-Net (imagesTr + labelsTr)",
+        ]
+        selection, ok = QInputDialog.getItem(
+            self.main_window,
+            "Type d'export",
+            "Dataset a generer:",
+            choices,
+            0,
+            False,
+        )
+        if not ok:
+            return None
+        return "nnunet" if str(selection).startswith("nnU-Net") else "flaw_noflaw"
+
+    def _prompt_export_filename_affixes(self, *, dialog_title: str) -> Optional[tuple[str, str]]:
+        """Collect optional filename prefix/suffix from the user."""
+        prefix, ok = QInputDialog.getText(
+            self.main_window,
+            dialog_title,
+            "Prefixe des images exportees (optionnel) :",
+        )
+        if not ok:
+            return None
+
+        suffix, ok = QInputDialog.getText(
+            self.main_window,
+            dialog_title,
+            "Suffixe des images exportees (optionnel) :",
+        )
+        if not ok:
+            return None
+
+        return (prefix or "").strip(), (suffix or "").strip()
+
+    def _current_signal_processing_options(self) -> NdeSignalProcessingOptions:
+        """Return the currently selected signal-processing options."""
+        selection = self._current_signal_processing_selection()
+        return NdeSignalProcessingOptions(
+            apply_hilbert=bool(selection.get("apply_hilbert", False)),
+            apply_smoothing=bool(selection.get("apply_smoothing", False)),
+        )
 
     def _on_open_settings(self) -> None:
         """Open the settings dialog."""
