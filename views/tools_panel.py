@@ -366,6 +366,30 @@ class ToolsPanel(QFrame):
         self._threshold_slider.blockSignals(False)
         self._update_threshold_label(threshold)
 
+    def set_threshold_auto_checked(self, enabled: bool) -> None:
+        """Set threshold-auto checkbox state without emitting signals."""
+        if self._threshold_auto_checkbox is None:
+            return
+        self._threshold_auto_checkbox.blockSignals(True)
+        self._threshold_auto_checkbox.setChecked(bool(enabled))
+        self._threshold_auto_checkbox.blockSignals(False)
+
+    def set_apply_volume_checked(self, enabled: bool) -> None:
+        """Set apply-volume checkbox state without emitting signals."""
+        if self._apply_volume_checkbox is None:
+            return
+        self._apply_volume_checkbox.blockSignals(True)
+        self._apply_volume_checkbox.setChecked(bool(enabled))
+        self._apply_volume_checkbox.blockSignals(False)
+
+    def set_roi_persistence_checked(self, enabled: bool) -> None:
+        """Set ROI persistence checkbox state without emitting signals."""
+        if self._roi_persistence_checkbox is None:
+            return
+        self._roi_persistence_checkbox.blockSignals(True)
+        self._roi_persistence_checkbox.setChecked(bool(enabled))
+        self._roi_persistence_checkbox.blockSignals(False)
+
     def set_overlay_checked(self, enabled: bool) -> None:
         """Set overlay checkbox state without emitting signals when present."""
         if self._overlay_checkbox is None:

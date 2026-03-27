@@ -382,10 +382,14 @@ class MasterController:
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
+        self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
+        self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
+        self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
         self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
         self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
+        self._sync_apply_volume_range_view()
         self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
         self.tools_panel.set_annotation_action(
             getattr(self.view_state_model, "annotation_action", "draw")
@@ -1845,6 +1849,12 @@ class MasterController:
         self.annotation_controller.clear_apply_history()
         self.tools_panel.set_overlay_checked(self.view_state_model.show_overlay)
         self.tools_panel.set_cross_checked(self.view_state_model.show_cross)
+        if self.view_state_model.threshold is not None:
+            self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
+        self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
+        self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
+        self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)
+        self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
         self._sync_display_toggle_actions()
         self._sync_coordinate_view_labels()
         current_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
