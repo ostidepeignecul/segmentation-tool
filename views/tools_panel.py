@@ -42,6 +42,7 @@ class ToolsPanel(QFrame):
     paint_size_changed = pyqtSignal(int)
     overlay_opacity_changed = pyqtSignal(float)
     nde_opacity_changed = pyqtSignal(float)
+    nde_contrast_changed = pyqtSignal(float)
     endview_colormap_changed = pyqtSignal(str)
 
     _TOOL_MODE_BY_TEXT = {
@@ -86,6 +87,9 @@ class ToolsPanel(QFrame):
         self._nde_opacity_slider: Optional[QSlider] = None
         self._nde_opacity_spinbox: Optional[QSpinBox] = None
         self._nde_opacity_label: Optional[QLabel] = None
+        self._nde_contrast_slider: Optional[QSlider] = None
+        self._nde_contrast_spinbox: Optional[QSpinBox] = None
+        self._nde_contrast_label: Optional[QLabel] = None
         self._apply_volume_checkbox: Optional[QCheckBox] = None
         self._apply_auto_checkbox: Optional[QCheckBox] = None
         self._force_threshold_erase_checkbox: Optional[QCheckBox] = None
@@ -120,6 +124,8 @@ class ToolsPanel(QFrame):
         overlay_opacity_spinbox: QSpinBox,
         nde_opacity_slider: QSlider,
         nde_opacity_spinbox: QSpinBox,
+        nde_contrast_slider: QSlider,
+        nde_contrast_spinbox: QSpinBox,
         apply_auto_checkbox: Optional[QCheckBox],
         force_threshold_erase_checkbox: Optional[QCheckBox],
         apply_volume_checkbox: QCheckBox,
@@ -132,6 +138,7 @@ class ToolsPanel(QFrame):
         apply_roi_button: QPushButton,
         label_container: QWidget,
         nde_opacity_label: Optional[QLabel] = None,
+        nde_contrast_label: Optional[QLabel] = None,
     ) -> None:
         """Receive Designer-created widgets and wire them to the exposed signals."""
         if self._wired:
@@ -148,6 +155,9 @@ class ToolsPanel(QFrame):
         self._nde_opacity_slider = nde_opacity_slider
         self._nde_opacity_spinbox = nde_opacity_spinbox
         self._nde_opacity_label = nde_opacity_label
+        self._nde_contrast_slider = nde_contrast_slider
+        self._nde_contrast_spinbox = nde_contrast_spinbox
+        self._nde_contrast_label = nde_contrast_label
         self._apply_auto_checkbox = apply_auto_checkbox
         self._force_threshold_erase_checkbox = force_threshold_erase_checkbox
         self._apply_volume_checkbox = apply_volume_checkbox
@@ -182,6 +192,12 @@ class ToolsPanel(QFrame):
             slider=self._nde_opacity_slider,
             spinbox=self._nde_opacity_spinbox,
             handler=self._on_nde_opacity_value_changed,
+        )
+        self._configure_percentage_controls(
+            slider=self._nde_contrast_slider,
+            spinbox=self._nde_contrast_spinbox,
+            handler=self._on_nde_contrast_value_changed,
+            maximum=200,
         )
 
         if self._force_threshold_erase_checkbox is not None:
@@ -256,13 +272,14 @@ class ToolsPanel(QFrame):
         slider: Optional[QSlider],
         spinbox: Optional[QSpinBox],
         handler,
+        maximum: int = 100,
     ) -> None:
         if slider is None or spinbox is None:
             return
         slider.setMinimum(0)
-        slider.setMaximum(100)
+        slider.setMaximum(int(maximum))
         spinbox.setMinimum(0)
-        spinbox.setMaximum(100)
+        spinbox.setMaximum(int(maximum))
         spinbox.setKeyboardTracking(False)
         slider.valueChanged.connect(handler)
         spinbox.valueChanged.connect(handler)
@@ -532,6 +549,15 @@ class ToolsPanel(QFrame):
             percent,
         )
 
+    def set_nde_contrast(self, contrast: float) -> None:
+        """Update the NDE contrast widgets without re-emitting signals."""
+        percent = int(round(max(0.0, min(2.0, float(contrast))) * 100.0))
+        self._set_pair_value(
+            self._nde_contrast_slider,
+            self._nde_contrast_spinbox,
+            percent,
+        )
+
     def _on_threshold_changed(self, value: int) -> None:
         """Update threshold label and emit value."""
         self._update_threshold_label(value)
@@ -562,6 +588,14 @@ class ToolsPanel(QFrame):
             spinbox=self._nde_opacity_spinbox,
         )
         self.nde_opacity_changed.emit(float(int(value)) / 100.0)
+
+    def _on_nde_contrast_value_changed(self, value: int) -> None:
+        self._sync_pair_from_source(
+            source_value=int(value),
+            slider=self._nde_contrast_slider,
+            spinbox=self._nde_contrast_spinbox,
+        )
+        self.nde_contrast_changed.emit(float(int(value)) / 100.0)
 
     def _on_primary_slice_changed(self, value: int) -> None:
         self._sync_pair_from_source(
@@ -644,8 +678,15 @@ class ToolsPanel(QFrame):
 
     def set_nde_opacity_available(self, available: bool) -> None:
         enabled = bool(available)
-        tooltip = "" if enabled else "Opacité NDE non disponible pour l'instant."
-        for widget in (self._nde_opacity_slider, self._nde_opacity_spinbox, self._nde_opacity_label):
+        tooltip = "" if enabled else "Affichage NDE non disponible pour l'instant."
+        for widget in (
+            self._nde_opacity_slider,
+            self._nde_opacity_spinbox,
+            self._nde_opacity_label,
+            self._nde_contrast_slider,
+            self._nde_contrast_spinbox,
+            self._nde_contrast_label,
+        ):
             if widget is None:
                 continue
             widget.setEnabled(enabled)

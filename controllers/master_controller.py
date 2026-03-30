@@ -372,6 +372,8 @@ class MasterController:
             overlay_opacity_spinbox=self._tools_ui.spinBox_4,
             nde_opacity_slider=self._tools_ui.horizontalSlider_5,
             nde_opacity_spinbox=self._tools_ui.spinBox_3,
+            nde_contrast_slider=self._tools_ui.horizontalSlider_7,
+            nde_contrast_spinbox=self._tools_ui.spinBox_5,
             apply_auto_checkbox=getattr(self._tools_ui, "checkBox_5", None),
             force_threshold_erase_checkbox=getattr(self._tools_ui, "checkBox_4", None),
             apply_volume_checkbox=self._tools_ui.checkBox,
@@ -384,6 +386,7 @@ class MasterController:
             apply_roi_button=self._tools_ui.pushButton_7,
             label_container=self._tools_ui.scrollAreaWidgetContents,
             nde_opacity_label=getattr(self._tools_ui, "label_10", None),
+            nde_contrast_label=getattr(self._tools_ui, "label_12", None),
         )
 
         if self.view_state_model.threshold is not None:
@@ -401,6 +404,7 @@ class MasterController:
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
         self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
+        self.tools_panel.set_nde_contrast(self.view_state_model.nde_contrast)
         self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
         self._sync_apply_volume_range_view()
         self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
@@ -430,6 +434,7 @@ class MasterController:
         )
         self.tools_panel.overlay_opacity_changed.connect(self._on_overlay_opacity_changed)
         self.tools_panel.nde_opacity_changed.connect(self._on_nde_opacity_changed)
+        self.tools_panel.nde_contrast_changed.connect(self._on_nde_contrast_changed)
         self.tools_panel.endview_colormap_changed.connect(self._on_endview_colormap_changed)
         self.tools_panel.roi_persistence_toggled.connect(self.annotation_controller.on_roi_persistence_toggled)
         self.tools_panel.roi_recompute_requested.connect(self.annotation_controller.on_roi_recompute_requested)
@@ -1181,6 +1186,15 @@ class MasterController:
         self.endview_controller.set_nde_opacity(alpha)
         self.volume_view.set_nde_opacity(alpha)
         self.tools_panel.set_nde_opacity(alpha)
+        self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
+
+    def _on_nde_contrast_changed(self, contrast: float) -> None:
+        """Keep NDE contrast synchronized across the tools panel and render views."""
+        self.view_state_model.set_nde_contrast(contrast)
+        factor = float(self.view_state_model.nde_contrast)
+        self.endview_controller.set_nde_contrast(factor)
+        self.volume_view.set_nde_contrast(factor)
+        self.tools_panel.set_nde_contrast(factor)
         self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
 
     def _on_endview_colormap_changed(self, name: str) -> None:
@@ -2047,13 +2061,16 @@ class MasterController:
         # Envoie le volume à la vue 3D en précisant l’ordre des axes
         self.volume_view.set_volume(volume, slice_idx=slice_idx, axis_order=axis_order)
         self.volume_view.set_nde_opacity(self.view_state_model.nde_alpha)
+        self.volume_view.set_nde_contrast(self.view_state_model.nde_contrast)
         self.volume_view.set_secondary_slice_index(
             secondary_slice_idx,
             update_slider=True,
             emit=False,
         )
         self.endview_controller.set_nde_opacity(self.view_state_model.nde_alpha)
+        self.endview_controller.set_nde_contrast(self.view_state_model.nde_contrast)
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
+        self.tools_panel.set_nde_contrast(self.view_state_model.nde_contrast)
         self.tools_panel.set_nde_opacity_available(True)
 
         # Applique l’overlay après la (re)construction de la scène 3D
@@ -2137,6 +2154,7 @@ class MasterController:
         self.annotation_controller.apply_overlay_opacity()
         self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
+        self.tools_panel.set_nde_contrast(self.view_state_model.nde_contrast)
         self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
         # Rafraîchir le volume puis réappliquer l'overlay pour forcer le push 3D
         self._refresh_views()

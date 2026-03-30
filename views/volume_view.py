@@ -189,6 +189,7 @@ class VolumeView(QFrame):
         self._overlay_colormap: Optional[Colormap] = None
         self._overlay_opacity: float = 1.0
         self._nde_opacity: float = 1.0
+        self._nde_contrast: float = 1.0
         self._label_visuals: Dict[int, scene.visuals.Volume] = {}
         self._uploaded_volumes: Dict[int, np.ndarray] = {}
         self._visible_labels: Optional[set[int]] = None
@@ -297,8 +298,27 @@ class VolumeView(QFrame):
         except (TypeError, ValueError):
             value = 1.0
         self._nde_opacity = max(0.0, min(1.0, value))
-        if self._volume_visual is not None:
-            self._volume_visual.opacity = self._nde_opacity
+        self._apply_nde_visual_params()
+
+    def set_nde_contrast(self, contrast: float) -> None:
+        """Set global NDE contrast factor (1.0 = neutral)."""
+        try:
+            value = float(contrast)
+        except (TypeError, ValueError):
+            value = 1.0
+        self._nde_contrast = max(0.0, min(2.0, value))
+        self._apply_nde_visual_params()
+
+    def _nde_clim(self) -> Tuple[float, float]:
+        factor = max(0.01, min(2.0, float(self._nde_contrast)))
+        half_range = 0.5 / factor
+        return (0.5 - half_range, 0.5 + half_range)
+
+    def _apply_nde_visual_params(self) -> None:
+        if self._volume_visual is None:
+            return
+        self._volume_visual.opacity = self._nde_opacity
+        self._volume_visual.clim = self._nde_clim()
 
     def get_display_size(self) -> Tuple[int, int]:
         """Return requested display size or current viewport size."""
@@ -619,7 +639,7 @@ class VolumeView(QFrame):
             method="mip",
             cmap=self._base_colormap,
         )
-        self._volume_visual.opacity = self._nde_opacity
+        self._apply_nde_visual_params()
 
         # Configure camera ranges and centre
         self._configure_camera(depth, height, width)

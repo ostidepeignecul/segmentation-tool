@@ -169,6 +169,15 @@ class EndviewController:
         if self.secondary_corrosion_view is not None:
             self.secondary_corrosion_view.set_nde_opacity(float(opacity))
 
+    def set_nde_contrast(self, contrast: float) -> None:
+        self.standard_view.set_nde_contrast(float(contrast))
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_nde_contrast(float(contrast))
+        if self.secondary_view is not None:
+            self.secondary_view.set_nde_contrast(float(contrast))
+        if self.secondary_corrosion_view is not None:
+            self.secondary_corrosion_view.set_nde_contrast(float(contrast))
+
     def reset_display_size(self) -> None:
         self.standard_view.reset_display_size()
         if self.corrosion_view is not None:

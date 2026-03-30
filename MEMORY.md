@@ -3787,3 +3787,22 @@ Le besoin etait d ajouter un remap de classes depuis le menu principal pour les 
 1. Reutiliser la detection de classes deja realisee par `AnnotationModel.set_mask_volume()` plutot que recopier la phase d inspection du script externe, afin de garder une seule source de verite pour les classes presentes dans le masque courant.
 2. Stocker un snapshot du NPZ importe original dans un modele runtime dedie, afin que chaque remap reparte de la source importee et reste strictement non destructif vis-a-vis du fichier charge et de l historique de remaps.
 3. Rejouer le pipeline overlay existant apres remap via un helper controller centralise, afin que la mise a jour des labels, de l overlay 2D/3D, des vues corrosion et de l export NPZ reste coherente comme si le fichier d origine avait eu ces classes des le depart.
+
+### 2026-03-30 - Contraste NDE implemente separement de l opacite
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#views/endview_view.py`, `#views/tools_panel.py`, `#views/volume_view.py`, `#nde`, `#contrast`, `#opacity`, `#endview`, `#3d`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute `nde_contrast` dans `models/view_state_model.py` comme etat de vue persistant, avec setter borne entre `0.0` et `2.0` et valeur neutre a `1.0`.
+- Branche dans `views/tools_panel.py` le slider/spinbox Designer existants `horizontalSlider_7` et `spinBox_5` sous le signal `nde_contrast_changed`, avec synchro UI en pourcentage `0-200` et activation/desactivation liees a la disponibilite de l affichage NDE.
+- Etend `controllers/master_controller.py` pour injecter les widgets de contraste, synchroniser le contraste au chargement, aux refreshs et apres switch de session, et propager les changements vers les vues via `_on_nde_contrast_changed`.
+- Etend `controllers/endview_controller.py` pour diffuser `set_nde_contrast()` vers les vues principales, secondaires et corrosion.
+- Modifie `views/endview_view.py` pour appliquer le contraste au rendu NDE par remapping d intensite autour du milieu de gamme apres normalisation de slice, sans toucher a `set_nde_opacity()` ni a l overlay.
+- Modifie `views/volume_view.py` pour appliquer le meme contraste au volume NDE 3D via `VolumeVisual.clim`, tout en conservant l opacite NDE comme controle d alpha distinct.
+
+**Contexte :**
+Un slider `NDE contraste` existait deja dans le `ToolsPanel`, mais n etait relie a aucun etat ni rendu. La demande etait de l implementer en faisant explicitement attention a ne pas confondre contraste et opacite: le contraste doit agir sur les intensites du signal NDE, alors que l opacite doit continuer a ne piloter que la transparence du rendu.
+
+**Decisions techniques :**
+1. Stocker le contraste dans `ViewStateModel` au meme niveau que `nde_alpha`, afin qu il survive aux refreshs de vues et aux switches de session sans introduire de logique d etat dans les vues.
+2. Definir `100%` comme valeur neutre et exposer une plage `0-200%`, afin de reutiliser le contrat UI des autres sliders tout en gardant une lecture simple pour l utilisateur.
+3. Appliquer le contraste par remapping d intensite autour de `0.5` dans `EndviewView` et par ajustement de `clim` dans `VolumeView`, afin de modifier la dynamique visuelle du signal NDE sans melanger cette logique avec l alpha du NDE ni avec l overlay.

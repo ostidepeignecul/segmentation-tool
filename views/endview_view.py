@@ -82,6 +82,7 @@ class EndviewView(QFrame):
 
         self._image_item = QGraphicsPixmapItem()
         self._nde_opacity: float = 1.0
+        self._nde_contrast: float = 1.0
         self._image_item.setOpacity(self._nde_opacity)
         self._scene.addItem(self._image_item)
         self._overlay_opacity: float = 1.0
@@ -213,6 +214,15 @@ class EndviewView(QFrame):
             value = 1.0
         self._nde_opacity = max(0.0, min(1.0, value))
         self._image_item.setOpacity(self._nde_opacity)
+
+    def set_nde_contrast(self, contrast: float) -> None:
+        """Set base NDE contrast factor (1.0 = neutral)."""
+        try:
+            value = float(contrast)
+        except (TypeError, ValueError):
+            value = 1.0
+        self._nde_contrast = max(0.0, min(2.0, value))
+        self._refresh_pixmaps()
 
     def update_image(self) -> None:
         """Force re-rendering the base slice."""
@@ -397,17 +407,31 @@ class EndviewView(QFrame):
         self._overlay_item.setPixmap(overlay_pixmap)
 
     @staticmethod
-    def _array_to_pixmap_gray(array: np.ndarray) -> QPixmap:
+    def _normalize_slice_for_display(array: np.ndarray) -> np.ndarray:
         data = np.asarray(array, dtype=np.float32)
         if data.size == 0:
-            return QPixmap()
+            return np.zeros((0, 0), dtype=np.float32)
         min_val = float(data.min())
         max_val = float(data.max())
         if max_val <= min_val:
-            normalized = np.zeros_like(data, dtype=np.uint8)
-        else:
-            normalized = (data - min_val) / (max_val - min_val)
-            normalized = np.clip(normalized * 255.0, 0, 255).astype(np.uint8)
+            return np.zeros_like(data, dtype=np.float32)
+        normalized = (data - min_val) / (max_val - min_val)
+        return np.clip(normalized, 0.0, 1.0)
+
+    def _apply_nde_contrast(self, normalized: np.ndarray) -> np.ndarray:
+        factor = max(0.01, min(2.0, float(self._nde_contrast)))
+        half_range = 0.5 / factor
+        low = 0.5 - half_range
+        high = 0.5 + half_range
+        return np.clip((normalized - low) / (high - low), 0.0, 1.0)
+
+    def _array_to_pixmap_gray(self, array: np.ndarray) -> QPixmap:
+        data = np.asarray(array, dtype=np.float32)
+        if data.size == 0:
+            return QPixmap()
+        normalized = self._normalize_slice_for_display(data)
+        normalized = self._apply_nde_contrast(normalized)
+        normalized = np.clip(normalized * 255.0, 0, 255).astype(np.uint8)
         h, w = normalized.shape
         normalized = np.ascontiguousarray(normalized, dtype=np.uint8)
         qimage = QImage(
@@ -425,13 +449,9 @@ class EndviewView(QFrame):
             return self._array_to_pixmap_gray(data)
         if data.size == 0:
             return QPixmap()
-        min_val = float(data.min())
-        max_val = float(data.max())
-        if max_val <= min_val:
-            idx = np.zeros_like(data, dtype=np.uint8)
-        else:
-            normalized = (data - min_val) / (max_val - min_val)
-            idx = np.clip(normalized * 255.0, 0, 255).astype(np.uint8)
+        normalized = self._normalize_slice_for_display(data)
+        normalized = self._apply_nde_contrast(normalized)
+        idx = np.clip(normalized * 255.0, 0, 255).astype(np.uint8)
         rgb = (self._colormap_lut[idx] * 255.0).astype(np.uint8)
         rgb = np.ascontiguousarray(rgb, dtype=np.uint8)
         h, w, _ = rgb.shape
