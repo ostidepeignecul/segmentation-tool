@@ -49,6 +49,7 @@
     <addaction name="actioncharger_npz"/>
     <addaction name="actionParam_tres_2"/>
     <addaction name="actionExporter_npz"/>
+    <addaction name="actionRemap_classes"/>
    </widget>
    <widget class="QMenu" name="menuAnalyse">
     <property name="title">
@@ -228,6 +229,11 @@
   <action name="actionEnregistrer_sous">
    <property name="text">
     <string>Enregistrer sous</string>
+   </property>
+  </action>
+  <action name="actionRemap_classes">
+   <property name="text">
+    <string>Remap classes</string>
    </property>
   </action>
  </widget>

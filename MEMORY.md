@@ -3768,3 +3768,22 @@ Le design precedent exposait `Reflector` sur une classe persistante `100`, alors
 1. Centraliser le remap dans `config/constants.py` avec des ids semantiques nommes, afin d eviter de repropager des nombres magiques dans les controllers, services et vues deja branches sur `format_label_text()`.
 2. Faire commencer les labels libres a `5` plutot qu a `4`, afin que `4` devienne `BW` persistant et que la suite des labels utilisateur conserve la nomenclature `BW echo N` sans trou.
 3. Introduire des constantes explicites pour le label actif par defaut et la paire corrosion par defaut, afin de garder un comportement fonctionnel stable malgre le changement d ordre des ids persistants.
+
+### 2026-03-30 - Remap non destructif des classes pour overlays NPZ importes
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/master_controller.py`, `#models/annotation_model.py`, `#models/imported_overlay_model.py`, `#services/overlay_class_remap_service.py`, `#views/overlay_class_remap_dialog.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#overlay`, `#npz`, `#labels`, `#mvc`, `#pyqt6`
+
+**Actions effectuees :**
+- Ajoute dans `ui_mainwindow.py` et `untitled.ui` une action menu `Overlay > Remap classes`, puis la branche dans `controllers/master_controller.py`.
+- Introduit `models/imported_overlay_model.py` pour conserver en memoire le NPZ importe original, ses classes detectees, le mapping courant et le dernier masque applique, sans jamais modifier le fichier source.
+- Etend `models/annotation_model.py` avec `detected_label_ids` et `get_detected_label_ids()` afin de reutiliser la detection deja faite au chargement via `set_mask_volume()` plutot que dupliquer une inspection des classes ailleurs.
+- Cree `services/overlay_class_remap_service.py` comme service pur de validation et de remap source->target sur un volume `uint8` 3D en memoire.
+- Cree `views/overlay_class_remap_dialog.py` pour afficher les classes detectees, editer les classes cibles, previsualiser le libelle cible via `format_label_text()` et proposer un reset identite.
+- Refactorise `controllers/master_controller.py` pour centraliser la re-injection d un masque overlay via `_apply_overlay_mask_volume()`, memoriser la source lors de `_on_load_npz()`, invalider cette source quand un NDE ou un resultat nnUNet remplace l overlay, et appliquer le remap comme un nouveau chargement overlay afin de rafraichir labels, vues, corrosion et etat dirty.
+
+**Contexte :**
+Le besoin etait d ajouter un remap de classes depuis le menu principal pour les overlays NPZ importes, avec une fenetre d edition et un comportement non destructif. L utilisateur voulait s inspirer du script externe `npz_remap_classes.py` sans l integrer tel quel, et surtout reutiliser la logique deja existante dans l application pour la detection des classes et la reconstruction des labels au chargement d un NPZ.
+
+**Decisions techniques :**
+1. Reutiliser la detection de classes deja realisee par `AnnotationModel.set_mask_volume()` plutot que recopier la phase d inspection du script externe, afin de garder une seule source de verite pour les classes presentes dans le masque courant.
+2. Stocker un snapshot du NPZ importe original dans un modele runtime dedie, afin que chaque remap reparte de la source importee et reste strictement non destructif vis-a-vis du fichier charge et de l historique de remaps.
+3. Rejouer le pipeline overlay existant apres remap via un helper controller centralise, afin que la mise a jour des labels, de l overlay 2D/3D, des vues corrosion et de l export NPZ reste coherente comme si le fichier d origine avait eu ces classes des le depart.

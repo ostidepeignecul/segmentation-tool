@@ -91,6 +91,8 @@ class Ui_MainWindow(object):
         self.actionOuvrir_une_session.setObjectName("actionOuvrir_une_session")
         self.actionEnregistrer_sous = QtGui.QAction(parent=MainWindow)
         self.actionEnregistrer_sous.setObjectName("actionEnregistrer_sous")
+        self.actionRemap_classes = QtGui.QAction(parent=MainWindow)
+        self.actionRemap_classes.setObjectName("actionRemap_classes")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionOuvrir_une_session)
@@ -106,6 +108,7 @@ class Ui_MainWindow(object):
         self.menuOverlay.addAction(self.actioncharger_npz)
         self.menuOverlay.addAction(self.actionParam_tres_2)
         self.menuOverlay.addAction(self.actionExporter_npz)
+        self.menuOverlay.addAction(self.actionRemap_classes)
         self.menuAnalyse.addAction(self.actionCorrosion_analyse)
         self.menuAnalyse.addAction(self.actionAfficher_solide_3d)
         self.menuAnalyse.addAction(self.actionParam_tres_3)
@@ -169,6 +172,7 @@ class Ui_MainWindow(object):
         self.actionToggle_ucoord.setText(_translate("MainWindow", "Toggle u-coord"))
         self.actionOuvrir_une_session.setText(_translate("MainWindow", "Ouvrir une session"))
         self.actionEnregistrer_sous.setText(_translate("MainWindow", "Enregistrer sous"))
+        self.actionRemap_classes.setText(_translate("MainWindow", "Remap classes"))
 
 
 if __name__ == "__main__":

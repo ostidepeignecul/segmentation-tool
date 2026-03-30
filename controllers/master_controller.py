@@ -30,6 +30,7 @@ from controllers.mask_modification_controller import MaskModificationController
 from controllers.session_workspace_controller import SessionWorkspaceController
 from models.annotation_model import AnnotationModel
 from models.applied_annotation_history_model import AppliedAnnotationHistoryModel
+from models.imported_overlay_model import ImportedOverlayModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from models.roi_model import RoiModel
@@ -39,6 +40,7 @@ from services.annotation_session_manager import AnnotationSessionManager
 from services.annotation_service import AnnotationService
 from services.ascan_service import AScanService
 from services.nnunet_service import NnUnetResult, NnUnetService
+from services.overlay_class_remap_service import OverlayClassRemapService
 from services.overlay_loader import OverlayLoader
 from services.overlay_service import OverlayService
 from services.overlay_export import OverlayExport
@@ -60,6 +62,7 @@ from views.corrosion_settings_view import CorrosionSettingsView
 from views.nde_settings_view import NdeSettingsView
 from views.nde_open_options_dialog import NdeOpenOptionsDialog
 from views.endview_resize_dialog import EndviewResizeDialog
+from views.overlay_class_remap_dialog import OverlayClassRemapDialog
 from views.overlay_settings_view import OverlaySettingsView
 from views.piece3d_view import Piece3DView
 
@@ -77,6 +80,7 @@ class MasterController:
         self.nde_model: Optional[NdeModel] = None
         self.annotation_model = AnnotationModel()
         self.applied_annotation_history_model = AppliedAnnotationHistoryModel()
+        self.imported_overlay_model = ImportedOverlayModel()
         self.view_state_model = ViewStateModel()
         self.roi_model = RoiModel()
         self.temp_mask_model = TempMaskModel()
@@ -86,6 +90,7 @@ class MasterController:
         self.session_manager = AnnotationSessionManager()
         self.project_persistence = ProjectPersistence()
         self._nde_path: Optional[str] = None
+        self.overlay_class_remap_service = OverlayClassRemapService()
         self.overlay_loader = OverlayLoader()
         self.overlay_service = OverlayService()
         self.overlay_export = OverlayExport()
@@ -286,6 +291,8 @@ class MasterController:
         if hasattr(self.ui, "actionOuvrir_une_session"):
             self.ui.actionOuvrir_une_session.triggered.connect(self._on_open_session)
         self.ui.actioncharger_npz.triggered.connect(self._on_load_npz)
+        if hasattr(self.ui, "actionRemap_classes"):
+            self.ui.actionRemap_classes.triggered.connect(self._on_remap_classes)
         if hasattr(self.ui, "actionSauvegarder"):
             self.ui.actionSauvegarder.triggered.connect(self._on_save_session)
         if hasattr(self.ui, "actionEnregistrer_sous"):
@@ -618,21 +625,77 @@ class MasterController:
             QMessageBox.warning(self.main_window, "Overlay", "Volume NDE indisponible.")
             return
         try:
-            self.annotation_controller.reset_overlay_state(preserve_labels=True)
-            self.temp_mask_model.clear()
-            self.temp_mask_model.initialize(volume.shape)
-            self.roi_model.clear()
             mask_volume = self.overlay_loader.load(file_path, target_shape=volume.shape)
-            self.annotation_model.set_mask_volume(mask_volume, preserve_labels=True)
-            self.cscan_controller.reset_corrosion()
-            self.mask_modification_controller.reset()
-            self.annotation_controller.sync_overlay_settings()
-            self.annotation_controller.refresh_overlay()
-            self._sync_tools_labels()
-            self._mark_active_session_dirty()
+            self._apply_overlay_mask_volume(mask_volume, preserve_labels=True)
+            self.imported_overlay_model.set_imported_overlay(
+                source_path=file_path,
+                original_mask_volume=mask_volume,
+                original_label_ids=self.annotation_model.get_detected_label_ids(),
+            )
             self.status_message(f"Overlay chargé: {file_path}")
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur overlay", str(exc))
+
+    def _on_remap_classes(self) -> None:
+        """Open the in-memory class remap dialog for the last imported NPZ overlay."""
+        if self.nde_model is None:
+            QMessageBox.warning(self.main_window, "Remap classes", "Chargez un NDE avant de remapper un overlay.")
+            return
+        if not self.imported_overlay_model.has_source():
+            QMessageBox.warning(
+                self.main_window,
+                "Remap classes",
+                "Chargez d'abord un fichier .npz/.npy depuis le menu Overlay.",
+            )
+            return
+
+        current_mask = self.annotation_model.get_mask_volume()
+        if not self.imported_overlay_model.current_mask_matches(current_mask):
+            answer = QMessageBox.question(
+                self.main_window,
+                "Remap classes",
+                (
+                    "L'overlay courant a ete modifie depuis l'import NPZ.\n\n"
+                    "Le remap repartira du NPZ importe original et remplacera le masque courant.\n"
+                    "Continuer ?"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        dialog = OverlayClassRemapDialog(
+            source_path=self.imported_overlay_model.source_path or "",
+            source_classes=self.imported_overlay_model.original_label_ids,
+            current_mapping=self.imported_overlay_model.current_mapping,
+            parent=self.main_window,
+        )
+        if dialog.exec() != int(QDialog.DialogCode.Accepted):
+            return
+
+        try:
+            original_mask = self.imported_overlay_model.original_mask_volume
+            if original_mask is None:
+                raise ValueError("Overlay source introuvable pour le remap.")
+            mapping = self.overlay_class_remap_service.normalize_mapping(
+                dialog.get_mapping(),
+                allowed_sources=self.imported_overlay_model.original_label_ids,
+            )
+            remapped_volume = self.overlay_class_remap_service.remap_mask_volume(original_mask, mapping)
+            self._apply_overlay_mask_volume(remapped_volume, preserve_labels=False)
+            self.imported_overlay_model.update_after_remap(
+                mapping=mapping,
+                applied_mask_volume=remapped_volume,
+            )
+            final_classes = self.overlay_class_remap_service.extract_classes(remapped_volume)
+            self.status_message(
+                "Remap classes applique: "
+                f"{self.imported_overlay_model.source_path} | classes finales: {list(final_classes)}",
+                timeout_ms=5000,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "Remap classes", str(exc))
 
     def _on_run_nnunet(self) -> None:
         """Lance l'inférence nnUNet sur le volume NDE chargé."""
@@ -669,6 +732,7 @@ class MasterController:
         def _on_success(result: NnUnetResult) -> None:
             def _apply() -> None:
                 try:
+                    self.imported_overlay_model.clear()
                     self.annotation_controller.reset_overlay_state()
                     self.mask_modification_controller.reset()
                     self.annotation_model.clear()
@@ -1690,6 +1754,7 @@ class MasterController:
         self.view_state_model.set_current_point(None)
         self.view_state_model.set_apply_volume_range(0, num_slices - 1, include_current=True)
         self.annotation_controller.reset_overlay_state(preserve_labels=True)
+        self.imported_overlay_model.clear()
         self.annotation_model.initialize(volume.shape)
         self.temp_mask_model.clear()
         self.temp_mask_model.initialize(volume.shape)
@@ -1738,6 +1803,28 @@ class MasterController:
         )
         self.status_message(f"NDE charge: {file_path} | {processing_label}")
         return True
+
+    def _apply_overlay_mask_volume(self, mask_volume: np.ndarray, *, preserve_labels: bool) -> None:
+        """Apply a full overlay mask volume through the standard MVC refresh pipeline."""
+        volume = self._current_volume()
+        if volume is None:
+            raise ValueError("Volume NDE indisponible.")
+
+        self.annotation_controller.reset_overlay_state(preserve_labels=preserve_labels)
+        if not preserve_labels:
+            self.annotation_model.clear()
+            self.temp_mask_model.label_palette = {}
+            self.temp_mask_model.label_visibility = {}
+        self.temp_mask_model.clear()
+        self.temp_mask_model.initialize(volume.shape)
+        self.roi_model.clear()
+        self.annotation_model.set_mask_volume(mask_volume, preserve_labels=preserve_labels)
+        self.cscan_controller.reset_corrosion()
+        self.mask_modification_controller.reset()
+        self.annotation_controller.sync_overlay_settings()
+        self.annotation_controller.refresh_overlay()
+        self._sync_tools_labels()
+        self._mark_active_session_dirty()
 
     def _current_signal_processing_selection(self) -> dict[str, bool]:
         """Return the current NDE processing flags stored in model metadata."""

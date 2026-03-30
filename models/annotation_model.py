@@ -17,6 +17,7 @@ class AnnotationModel:
         self.mask_volume: Optional[np.ndarray] = None
         self.label_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self.label_visibility: Dict[int, bool] = {}
+        self.detected_label_ids: tuple[int, ...] = (0,)
         self.overlay_cache: Optional[OverlayData] = None
         self.ensure_persistent_labels()
 
@@ -29,8 +30,10 @@ class AnnotationModel:
             depth, height, width = shape  # type: ignore[misc]
         except Exception:
             self.mask_volume = None
+            self.detected_label_ids = (0,)
             return
         self.mask_volume = np.zeros((int(depth), int(height), int(width)), dtype=np.uint8)
+        self.detected_label_ids = (0,)
         self.overlay_cache = None
         self.ensure_persistent_labels()
 
@@ -40,6 +43,7 @@ class AnnotationModel:
         if arr.ndim != 3:
             raise ValueError("Mask volume must be 3D (Z,H,W).")
         self.mask_volume = arr
+        self.detected_label_ids = tuple(int(value) for value in np.unique(arr).tolist())
         self.overlay_cache = None
         # Reset palette/visibilité et auto-register labels présents
         if not preserve_labels:
@@ -72,6 +76,7 @@ class AnnotationModel:
         self.mask_volume = None
         self.label_palette = {}
         self.label_visibility = {}
+        self.detected_label_ids = (0,)
         self.overlay_cache = None
         self.ensure_persistent_labels()
 
@@ -141,6 +146,10 @@ class AnnotationModel:
     def get_label_palette(self) -> Dict[int, Tuple[int, int, int, int]]:
         """Return the current label palette (BGRA)."""
         return dict(self.label_palette)
+
+    def get_detected_label_ids(self) -> tuple[int, ...]:
+        """Return the class ids detected when the current mask volume was assigned."""
+        return tuple(int(label_id) for label_id in self.detected_label_ids)
 
     # ------------------------------------------------------------------ #
     # Overlay cache (derived data)
