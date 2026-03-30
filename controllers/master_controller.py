@@ -453,6 +453,9 @@ class MasterController:
 
         self.annotation_view.slice_changed.connect(self._on_slice_changed)
         self.annotation_view.mouse_clicked.connect(self._on_annotation_mouse_clicked)
+        self.annotation_view.paint_stroke_started.connect(self.annotation_controller.on_annotation_paint_stroke_started)
+        self.annotation_view.paint_stroke_moved.connect(self.annotation_controller.on_annotation_paint_stroke_moved)
+        self.annotation_view.paint_stroke_finished.connect(self._on_annotation_paint_stroke_finished)
         self.annotation_view.freehand_started.connect(self.annotation_controller.on_annotation_freehand_started)
         self.annotation_view.freehand_point_added.connect(self.annotation_controller.on_annotation_freehand_point_added)
         self.annotation_view.freehand_completed.connect(self._on_annotation_freehand_completed)
@@ -1434,6 +1437,11 @@ class MasterController:
     def _on_annotation_mouse_clicked(self, pos: Any, button: Any) -> None:
         """Handle point-based annotation tools, then auto-apply when enabled."""
         preview_created = self.annotation_controller.on_annotation_mouse_clicked(pos, button)
+        self._apply_annotation_preview_if_needed(preview_created)
+
+    def _on_annotation_paint_stroke_finished(self, pos: Any) -> None:
+        """Apply a completed paint stroke once when auto-apply is enabled."""
+        preview_created = self.annotation_controller.on_annotation_paint_stroke_finished(pos)
         self._apply_annotation_preview_if_needed(preview_created)
 
     def _on_annotation_line_drawn(self, points: Any) -> None:

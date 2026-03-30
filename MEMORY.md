@@ -3806,3 +3806,20 @@ Un slider `NDE contraste` existait deja dans le `ToolsPanel`, mais n etait relie
 1. Stocker le contraste dans `ViewStateModel` au meme niveau que `nde_alpha`, afin qu il survive aux refreshs de vues et aux switches de session sans introduire de logique d etat dans les vues.
 2. Definir `100%` comme valeur neutre et exposer une plage `0-200%`, afin de reutiliser le contrat UI des autres sliders tout en gardant une lecture simple pour l utilisateur.
 3. Appliquer le contraste par remapping d intensite autour de `0.5` dans `EndviewView` et par ajustement de `clim` dans `VolumeView`, afin de modifier la dynamique visuelle du signal NDE sans melanger cette logique avec l alpha du NDE ni avec l overlay.
+
+### 2026-03-30 - Drag continu pour l outil paint
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#views/annotation_view.py`, `#paint`, `#drag`, `#brush`, `#apply-auto`, `#mvc`, `#pyqt6`
+
+**Actions effectuees :**
+- Ajoute dans `views/annotation_view.py` des signaux dedies `paint_stroke_started`, `paint_stroke_moved` et `paint_stroke_finished`, avec un etat local de stroke pour capter le clic-glisse du pinceau sans perturber les autres outils.
+- Rebranche `controllers/master_controller.py` pour router ces nouveaux signaux vers `AnnotationController`, puis declencher `Apply auto` une seule fois a la fin du trait au lieu du premier press.
+- Etend `controllers/annotation_controller.py` avec un etat de stroke paint, une interpolation des points entre deux positions souris, et un helper `_handle_paint_points()` qui applique un segment complet dans le `TempMaskModel`.
+- Conserve dans `controllers/annotation_controller.py` la logique existante de restriction globale, blocked masks, preview temp mask et erase via label `0`, tout en la reappliquant a chaque segment du drag.
+
+**Contexte :**
+L outil `paint` ne gerait jusque-la qu un clic simple. Le besoin etait d obtenir un vrai pinceau en clic-glisse, avec un trait continu, sans casser l architecture MVC ni la logique deja en place pour le preview temporaire, l effacement par label `0` et le mode `Apply auto`.
+
+**Decisions techniques :**
+1. Gerer la capture press/move/release du pinceau dans `AnnotationView` plutot que detourner `drag_update`, afin de garder ce dernier dedie au suivi de position/crosshair et de limiter l impact sur les autres interactions Endview.
+2. Interpoler les points du trait dans `AnnotationController` entre deux evenements souris, afin d eviter les trous visuels quand la souris se deplace plus vite que la frequence des events.
+3. Reporter l auto-application du `paint` a la fin du stroke dans `MasterController`, afin d eviter qu un drag en mode `Apply auto` ne committe le masque des le premier press puis efface le preview avant la fin du geste.

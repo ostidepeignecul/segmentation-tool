@@ -72,6 +72,8 @@ class AnnotationController:
         self.applied_annotation_history_model = applied_annotation_history_model
         self.logger = logger
         self._get_volume = get_volume
+        self._paint_stroke_last_point: Optional[tuple[int, int]] = None
+        self._paint_stroke_preview_created: bool = False
         self.on_paint_size_changed(self.view_state_model.paint_radius)
 
     # ------------------------------------------------------------------ #
@@ -249,6 +251,7 @@ class AnnotationController:
 
     def reset_overlay_state(self, *, preserve_labels: bool = False) -> None:
         """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""
+        self._reset_paint_stroke_state()
         self.clear_apply_history()
         self.annotation_model.clear_overlay_cache()
         self.annotation_view.set_overlay(None)
@@ -287,6 +290,8 @@ class AnnotationController:
     def on_tool_mode_changed(self, mode: str) -> None:
         """Handle drawing tool changes (stub)."""
         self.view_state_model.set_tool_mode(mode)
+        if mode != "paint":
+            self._reset_paint_stroke_state()
         self.annotation_view.set_tool_mode(mode)
 
     def on_paint_size_changed(self, radius: int) -> None:
@@ -417,6 +422,7 @@ class AnnotationController:
 
     def on_roi_delete_requested(self) -> None:
         """Handle ROI deletion request (stub)."""
+        self._reset_paint_stroke_state()
         # Supprime toutes les ROI (toutes slices) et nettoie les previews
         self.roi_model.clear()
         self.temp_mask_model.clear()
@@ -427,6 +433,7 @@ class AnnotationController:
 
     def on_selection_cancel_requested(self) -> None:
         """Handle selection cancel request (stub)."""
+        self._reset_paint_stroke_state()
         slice_idx = self.view_state_model.current_slice
         self.temp_mask_model.clear_slice(slice_idx)
         self.annotation_view.clear_roi_overlay()
@@ -435,15 +442,16 @@ class AnnotationController:
 
     def on_annotation_mouse_clicked(self, pos: Any, button: Any) -> bool:
         """Handle mouse click in annotation view (grow tool or paint brush)."""
-        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
+        point = self._normalize_point_input(pos)
+        if point is None:
             return False
 
         if self.view_state_model.tool_mode == "paint":
-            return self._handle_paint_click(pos)
+            self._reset_paint_stroke_state()
+            return self._handle_paint_points([point])
 
         if self.view_state_model.tool_mode != "grow":
             return False
-        point = (int(pos[0]), int(pos[1]))
         label = self._effective_annotation_label()
         if label is None:
             return False
@@ -526,6 +534,52 @@ class AnnotationController:
 
         self.refresh_roi_overlay_for_slice(slice_idx)
         return True
+
+    def on_annotation_paint_stroke_started(self, pos: Any) -> None:
+        """Start a paint stroke and lay down the initial brush stamp."""
+        if self.view_state_model.tool_mode != "paint":
+            self._reset_paint_stroke_state()
+            return
+        point = self._normalize_point_input(pos)
+        if point is None:
+            return
+        self._paint_stroke_last_point = point
+        self._paint_stroke_preview_created = False
+        created = self._handle_paint_points([point])
+        self._paint_stroke_preview_created = created
+
+    def on_annotation_paint_stroke_moved(self, pos: Any) -> None:
+        """Extend the active paint stroke while preserving continuity."""
+        if self.view_state_model.tool_mode != "paint":
+            return
+        point = self._normalize_point_input(pos)
+        if point is None:
+            return
+        if self._paint_stroke_last_point is None:
+            self.on_annotation_paint_stroke_started(point)
+            return
+        if point == self._paint_stroke_last_point:
+            return
+        segment_points = self._interpolate_line_points(self._paint_stroke_last_point, point)
+        self._paint_stroke_last_point = point
+        if len(segment_points) <= 1:
+            return
+        created = self._handle_paint_points(segment_points[1:])
+        self._paint_stroke_preview_created = self._paint_stroke_preview_created or created
+
+    def on_annotation_paint_stroke_finished(self, pos: Any) -> bool:
+        """Finish the active paint stroke and report whether it produced a preview."""
+        preview_created = bool(self._paint_stroke_preview_created)
+        last_point = self._paint_stroke_last_point
+        point = self._normalize_point_input(pos)
+        if self.view_state_model.tool_mode == "paint" and point is not None and last_point is not None:
+            if point != last_point:
+                segment_points = self._interpolate_line_points(last_point, point)
+                if len(segment_points) > 1:
+                    created = self._handle_paint_points(segment_points[1:])
+                    preview_created = preview_created or created
+        self._reset_paint_stroke_state()
+        return preview_created
 
     def on_annotation_line_drawn(self, points: Any) -> bool:
         """Handle freehand line completion (line grow tool)."""
@@ -862,6 +916,15 @@ class AnnotationController:
 
     def _handle_paint_click(self, pos: tuple[Any, Any]) -> bool:
         """Paint the effective annotation label into the temp mask (requires Apply)."""
+        point = self._normalize_point_input(pos)
+        if point is None:
+            return False
+        return self._handle_paint_points([point])
+
+    def _handle_paint_points(self, points: list[tuple[int, int]]) -> bool:
+        """Paint one or more brush centers into the temp mask as a single stroke step."""
+        if not points:
+            return False
         label = self._effective_annotation_label()
         if label is None:
             return False
@@ -879,9 +942,6 @@ class AnnotationController:
         depth, _ = self._resolve_volume_dimensions()
         if depth is None or mask_shape is None:
             return False
-        restriction_mask = self._restriction_mask(mask_shape)
-        if restriction_mask is not None and not restriction_mask[int(pos[1]), int(pos[0])]:
-            return False
 
         # Ensure temp volume exists and matches shape
         temp_vol = self.temp_mask_model.get_mask_volume()
@@ -897,27 +957,43 @@ class AnnotationController:
 
         radius = self.view_state_model.paint_radius or self.PAINT_RADIUS_DEFAULT
         effective_radius = max(0, int(radius) - 1)
-        disk = self.annotation_service.build_disk_mask(mask_shape, (int(pos[0]), int(pos[1])), effective_radius)
-        if disk is None:
-            return False
-        if restriction_mask is not None:
-            disk = np.logical_and(disk > 0, restriction_mask).astype(np.uint8)
-            if not np.any(disk):
-                return False
+        restriction_mask = self._restriction_mask(mask_shape)
         if label == 0:
             blocked_mask = self._build_label0_blocked_mask(
                 slice_idx, mask_shape, include_temp=True
             )
         else:
             blocked_mask = self._build_blocked_mask(slice_idx, mask_shape, include_temp=True)
-        if blocked_mask is not None:
-            disk = np.where(blocked_mask, 0, disk)
-            if not np.any(disk):
-                return False
+
+        stroke_mask = np.zeros(mask_shape, dtype=bool)
+        for point in points:
+            if restriction_mask is not None and not restriction_mask[point[1], point[0]]:
+                continue
+            disk = self.annotation_service.build_disk_mask(mask_shape, point, effective_radius)
+            if disk is None:
+                continue
+            disk_mask = np.asarray(disk, dtype=bool)
+            if restriction_mask is not None:
+                disk_mask = np.logical_and(disk_mask, restriction_mask)
+                if not np.any(disk_mask):
+                    continue
+            if blocked_mask is not None:
+                disk_mask = np.logical_and(disk_mask, np.logical_not(blocked_mask))
+                if not np.any(disk_mask):
+                    continue
+            stroke_mask = np.logical_or(stroke_mask, disk_mask)
+
+        if not np.any(stroke_mask):
+            return False
 
         color = self.annotation_model.get_label_palette().get(label) or MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
         self.temp_mask_model.ensure_label(label, color, visible=True)
-        self.temp_mask_model.set_slice_mask(slice_idx, disk, label=label, persistent=False)
+        self.temp_mask_model.set_slice_mask(
+            slice_idx,
+            stroke_mask.astype(np.uint8),
+            label=label,
+            persistent=False,
+        )
         self.refresh_roi_overlay_for_slice(slice_idx)
         return True
 
@@ -971,6 +1047,7 @@ class AnnotationController:
 
     def on_apply_temp_mask_requested(self) -> bool:
         """Apply the current temporary mask (free-hand/ROI) into the annotation model."""
+        self._reset_paint_stroke_state()
         undo_slices: dict[int, np.ndarray] = {}
         redo_slices: dict[int, np.ndarray] = {}
         if self.view_state_model.apply_volume:
@@ -1447,6 +1524,44 @@ class AnnotationController:
             if 0 <= x < w and 0 <= y < h and restriction_mask[y, x]:
                 filtered.append((int(x), int(y)))
         return filtered
+
+    @staticmethod
+    def _normalize_point_input(pos: Any) -> Optional[tuple[int, int]]:
+        if not isinstance(pos, (tuple, list)) or len(pos) != 2:
+            return None
+        try:
+            return (int(pos[0]), int(pos[1]))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _interpolate_line_points(
+        start: tuple[int, int],
+        end: tuple[int, int],
+    ) -> list[tuple[int, int]]:
+        x1, y1 = int(start[0]), int(start[1])
+        x2, y2 = int(end[0]), int(end[1])
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        sx = 1 if x1 < x2 else -1
+        sy = 1 if y1 < y2 else -1
+        err = dx - dy
+        points: list[tuple[int, int]] = []
+        while True:
+            points.append((x1, y1))
+            if x1 == x2 and y1 == y2:
+                return points
+            e2 = err * 2
+            if e2 > -dy:
+                err -= dy
+                x1 += sx
+            if e2 < dx:
+                err += dx
+                y1 += sy
+
+    def _reset_paint_stroke_state(self) -> None:
+        self._paint_stroke_last_point = None
+        self._paint_stroke_preview_created = False
 
     def _slice_data(self, slice_idx: int):
         """Return raw slice data (H, W) from the current volume if available."""

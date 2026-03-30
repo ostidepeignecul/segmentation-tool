@@ -27,6 +27,9 @@ class AnnotationView(EndviewView):
     mod_drag_moved = pyqtSignal(object)
     mod_drag_finished = pyqtSignal(object)
     mod_double_clicked = pyqtSignal(object)
+    paint_stroke_started = pyqtSignal(object)
+    paint_stroke_moved = pyqtSignal(object)
+    paint_stroke_finished = pyqtSignal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -83,6 +86,8 @@ class AnnotationView(EndviewView):
         self._tool_mode: Optional[str] = None
         self._paint_cursor: Optional[QCursor] = None
         self._paint_cursor_radius: int = 8
+        self._paint_dragging: bool = False
+        self._paint_drag_last_point: Optional[Tuple[int, int]] = None
         self._restriction_dragging: bool = False
         self._restriction_drag_mode: Optional[str] = None
         self._restriction_drag_start: Optional[Tuple[int, int]] = None
@@ -237,6 +242,7 @@ class AnnotationView(EndviewView):
         self._tool_mode = mode
         self._apply_tool_cursor()
         if prev_mode != mode:
+            self._reset_paint_drag_state()
             self.clear_temp_shapes()
 
     def set_mod_anchor_points(
@@ -369,6 +375,10 @@ class AnnotationView(EndviewView):
                     ):
                         self._handle_restriction_press(event)
                         return True
+                    if self._tool_mode == "paint":
+                        handled = self._handle_paint_press(event)
+                        if handled:
+                            return True
                     if self._tool_mode == "line":
                         handled = self._handle_line_press(event)
                         if handled:
@@ -385,6 +395,8 @@ class AnnotationView(EndviewView):
                     if self._restriction_dragging:
                         self._handle_restriction_move(event)
                         return True
+                    if self._tool_mode == "paint":
+                        self._handle_paint_move(event)
                     if self._tool_mode == "line":
                         self._handle_line_move(event)
                     if self._tool_mode in ("free_hand", "peak"):
@@ -395,6 +407,10 @@ class AnnotationView(EndviewView):
                     if self._restriction_dragging:
                         self._handle_restriction_release(event)
                         return True
+                    if self._tool_mode == "paint":
+                        handled = self._handle_paint_release(event)
+                        if handled:
+                            return True
                     if self._tool_mode == "box":
                         handled = self._handle_box_release(event)
                         if handled:
@@ -476,6 +492,44 @@ class AnnotationView(EndviewView):
         self.clear_temp_shapes()
         self.box_drawn.emit(box)
         return False
+
+    def _handle_paint_press(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            return False
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is None:
+            return False
+        self._view.setFocus(Qt.FocusReason.MouseFocusReason)
+        self._paint_dragging = True
+        self._paint_drag_last_point = coords
+        self.paint_stroke_started.emit(coords)
+        return True
+
+    def _handle_paint_move(self, event: QMouseEvent) -> None:
+        if not self._paint_dragging:
+            return
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        coords = self._clamped_scene_coords_from_event(event)
+        if coords is None:
+            return
+        if self._paint_drag_last_point == coords:
+            return
+        self._paint_drag_last_point = coords
+        self.paint_stroke_moved.emit(coords)
+
+    def _handle_paint_release(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if not self._paint_dragging:
+            return False
+        coords = self._clamped_scene_coords_from_event(event)
+        last_point = self._paint_drag_last_point
+        self._reset_paint_drag_state()
+        self.paint_stroke_finished.emit(coords if coords is not None else last_point)
+        return True
 
     def _handle_line_press(self, event: QMouseEvent) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -681,6 +735,10 @@ class AnnotationView(EndviewView):
         x = max(0, min(width - 1, x))
         y = max(0, min(height - 1, y))
         return (x, y)
+
+    def _reset_paint_drag_state(self) -> None:
+        self._paint_dragging = False
+        self._paint_drag_last_point = None
 
     def _update_roi_outline_color(self) -> None:
         """Keep ROI outlines visible on selected base colormap."""
