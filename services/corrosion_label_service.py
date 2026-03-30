@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from typing import Iterable, Optional, Tuple
 
+from config.constants import DEFAULT_CORROSION_LABEL_A_ID, DEFAULT_CORROSION_LABEL_B_ID
+
 
 class CorrosionLabelService:
     """Pure helper for choosing a valid corrosion label pair."""
 
-    _DEFAULT_FRONTWALL_LABEL = 2
-    _DEFAULT_BACKWALL_LABEL = 3
+    _DEFAULT_FRONTWALL_LABEL = int(DEFAULT_CORROSION_LABEL_A_ID)
+    _DEFAULT_BACKWALL_LABEL = int(DEFAULT_CORROSION_LABEL_B_ID)
 
     @staticmethod
     def normalize_pair(

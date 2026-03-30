@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from config.constants import MASK_COLORS_BGRA, PERSISTENT_LABEL_IDS
+from config.constants import DEFAULT_ACTIVE_LABEL_ID, MASK_COLORS_BGRA, PERSISTENT_LABEL_IDS
 from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
@@ -1479,10 +1479,13 @@ class MasterController:
         if current == 0:
             current = None
         if current not in labels:
-            current = next(
-                (label_id for label_id in PERSISTENT_LABEL_IDS if int(label_id) != 0 and label_id in labels),
-                (labels[0] if labels else None),
-            )
+            if int(DEFAULT_ACTIVE_LABEL_ID) in labels:
+                current = int(DEFAULT_ACTIVE_LABEL_ID)
+            else:
+                current = next(
+                    (label_id for label_id in PERSISTENT_LABEL_IDS if int(label_id) != 0 and label_id in labels),
+                    (labels[0] if labels else None),
+                )
         self.view_state_model.set_active_label(current)
         self.tools_panel.set_labels(labels, current=current)
         self.mask_modification_controller.on_active_label_changed(-1 if current is None else int(current))

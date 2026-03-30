@@ -1,57 +1,70 @@
-# Palette de couleurs par défaut pour les labels (générique, indices numériques).
-# Les labels sont créés dynamiquement, sans noms prédéfinis.
+# Palette de couleurs par defaut pour les labels d'annotation.
+
+BACKGROUND_LABEL_ID = 0
+REFLECTOR_LABEL_ID = 1
+PAINT_LABEL_ID = 2
+FRONTWALL_LABEL_ID = 3
+BACKWALL_LABEL_ID = 4
+
+DEFAULT_ACTIVE_LABEL_ID = PAINT_LABEL_ID
+DEFAULT_CORROSION_LABEL_A_ID = FRONTWALL_LABEL_ID
+DEFAULT_CORROSION_LABEL_B_ID = BACKWALL_LABEL_ID
+
 # Couleurs des masques pour OpenCV (format BGR)
 MASK_COLORS_BGR = {
-    1: [0, 0, 255],
-    2: [0, 255, 0],
-    3: [255, 0, 0],
-    4: [0, 165, 255],
-    5: [255, 100, 200],
-    6: [100, 255, 100],
-    7: [0, 165, 255],
-    8: [255, 255, 0],
-    9: [0, 0, 255],
-    100: [255, 255, 255],
+    REFLECTOR_LABEL_ID: [255, 255, 255],
+    PAINT_LABEL_ID: [0, 0, 255],
+    FRONTWALL_LABEL_ID: [0, 255, 0],
+    BACKWALL_LABEL_ID: [255, 0, 0],
+    5: [0, 165, 255],
+    6: [255, 100, 200],
+    7: [100, 255, 100],
+    8: [0, 165, 255],
+    9: [255, 255, 0],
 }
 
 # Couleurs des masques pour PIL/export (format RGB)
 MASK_COLORS_RGB = {
-    1: [255, 0, 0],
-    2: [0, 255, 0],
-    3: [0, 0, 255],
-    4: [255, 165, 0],
-    5: [200, 100, 255],
-    6: [100, 255, 100],
-    7: [255, 165, 0],
-    8: [0, 255, 255],
-    9: [255, 0, 0],
-    100: [255, 255, 255],
+    REFLECTOR_LABEL_ID: [255, 255, 255],
+    PAINT_LABEL_ID: [255, 0, 0],
+    FRONTWALL_LABEL_ID: [0, 255, 0],
+    BACKWALL_LABEL_ID: [0, 0, 255],
+    5: [255, 165, 0],
+    6: [200, 100, 255],
+    7: [100, 255, 100],
+    8: [255, 165, 0],
+    9: [0, 255, 255],
 }
 
 # Couleurs des masques avec alpha pour OpenCV (format BGRA)
 MASK_COLORS_BGRA = {
-    0: [180, 180, 180, 200],
-    1: [0, 0, 255, 255],
-    2: [0, 255, 0, 255],
-    3: [255, 0, 0, 255],
-    4: [0, 165, 255, 255],
-    5: [255, 100, 200, 255],
-    6: [100, 255, 100, 255],
-    7: [0, 165, 255, 255],
-    8: [255, 255, 0, 255],
-    9: [0, 0, 255, 255],
-    100: [255, 255, 255, 255],
+    BACKGROUND_LABEL_ID: [180, 180, 180, 200],
+    REFLECTOR_LABEL_ID: [255, 255, 255, 255],
+    PAINT_LABEL_ID: [0, 0, 255, 255],
+    FRONTWALL_LABEL_ID: [0, 255, 0, 255],
+    BACKWALL_LABEL_ID: [255, 0, 0, 255],
+    5: [0, 165, 255, 255],
+    6: [255, 100, 200, 255],
+    7: [100, 255, 100, 255],
+    8: [0, 165, 255, 255],
+    9: [255, 255, 0, 255],
 }
 
-PERSISTENT_LABEL_IDS = (0, 1, 2, 3, 100)
-USER_LABEL_START = 4
+PERSISTENT_LABEL_IDS = (
+    BACKGROUND_LABEL_ID,
+    REFLECTOR_LABEL_ID,
+    PAINT_LABEL_ID,
+    FRONTWALL_LABEL_ID,
+    BACKWALL_LABEL_ID,
+)
+USER_LABEL_START = 5
 
 LABEL_DISPLAY_NAMES = {
-    0: "Erase",
-    1: "Paint",
-    2: "Frontwall",
-    3: "Backwall",
-    100: "Reflector",
+    BACKGROUND_LABEL_ID: "Background",
+    REFLECTOR_LABEL_ID: "Reflector",
+    PAINT_LABEL_ID: "Paint",
+    FRONTWALL_LABEL_ID: "FW",
+    BACKWALL_LABEL_ID: "BW",
 }
 
 
@@ -65,4 +78,3 @@ def format_label_text(label_id: int) -> str:
             return f"BW echo {user_index} ({label})"
         return f"Label {label}"
     return f"{display_name} ({label})"
-

@@ -3751,3 +3751,20 @@ Le besoin etait d ajouter un export de dataset compatible nnU-Net directement da
 1. Garder toute la logique de generation du dataset dans `services/split_service.py` plutot que pointer vers un autre repo, afin que le projet reste autonome et conforme a l architecture MVC existante.
 2. Reutiliser l action menu existante et ajouter un prompt de mode dans `controllers/master_controller.py`, afin d eviter de toucher les fichiers UI deja modifies localement et de limiter le changement a l orchestration controller.
 3. Produire directement des paires de noms identiques entre `imagesTr/` et `labelsTr`, avec suffixe automatique d axe ajoute apres le suffixe utilisateur, afin de rester compatible avec un renommage ulterieur sans imposer de convention externe supplementaire.
+
+### 2026-03-30 - Remap definitif des labels persistants sans classe 100
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#config/constants.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/corrosion_label_service.py`, `#labels`, `#palette`, `#corrosion`, `#mvc`
+
+**Actions effectuees :**
+- Remplace dans `config/constants.py` le schema persistant `0,1,2,3,100` par `0,1,2,3,4`, introduit des constantes semantiques de labels, et fait demarrer les labels libres a `5` pour obtenir `BW echo 1 (5)`, `BW echo 2 (6)`, etc.
+- Rebranche dans `config/constants.py` les noms UI definitifs sur `Background`, `Reflector`, `Paint`, `FW` et `BW`, puis realigne les palettes BGR/RGB/BGRA pour que les couleurs suivent le sens metier plutot que l ancien id numerique `100`.
+- Modifie `models/view_state_model.py` et `controllers/master_controller.py` pour que le label actif par defaut reste `Paint (2)` meme si `Reflector (1)` devient le premier label persistant non nul.
+- Met a jour `services/corrosion_label_service.py` pour que la corrosion prefere desormais `FW (3)` et `BW (4)` avec le nouveau remap des classes.
+
+**Contexte :**
+Le design precedent exposait `Reflector` sur une classe persistante `100`, alors que l utilisateur voulait repartir d un schema simple et definitif ou toutes les classes persistantes utiles vivent entre `1` et `4`. La retrocompatibilite avec les anciens `.npz` et anciennes sessions n etait pas necessaire, l utilisateur prevoyant de supprimer ces anciens artefacts et de recommencer sur la nouvelle nomenclature.
+
+**Decisions techniques :**
+1. Centraliser le remap dans `config/constants.py` avec des ids semantiques nommes, afin d eviter de repropager des nombres magiques dans les controllers, services et vues deja branches sur `format_label_text()`.
+2. Faire commencer les labels libres a `5` plutot qu a `4`, afin que `4` devienne `BW` persistant et que la suite des labels utilisateur conserve la nomenclature `BW echo N` sans trou.
+3. Introduire des constantes explicites pour le label actif par defaut et la paire corrosion par defaut, afin de garder un comportement fonctionnel stable malgre le changement d ordre des ids persistants.

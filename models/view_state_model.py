@@ -1,6 +1,6 @@
 from typing import Optional, Tuple, Any
 
-from config.constants import PERSISTENT_LABEL_IDS
+from config.constants import DEFAULT_ACTIVE_LABEL_ID
 
 
 class ViewStateModel:
@@ -36,10 +36,7 @@ class ViewStateModel:
         self.annotation_action: str = "draw"
         self.force_threshold_erase: bool = False
         self.apply_auto: bool = False
-        self.active_label: Optional[int] = next(
-            (int(label_id) for label_id in PERSISTENT_LABEL_IDS if int(label_id) > 0),
-            None,
-        )
+        self.active_label: Optional[int] = int(DEFAULT_ACTIVE_LABEL_ID)
         self.label0_erase_target: Optional[int] = None
         self.roi_thin_line_max_width: int = 2
         self.apply_volume_start: int = 0
