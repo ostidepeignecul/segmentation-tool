@@ -3823,3 +3823,23 @@ L outil `paint` ne gerait jusque-la qu un clic simple. Le besoin etait d obtenir
 1. Gerer la capture press/move/release du pinceau dans `AnnotationView` plutot que detourner `drag_update`, afin de garder ce dernier dedie au suivi de position/crosshair et de limiter l impact sur les autres interactions Endview.
 2. Interpoler les points du trait dans `AnnotationController` entre deux evenements souris, afin d eviter les trous visuels quand la souris se deplace plus vite que la frequence des events.
 3. Reporter l auto-application du `paint` a la fin du stroke dans `MasterController`, afin d eviter qu un drag en mode `Apply auto` ne committe le masque des le premier press puis efface le preview avant la fin du geste.
+
+### 2026-03-30 - Closing mask ROI configurable avec comblement de trous et fusion proche
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_service.py`, `#services/annotation_session_manager.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/nde_settings_view.py`, `#views/tools_panel.py`, `#closing-mask`, `#roi`, `#morphology`, `#mvc`, `#ui`
+
+**Actions effectuees :**
+- Branche le checkbox `Closing mask` deja present dans `toolspanel.ui` et `ui_toolspanel.py` vers `views/tools_panel.py`, `controllers/master_controller.py` et l etat de session.
+- Ajoute dans `views/nde_settings_view.py` deux parametres `Closing mask`: aire max de trou (`px2`) et distance de fusion (`px`).
+- Etend `models/view_state_model.py` avec `closing_mask_enabled`, `closing_mask_tolerance` et `closing_mask_merge_distance`.
+- Durcit `services/annotation_session_manager.py` pour reappliquer les valeurs par defaut du `ViewStateModel` quand une session plus ancienne ne contient pas encore ces nouveaux champs.
+- Centralise dans `services/annotation_service.py` un pipeline ROI de closing borne par la zone autorisee: fermeture morphologique pour relier les composants proches, puis remplissage des trous internes par aire maximale.
+- Propage ces parametres dans `controllers/annotation_controller.py` pour les flux ROI `box`, `free hand`, `grow`, `line`, `peak`, ainsi que `Recalculer ROI` et les variantes range/volume, sans modifier `paint` ni `mod`.
+
+**Contexte :**
+Le besoin etait d activer le checkbox `Closing mask` deja ajoute dans l interface, d abord pour combler automatiquement les petits trous dans les masks ROI, puis pour relier entre eux des morceaux tres proches afin d obtenir des regions plus compactes. Les reglages devaient rester modifiables depuis `Fichier > Parametres` tout en conservant la separation MVC entre vue, modele d etat et service d annotation.
+
+**Decisions techniques :**
+1. Garder un seul toggle `Closing mask` et separer ses reglages en deux parametres orthogonaux (`aire max trou` et `distance fusion`) afin de distinguer le remplissage des cavites internes du rapprochement de composants voisins.
+2. Centraliser l algorithme dans `AnnotationService` plutot que dans `AnnotationController` ou les vues, afin de reutiliser exactement le meme post-traitement pour le preview, le recompute ROI et les applies volume.
+3. Contraindre le closing par un `allowed_mask` derive des restrictions et zones bloquees, afin d eviter de fusionner ou remplir a travers des zones interdites.
+4. Limiter explicitement le scope aux outils ROI (`box`, `free hand`, `grow`, `line`, `peak`) et exclure `paint` / `mod`, conformement au comportement demande.

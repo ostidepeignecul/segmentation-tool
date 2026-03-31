@@ -464,6 +464,10 @@ class AnnotationSessionManager:
         roi_model._next_id = state.next_roi_id  # noqa: SLF001
 
         # View state
+        default_view_state = vars(ViewStateModel())
+        for key, val in default_view_state.items():
+            if key not in state.view_state:
+                setattr(view_state_model, key, self._copy_view_state_value(val))
         for key, val in state.view_state.items():
             setattr(view_state_model, key, self._copy_view_state_value(val))
 

@@ -337,6 +337,21 @@ class AnnotationController:
         except Exception:
             return 0
 
+    def _closing_mask_enabled(self) -> bool:
+        return bool(getattr(self.view_state_model, "closing_mask_enabled", False))
+
+    def _closing_mask_tolerance(self) -> int:
+        try:
+            return max(0, int(getattr(self.view_state_model, "closing_mask_tolerance", 0)))
+        except Exception:
+            return 0
+
+    def _closing_mask_merge_distance(self) -> int:
+        try:
+            return max(0, int(getattr(self.view_state_model, "closing_mask_merge_distance", 0)))
+        except Exception:
+            return 0
+
     def on_apply_volume_toggled(self, enabled: bool) -> None:
         """Handle apply-to-volume toggle (stub)."""
         self.view_state_model.set_apply_volume(enabled)
@@ -413,6 +428,9 @@ class AnnotationController:
                 ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
                 vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
                 vertical_max_length=self.view_state_model.roi_peak_vertical_max_length,
+                closing_mask_enabled=self._closing_mask_enabled(),
+                closing_mask_tolerance=self._closing_mask_tolerance(),
+                closing_mask_merge_distance=self._closing_mask_merge_distance(),
             )
             self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
         else:
@@ -512,6 +530,9 @@ class AnnotationController:
                 end_idx=end_idx,
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
+                closing_mask_enabled=self._closing_mask_enabled(),
+                closing_mask_tolerance=self._closing_mask_tolerance(),
+                closing_mask_merge_distance=self._closing_mask_merge_distance(),
             )
         else:
             grow_mask = self.annotation_service.apply_grow_roi(
@@ -528,6 +549,9 @@ class AnnotationController:
                 palette=self.annotation_model.get_label_palette(),
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
+                closing_mask_enabled=self._closing_mask_enabled(),
+                closing_mask_tolerance=self._closing_mask_tolerance(),
+                closing_mask_merge_distance=self._closing_mask_merge_distance(),
             )
             if grow_mask is None:
                 return False
@@ -657,6 +681,9 @@ class AnnotationController:
                 end_idx=end_idx,
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
+                closing_mask_enabled=self._closing_mask_enabled(),
+                closing_mask_tolerance=self._closing_mask_tolerance(),
+                closing_mask_merge_distance=self._closing_mask_merge_distance(),
             )
         else:
             line_mask = self.annotation_service.apply_line_roi(
@@ -673,6 +700,9 @@ class AnnotationController:
                 palette=palette,
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
+                closing_mask_enabled=self._closing_mask_enabled(),
+                closing_mask_tolerance=self._closing_mask_tolerance(),
+                closing_mask_merge_distance=self._closing_mask_merge_distance(),
             )
             if line_mask is None:
                 return False
@@ -773,6 +803,9 @@ class AnnotationController:
                     slice_data_provider=self._slice_data,
                     restriction_mask=restriction_mask,
                     blocked_mask_provider=blocked_mask_provider,
+                    closing_mask_enabled=self._closing_mask_enabled(),
+                    closing_mask_tolerance=self._closing_mask_tolerance(),
+                    closing_mask_merge_distance=self._closing_mask_merge_distance(),
                 )
             else:
                 self.annotation_service.apply_free_hand_roi_to_range(
@@ -790,6 +823,9 @@ class AnnotationController:
                     restriction_mask=restriction_mask,
                     blocked_mask_provider=blocked_mask_provider,
                     use_box_percentiles=self.view_state_model.threshold_auto,
+                    closing_mask_enabled=self._closing_mask_enabled(),
+                    closing_mask_tolerance=self._closing_mask_tolerance(),
+                    closing_mask_merge_distance=self._closing_mask_merge_distance(),
                 )
         else:
             if peak_mode:
@@ -810,6 +846,9 @@ class AnnotationController:
                     slice_data=slice_data,
                     restriction_mask=restriction_mask,
                     blocked_mask=blocked_mask,
+                    closing_mask_enabled=self._closing_mask_enabled(),
+                    closing_mask_tolerance=self._closing_mask_tolerance(),
+                    closing_mask_merge_distance=self._closing_mask_merge_distance(),
                 )
             else:
                 free_hand_mask = self.annotation_service.apply_free_hand_roi(
@@ -826,6 +865,9 @@ class AnnotationController:
                     restriction_mask=restriction_mask,
                     blocked_mask=blocked_mask,
                     use_box_percentiles=self.view_state_model.threshold_auto,
+                    closing_mask_enabled=self._closing_mask_enabled(),
+                    closing_mask_tolerance=self._closing_mask_tolerance(),
+                    closing_mask_merge_distance=self._closing_mask_merge_distance(),
                 )
             if free_hand_mask is None:
                 return False
@@ -894,6 +936,9 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                closing_mask_enabled=self._closing_mask_enabled(),
+                closing_mask_tolerance=self._closing_mask_tolerance(),
+                closing_mask_merge_distance=self._closing_mask_merge_distance(),
             )
         else:
             self.annotation_service.apply_box_roi(
@@ -910,6 +955,9 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                closing_mask_enabled=self._closing_mask_enabled(),
+                closing_mask_tolerance=self._closing_mask_tolerance(),
+                closing_mask_merge_distance=self._closing_mask_merge_distance(),
             )
         self.refresh_roi_overlay_for_slice(slice_idx)
         return True
@@ -1654,6 +1702,9 @@ class AnnotationController:
             ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
             vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
             vertical_max_length=self.view_state_model.roi_peak_vertical_max_length,
+            closing_mask_enabled=self._closing_mask_enabled(),
+            closing_mask_tolerance=self._closing_mask_tolerance(),
+            closing_mask_merge_distance=self._closing_mask_merge_distance(),
         )
 
         slice_mask = self.temp_mask_model.get_slice_mask(slice_idx)

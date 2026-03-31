@@ -34,6 +34,9 @@ class ViewStateModel:
         self.roi_peak_vertical_max_length: int = 0
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
+        self.closing_mask_enabled: bool = False
+        self.closing_mask_tolerance: int = 64
+        self.closing_mask_merge_distance: int = 0
         self.annotation_action: str = "draw"
         self.force_threshold_erase: bool = False
         self.apply_auto: bool = False
@@ -186,6 +189,27 @@ class ViewStateModel:
 
     def set_roi_persistence(self, enabled: bool) -> None:
         self.roi_persistence = bool(enabled)
+
+    def set_closing_mask_enabled(self, enabled: bool) -> None:
+        self.closing_mask_enabled = bool(enabled)
+
+    def set_closing_mask_tolerance(self, value: int) -> None:
+        try:
+            tolerance = int(value)
+        except Exception:
+            tolerance = 0
+        if tolerance < 0:
+            tolerance = 0
+        self.closing_mask_tolerance = tolerance
+
+    def set_closing_mask_merge_distance(self, value: int) -> None:
+        try:
+            distance = int(value)
+        except Exception:
+            distance = 0
+        if distance < 0:
+            distance = 0
+        self.closing_mask_merge_distance = distance
 
     def set_active_label(self, label_id: Optional[int]) -> None:
         if label_id is None:

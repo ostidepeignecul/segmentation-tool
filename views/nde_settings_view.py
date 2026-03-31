@@ -31,6 +31,8 @@ class NdeSettingsView(QDialog):
     roi_peak_ignore_position_changed = pyqtSignal(bool)
     roi_peak_vertical_min_changed = pyqtSignal(int)
     roi_peak_vertical_max_changed = pyqtSignal(int)
+    closing_mask_tolerance_changed = pyqtSignal(int)
+    closing_mask_merge_distance_changed = pyqtSignal(int)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -90,6 +92,18 @@ class NdeSettingsView(QDialog):
         self._roi_peak_vertical_max.setValue(0)
         self._roi_peak_vertical_max.setSpecialValueText("Illimite")
         form.addRow(QLabel("ROI Peak - max vertical"), self._roi_peak_vertical_max)
+
+        self._closing_mask_tolerance = QSpinBox(self)
+        self._closing_mask_tolerance.setMinimum(0)
+        self._closing_mask_tolerance.setMaximum(99999)
+        self._closing_mask_tolerance.setValue(64)
+        form.addRow(QLabel("Closing mask - aire max trou (px2)"), self._closing_mask_tolerance)
+
+        self._closing_mask_merge_distance = QSpinBox(self)
+        self._closing_mask_merge_distance.setMinimum(0)
+        self._closing_mask_merge_distance.setMaximum(9999)
+        self._closing_mask_merge_distance.setValue(0)
+        form.addRow(QLabel("Closing mask - distance fusion (px)"), self._closing_mask_merge_distance)
 
         layout.addLayout(form)
 
@@ -208,6 +222,30 @@ class NdeSettingsView(QDialog):
         self._roi_peak_vertical_max.setValue(max_len)
         self._roi_peak_vertical_max.blockSignals(False)
 
+    def set_closing_mask_tolerance(self, value: int) -> None:
+        """Update closing-mask hole tolerance without emitting signals."""
+        try:
+            tolerance = int(value)
+        except Exception:
+            tolerance = 0
+        if tolerance < 0:
+            tolerance = 0
+        self._closing_mask_tolerance.blockSignals(True)
+        self._closing_mask_tolerance.setValue(tolerance)
+        self._closing_mask_tolerance.blockSignals(False)
+
+    def set_closing_mask_merge_distance(self, value: int) -> None:
+        """Update closing-mask merge distance without emitting signals."""
+        try:
+            distance = int(value)
+        except Exception:
+            distance = 0
+        if distance < 0:
+            distance = 0
+        self._closing_mask_merge_distance.blockSignals(True)
+        self._closing_mask_merge_distance.setValue(distance)
+        self._closing_mask_merge_distance.blockSignals(False)
+
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -231,6 +269,10 @@ class NdeSettingsView(QDialog):
         )
         self._roi_peak_vertical_min.valueChanged.connect(self._on_roi_peak_vertical_min_changed)
         self._roi_peak_vertical_max.valueChanged.connect(self._on_roi_peak_vertical_max_changed)
+        self._closing_mask_tolerance.valueChanged.connect(self._on_closing_mask_tolerance_changed)
+        self._closing_mask_merge_distance.valueChanged.connect(
+            self._on_closing_mask_merge_distance_changed
+        )
 
     def _emit_apply_volume_range(self) -> None:
         self.apply_volume_range_changed.emit(
@@ -298,6 +340,12 @@ class NdeSettingsView(QDialog):
             min_len = max_len
             self.roi_peak_vertical_min_changed.emit(min_len)
         self.roi_peak_vertical_max_changed.emit(max_len)
+
+    def _on_closing_mask_tolerance_changed(self, value: int) -> None:
+        self.closing_mask_tolerance_changed.emit(max(0, int(value)))
+
+    def _on_closing_mask_merge_distance_changed(self, value: int) -> None:
+        self.closing_mask_merge_distance_changed.emit(max(0, int(value)))
 
     @staticmethod
     def _set_current(combo: QComboBox, value: str) -> None:

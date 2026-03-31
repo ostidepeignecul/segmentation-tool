@@ -129,9 +129,22 @@ class AnnotationService:
         label: int,
         *,
         persistent: bool,
-    ) -> None:
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
+        allowed_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """Apply a box mask into the temporary mask model."""
-        temp_model.set_slice_mask(slice_idx, box_mask, label=label, persistent=persistent)
+        mask_to_store = np.asarray(box_mask, dtype=np.uint8)
+        if closing_mask_enabled:
+            mask_to_store = self._apply_closing_mask(
+                mask_to_store,
+                tolerance=closing_mask_tolerance,
+                merge_distance=closing_mask_merge_distance,
+                allowed_mask=allowed_mask,
+            )
+        temp_model.set_slice_mask(slice_idx, mask_to_store, label=label, persistent=persistent)
+        return mask_to_store
 
     def build_disk_mask(
         self,
@@ -210,6 +223,123 @@ class AnnotationService:
         if mask.shape != (h, w):
             return None
         return mask
+
+    def _build_closing_allowed_mask(
+        self,
+        *,
+        shape: Tuple[int, int],
+        restriction_mask: Optional[np.ndarray],
+        blocked_mask: Optional[np.ndarray],
+    ) -> Optional[np.ndarray]:
+        restriction = self._normalize_restriction_mask(restriction_mask, shape)
+        blocked = self._normalize_blocked_mask(blocked_mask, shape)
+        if restriction is None and blocked is None:
+            return None
+
+        if restriction is None:
+            allowed = np.ones(shape, dtype=bool)
+        else:
+            allowed = np.array(restriction, dtype=bool, copy=True)
+
+        if blocked is not None:
+            allowed = np.logical_and(allowed, np.logical_not(blocked))
+
+        return allowed
+
+    @staticmethod
+    def _build_domain_boundary(domain: np.ndarray) -> np.ndarray:
+        boundary = np.zeros_like(domain, dtype=bool)
+        if domain.size == 0:
+            return boundary
+
+        boundary[0, :] = domain[0, :]
+        boundary[-1, :] = np.logical_or(boundary[-1, :], domain[-1, :])
+        boundary[:, 0] = np.logical_or(boundary[:, 0], domain[:, 0])
+        boundary[:, -1] = np.logical_or(boundary[:, -1], domain[:, -1])
+
+        outside_up = np.zeros_like(domain, dtype=bool)
+        outside_up[1:, :] = np.logical_not(domain[:-1, :])
+        outside_down = np.zeros_like(domain, dtype=bool)
+        outside_down[:-1, :] = np.logical_not(domain[1:, :])
+        outside_left = np.zeros_like(domain, dtype=bool)
+        outside_left[:, 1:] = np.logical_not(domain[:, :-1])
+        outside_right = np.zeros_like(domain, dtype=bool)
+        outside_right[:, :-1] = np.logical_not(domain[:, 1:])
+
+        boundary = np.logical_or(
+            boundary,
+            np.logical_and(
+                domain,
+                np.logical_or.reduce((outside_up, outside_down, outside_left, outside_right)),
+            ),
+        )
+        return boundary
+
+    def _apply_closing_mask(
+        self,
+        mask: np.ndarray,
+        *,
+        tolerance: int,
+        merge_distance: int = 0,
+        allowed_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        try:
+            max_hole_area = max(0, int(tolerance))
+        except Exception:
+            max_hole_area = 0
+        try:
+            max_merge_distance = max(0, int(merge_distance))
+        except Exception:
+            max_merge_distance = 0
+
+        mask_bool = np.asarray(mask, dtype=bool)
+        if mask_bool.ndim != 2 or not np.any(mask_bool):
+            return np.asarray(mask, dtype=np.uint8)
+
+        if allowed_mask is None:
+            domain = np.ones(mask_bool.shape, dtype=bool)
+        else:
+            domain = np.asarray(allowed_mask, dtype=bool)
+            if domain.shape != mask_bool.shape:
+                return np.asarray(mask, dtype=np.uint8)
+
+        solid = np.logical_and(mask_bool, domain)
+        if max_merge_distance > 0:
+            kernel_size = int(max_merge_distance) * 2 + 1
+            kernel = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE,
+                (kernel_size, kernel_size),
+            )
+            solid = cv2.morphologyEx(
+                solid.astype(np.uint8),
+                cv2.MORPH_CLOSE,
+                kernel,
+            ).astype(bool)
+            solid = np.logical_and(solid, domain)
+
+        if max_hole_area <= 0:
+            return solid.astype(np.uint8)
+
+        background = np.logical_and(domain, np.logical_not(solid))
+        if not np.any(background):
+            return solid.astype(np.uint8)
+
+        num_components, labels = cv2.connectedComponents(background.astype(np.uint8), connectivity=8)
+        if num_components <= 1:
+            return solid.astype(np.uint8)
+
+        boundary_background = np.logical_and(background, self._build_domain_boundary(domain))
+        exterior_labels = set(int(v) for v in np.unique(labels[boundary_background]).tolist())
+
+        filled = np.array(solid, copy=True)
+        for component_id in range(1, int(num_components)):
+            if component_id in exterior_labels:
+                continue
+            component = labels == component_id
+            if int(np.count_nonzero(component)) <= max_hole_area:
+                filled[component] = True
+
+        return filled.astype(np.uint8)
 
     def _normalize_slice_to_uint8(self, slice_data: np.ndarray) -> Optional[np.ndarray]:
         """Normalize arbitrary slice data to uint8 [0, 255]."""
@@ -711,6 +841,9 @@ class AnnotationService:
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> Optional[np.ndarray]:
         """
         Region growing ROI: build mask from seed/threshold, store ROI and apply to temp model.
@@ -741,8 +874,22 @@ class AnnotationService:
             persistent=persistent,
         )
         temp_mask_model.ensure_label(label, color, visible=True)
-        temp_mask_model.set_slice_mask(slice_idx, grow_mask, label=label, persistent=persistent)
-        return grow_mask
+        allowed_mask = self._build_closing_allowed_mask(
+            shape=shape,
+            restriction_mask=restriction_mask,
+            blocked_mask=blocked_mask,
+        )
+        return self.apply_temp_box(
+            temp_mask_model,
+            slice_idx,
+            grow_mask,
+            label,
+            persistent=persistent,
+            closing_mask_enabled=closing_mask_enabled,
+            closing_mask_tolerance=closing_mask_tolerance,
+            closing_mask_merge_distance=closing_mask_merge_distance,
+            allowed_mask=allowed_mask,
+        )
 
     def apply_line_roi(
         self,
@@ -760,6 +907,9 @@ class AnnotationService:
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> Optional[np.ndarray]:
         """
         Region growing ROI from a freehand line (multi-seed), store ROI and apply to temp model.
@@ -794,8 +944,22 @@ class AnnotationService:
             persistent=persistent,
         )
         temp_mask_model.ensure_label(label, color, visible=True)
-        temp_mask_model.set_slice_mask(slice_idx, line_mask, label=label, persistent=persistent)
-        return line_mask
+        allowed_mask = self._build_closing_allowed_mask(
+            shape=shape,
+            restriction_mask=restriction_mask,
+            blocked_mask=blocked_mask,
+        )
+        return self.apply_temp_box(
+            temp_mask_model,
+            slice_idx,
+            line_mask,
+            label,
+            persistent=persistent,
+            closing_mask_enabled=closing_mask_enabled,
+            closing_mask_tolerance=closing_mask_tolerance,
+            closing_mask_merge_distance=closing_mask_merge_distance,
+            allowed_mask=allowed_mask,
+        )
 
     def apply_free_hand_roi(
         self,
@@ -813,6 +977,9 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
         use_box_percentiles: bool = False,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> Optional[np.ndarray]:
         """
         Free-hand ROI: fill polygon mask, store ROI metadata and apply to temp model.
@@ -854,14 +1021,22 @@ class AnnotationService:
             if blocked.shape == mask_to_apply.shape:
                 mask_to_apply = np.where(blocked, 0, mask_to_apply)
 
-        self.apply_temp_box(
+        allowed_mask = self._build_closing_allowed_mask(
+            shape=shape,
+            restriction_mask=restriction_mask,
+            blocked_mask=blocked_mask,
+        )
+        return self.apply_temp_box(
             temp_mask_model,
             slice_idx,
             mask_to_apply,
             label,
             persistent=persistent,
+            closing_mask_enabled=closing_mask_enabled,
+            closing_mask_tolerance=closing_mask_tolerance,
+            closing_mask_merge_distance=closing_mask_merge_distance,
+            allowed_mask=allowed_mask,
         )
-        return mask_to_apply
 
     def apply_peak_roi(
         self,
@@ -883,6 +1058,9 @@ class AnnotationService:
         ignore_peak_position: bool = False,
         vertical_min_length: int = 1,
         vertical_max_length: int = 0,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> Optional[np.ndarray]:
         """Freehand Peak ROI: one peak per column, then vertical growth from peaks."""
         if precomputed_poly_mask is not None:
@@ -932,14 +1110,22 @@ class AnnotationService:
             vertical_max_length=vertical_max_length,
             blocked_mask=blocked_mask,
         )
-        self.apply_temp_box(
+        allowed_mask = self._build_closing_allowed_mask(
+            shape=shape,
+            restriction_mask=restriction_mask,
+            blocked_mask=blocked_mask,
+        )
+        return self.apply_temp_box(
             temp_mask_model,
             slice_idx,
             mask_to_apply,
             label,
             persistent=persistent,
+            closing_mask_enabled=closing_mask_enabled,
+            closing_mask_tolerance=closing_mask_tolerance,
+            closing_mask_merge_distance=closing_mask_merge_distance,
+            allowed_mask=allowed_mask,
         )
-        return mask_to_apply
 
     def rebuild_temp_masks_for_slice(
         self,
@@ -960,6 +1146,9 @@ class AnnotationService:
         ignore_peak_position: bool = False,
         vertical_min_length: int = 1,
         vertical_max_length: int = 0,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> list[Tuple[int, int, int, int]]:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
@@ -1008,12 +1197,21 @@ class AnnotationService:
             blocked = resolve_blocked(label)
             if blocked is not None:
                 mask_to_apply = np.where(blocked, 0, mask_to_apply)
+            allowed_mask = self._build_closing_allowed_mask(
+                shape=shape,
+                restriction_mask=restriction,
+                blocked_mask=blocked,
+            )
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
                 mask_to_apply,
                 label,
                 persistent=getattr(roi, "persistent", False),
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
+                allowed_mask=allowed_mask,
             )
             boxes.append(box_tuple)
         # Free-hand ROIs (filled polygon)
@@ -1042,12 +1240,21 @@ class AnnotationService:
             blocked = resolve_blocked(label)
             if blocked is not None:
                 mask_to_apply = np.where(blocked, 0, mask_to_apply)
+            allowed_mask = self._build_closing_allowed_mask(
+                shape=shape,
+                restriction_mask=restriction,
+                blocked_mask=blocked,
+            )
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
                 mask_to_apply,
                 label,
                 persistent=getattr(roi, "persistent", False),
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
+                allowed_mask=allowed_mask,
             )
         # Peak ROIs (freehand + per-column peak + vertical growth)
         for roi in rois:
@@ -1081,12 +1288,21 @@ class AnnotationService:
                 vertical_max_length=vertical_max_length,
                 blocked_mask=blocked,
             )
+            allowed_mask = self._build_closing_allowed_mask(
+                shape=shape,
+                restriction_mask=restriction,
+                blocked_mask=blocked,
+            )
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
                 peak_roi_mask,
                 label,
                 persistent=getattr(roi, "persistent", False),
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
+                allowed_mask=allowed_mask,
             )
         # Grow ROIs
         for roi in rois:
@@ -1110,12 +1326,21 @@ class AnnotationService:
             )
             if grow_mask is None:
                 continue
+            allowed_mask = self._build_closing_allowed_mask(
+                shape=shape,
+                restriction_mask=restriction,
+                blocked_mask=blocked,
+            )
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
                 grow_mask,
                 label,
                 persistent=getattr(roi, "persistent", False),
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
+                allowed_mask=allowed_mask,
             )
         # Line ROIs (multi-seed grow)
         for roi in rois:
@@ -1141,12 +1366,21 @@ class AnnotationService:
             )
             if line_mask is None:
                 continue
+            allowed_mask = self._build_closing_allowed_mask(
+                shape=shape,
+                restriction_mask=restriction,
+                blocked_mask=blocked,
+            )
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
                 line_mask,
                 label,
                 persistent=getattr(roi, "persistent", False),
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
+                allowed_mask=allowed_mask,
             )
         return boxes
 
@@ -1230,6 +1464,9 @@ class AnnotationService:
         ignore_peak_position: bool = False,
         vertical_min_length: int = 1,
         vertical_max_length: int = 0,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -1278,6 +1515,9 @@ class AnnotationService:
                 ignore_peak_position=ignore_peak_position,
                 vertical_min_length=vertical_min_length,
                 vertical_max_length=vertical_max_length,
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
             )
 
     def build_thresholded_mask(
@@ -1369,6 +1609,9 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask: Optional[np.ndarray] = None,
         use_box_percentiles: bool = False,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> Optional[np.ndarray]:
         """
         Normalize a box, build its mask, store ROI metadata and apply mask to temp model.
@@ -1415,10 +1658,22 @@ class AnnotationService:
             if blocked.shape == mask_to_apply.shape:
                 mask_to_apply = np.where(blocked, 0, mask_to_apply)
 
-        self.apply_temp_box(
-            temp_mask_model, slice_idx, mask_to_apply, label, persistent=persistent
+        allowed_mask = self._build_closing_allowed_mask(
+            shape=shape,
+            restriction_mask=restriction,
+            blocked_mask=blocked_mask,
         )
-        return mask_to_apply
+        return self.apply_temp_box(
+            temp_mask_model,
+            slice_idx,
+            mask_to_apply,
+            label,
+            persistent=persistent,
+            closing_mask_enabled=closing_mask_enabled,
+            closing_mask_tolerance=closing_mask_tolerance,
+            closing_mask_merge_distance=closing_mask_merge_distance,
+            allowed_mask=allowed_mask,
+        )
 
     @staticmethod
     def _normalize_box_input(box: Any) -> Optional[Tuple[int, int, int, int]]:
@@ -1501,6 +1756,9 @@ class AnnotationService:
         end_idx: Optional[int] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> None:
         """
         Apply grow ROI forward/backward from a slice until threshold fails.
@@ -1545,6 +1803,9 @@ class AnnotationService:
                 palette=palette,
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
             )
             return mask is not None
 
@@ -1577,6 +1838,9 @@ class AnnotationService:
         end_idx: Optional[int] = None,
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> None:
         """
         Apply line ROI forward/backward from a slice until threshold fails.
@@ -1620,6 +1884,9 @@ class AnnotationService:
                 palette=palette,
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
             )
             return mask is not None
 
@@ -1651,6 +1918,9 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
         use_box_percentiles: bool = False,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> None:
         """Apply a free-hand ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -1674,6 +1944,9 @@ class AnnotationService:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 use_box_percentiles=use_box_percentiles,
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
             )
 
     def apply_peak_roi_to_range(
@@ -1696,6 +1969,9 @@ class AnnotationService:
         ignore_peak_position: bool = False,
         vertical_min_length: int = 1,
         vertical_max_length: int = 0,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> None:
         """Apply a Peak ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -1729,12 +2005,15 @@ class AnnotationService:
                 temp_mask_model=temp_mask_model,
                 palette=palette,
                 slice_data=slice_data,
-                restriction_mask=None,
+                restriction_mask=restriction,
                 blocked_mask=blocked_mask,
                 precomputed_poly_mask=poly_mask,
                 ignore_peak_position=ignore_peak_position,
                 vertical_min_length=vertical_min_length,
                 vertical_max_length=vertical_max_length,
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
             )
 
     def apply_box_roi_to_range(
@@ -1754,6 +2033,9 @@ class AnnotationService:
         restriction_mask: Optional[np.ndarray] = None,
         blocked_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
         use_box_percentiles: bool = False,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
     ) -> None:
         """Apply a box ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -1777,4 +2059,7 @@ class AnnotationService:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 use_box_percentiles=use_box_percentiles,
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
             )
