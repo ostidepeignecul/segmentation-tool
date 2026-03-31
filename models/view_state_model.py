@@ -37,6 +37,11 @@ class ViewStateModel:
         self.closing_mask_enabled: bool = False
         self.closing_mask_tolerance: int = 64
         self.closing_mask_merge_distance: int = 0
+        self.clean_outliers_enabled: bool = False
+        self.clean_outliers_tolerance: int = 64
+        self.clean_outliers_thin_line_max_width: int = 1
+        self.clean_outliers_thin_gap_max_width: int = 0
+        self.clean_outliers_contour_smoothing: int = 0
         self.annotation_action: str = "draw"
         self.force_threshold_erase: bool = False
         self.apply_auto: bool = False
@@ -210,6 +215,45 @@ class ViewStateModel:
         if distance < 0:
             distance = 0
         self.closing_mask_merge_distance = distance
+
+    def set_clean_outliers_enabled(self, enabled: bool) -> None:
+        self.clean_outliers_enabled = bool(enabled)
+
+    def set_clean_outliers_tolerance(self, value: int) -> None:
+        try:
+            tolerance = int(value)
+        except Exception:
+            tolerance = 0
+        if tolerance < 0:
+            tolerance = 0
+        self.clean_outliers_tolerance = tolerance
+
+    def set_clean_outliers_thin_line_max_width(self, value: int) -> None:
+        try:
+            width = int(value)
+        except Exception:
+            width = 0
+        if width < 0:
+            width = 0
+        self.clean_outliers_thin_line_max_width = width
+
+    def set_clean_outliers_thin_gap_max_width(self, value: int) -> None:
+        try:
+            width = int(value)
+        except Exception:
+            width = 0
+        if width < 0:
+            width = 0
+        self.clean_outliers_thin_gap_max_width = width
+
+    def set_clean_outliers_contour_smoothing(self, value: int) -> None:
+        try:
+            smoothing = int(value)
+        except Exception:
+            smoothing = 0
+        if smoothing < 0:
+            smoothing = 0
+        self.clean_outliers_contour_smoothing = smoothing
 
     def set_active_label(self, label_id: Optional[int]) -> None:
         if label_id is None:

@@ -380,6 +380,7 @@ class MasterController:
             threshold_auto_checkbox=self._tools_ui.checkBox_2,
             roi_persistence_checkbox=self._tools_ui.checkBox_3,
             closing_mask_checkbox=getattr(self._tools_ui, "checkBox_7", None),
+            clean_outliers_checkbox=getattr(self._tools_ui, "checkBox_8", None),
             volume_view_checkbox=getattr(self._tools_ui, "checkBox_6", None),
             roi_recompute_button=self._tools_ui.pushButton_2,
             roi_delete_button=self._tools_ui.pushButton_3,
@@ -401,6 +402,9 @@ class MasterController:
         self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)
         self.tools_panel.set_closing_mask_checked(
             getattr(self.view_state_model, "closing_mask_enabled", False)
+        )
+        self.tools_panel.set_clean_outliers_checked(
+            getattr(self.view_state_model, "clean_outliers_enabled", False)
         )
         self.tools_panel.set_volume_view_overlay_checked(
             getattr(self.view_state_model, "show_volume_view_overlay", True)
@@ -434,6 +438,7 @@ class MasterController:
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
         self.tools_panel.closing_mask_toggled.connect(self._on_closing_mask_toggled)
+        self.tools_panel.clean_outliers_toggled.connect(self._on_clean_outliers_toggled)
         self.tools_panel.volume_view_overlay_toggled.connect(
             self.annotation_controller.on_volume_view_overlay_toggled
         )
@@ -552,6 +557,18 @@ class MasterController:
         )
         self.nde_settings_view.closing_mask_merge_distance_changed.connect(
             self._on_closing_mask_merge_distance_changed
+        )
+        self.nde_settings_view.clean_outliers_tolerance_changed.connect(
+            self._on_clean_outliers_tolerance_changed
+        )
+        self.nde_settings_view.clean_outliers_thin_line_width_changed.connect(
+            self._on_clean_outliers_thin_line_width_changed
+        )
+        self.nde_settings_view.clean_outliers_thin_gap_width_changed.connect(
+            self._on_clean_outliers_thin_gap_width_changed
+        )
+        self.nde_settings_view.clean_outliers_contour_smoothing_changed.connect(
+            self._on_clean_outliers_contour_smoothing_changed
         )
         self.corrosion_settings_view.label_a_changed.connect(self._on_corrosion_label_a_changed)
         self.corrosion_settings_view.label_b_changed.connect(self._on_corrosion_label_b_changed)
@@ -1123,6 +1140,18 @@ class MasterController:
         self.nde_settings_view.set_closing_mask_merge_distance(
             getattr(self.view_state_model, "closing_mask_merge_distance", 0)
         )
+        self.nde_settings_view.set_clean_outliers_tolerance(
+            getattr(self.view_state_model, "clean_outliers_tolerance", 0)
+        )
+        self.nde_settings_view.set_clean_outliers_thin_line_max_width(
+            getattr(self.view_state_model, "clean_outliers_thin_line_max_width", 0)
+        )
+        self.nde_settings_view.set_clean_outliers_thin_gap_max_width(
+            getattr(self.view_state_model, "clean_outliers_thin_gap_max_width", 0)
+        )
+        self.nde_settings_view.set_clean_outliers_contour_smoothing(
+            getattr(self.view_state_model, "clean_outliers_contour_smoothing", 0)
+        )
         self.nde_settings_view.show()
         self.nde_settings_view.raise_()
         self.nde_settings_view.activateWindow()
@@ -1307,6 +1336,13 @@ class MasterController:
         self.view_state_model.set_closing_mask_enabled(bool(enabled))
         self.tools_panel.set_closing_mask_checked(self.view_state_model.closing_mask_enabled)
 
+    def _on_clean_outliers_toggled(self, enabled: bool) -> None:
+        """Handle clean-outliers toggle from the tools panel."""
+        self.view_state_model.set_clean_outliers_enabled(bool(enabled))
+        self.tools_panel.set_clean_outliers_checked(
+            self.view_state_model.clean_outliers_enabled
+        )
+
     def _on_closing_mask_tolerance_changed(self, value: int) -> None:
         """Handle closing-mask hole tolerance from settings."""
         self.view_state_model.set_closing_mask_tolerance(int(value))
@@ -1319,6 +1355,34 @@ class MasterController:
         self.view_state_model.set_closing_mask_merge_distance(int(value))
         self.nde_settings_view.set_closing_mask_merge_distance(
             self.view_state_model.closing_mask_merge_distance
+        )
+
+    def _on_clean_outliers_tolerance_changed(self, value: int) -> None:
+        """Handle clean-outliers component tolerance from settings."""
+        self.view_state_model.set_clean_outliers_tolerance(int(value))
+        self.nde_settings_view.set_clean_outliers_tolerance(
+            self.view_state_model.clean_outliers_tolerance
+        )
+
+    def _on_clean_outliers_thin_line_width_changed(self, value: int) -> None:
+        """Handle mask-cleanup thin-line width from settings."""
+        self.view_state_model.set_clean_outliers_thin_line_max_width(int(value))
+        self.nde_settings_view.set_clean_outliers_thin_line_max_width(
+            self.view_state_model.clean_outliers_thin_line_max_width
+        )
+
+    def _on_clean_outliers_thin_gap_width_changed(self, value: int) -> None:
+        """Handle mask-cleanup thin-gap width from settings."""
+        self.view_state_model.set_clean_outliers_thin_gap_max_width(int(value))
+        self.nde_settings_view.set_clean_outliers_thin_gap_max_width(
+            self.view_state_model.clean_outliers_thin_gap_max_width
+        )
+
+    def _on_clean_outliers_contour_smoothing_changed(self, value: int) -> None:
+        """Handle mask-cleanup contour smoothing from settings."""
+        self.view_state_model.set_clean_outliers_contour_smoothing(int(value))
+        self.nde_settings_view.set_clean_outliers_contour_smoothing(
+            self.view_state_model.clean_outliers_contour_smoothing
         )
 
     def _apply_roi_non_corrosion(self) -> None:
@@ -2170,6 +2234,9 @@ class MasterController:
         self.tools_panel.set_closing_mask_checked(
             getattr(self.view_state_model, "closing_mask_enabled", False)
         )
+        self.tools_panel.set_clean_outliers_checked(
+            getattr(self.view_state_model, "clean_outliers_enabled", False)
+        )
         self.tools_panel.set_volume_view_overlay_checked(
             getattr(self.view_state_model, "show_volume_view_overlay", True)
         )
@@ -2200,6 +2267,18 @@ class MasterController:
         )
         self.nde_settings_view.set_closing_mask_merge_distance(
             getattr(self.view_state_model, "closing_mask_merge_distance", 0)
+        )
+        self.nde_settings_view.set_clean_outliers_tolerance(
+            getattr(self.view_state_model, "clean_outliers_tolerance", 0)
+        )
+        self.nde_settings_view.set_clean_outliers_thin_line_max_width(
+            getattr(self.view_state_model, "clean_outliers_thin_line_max_width", 0)
+        )
+        self.nde_settings_view.set_clean_outliers_thin_gap_max_width(
+            getattr(self.view_state_model, "clean_outliers_thin_gap_max_width", 0)
+        )
+        self.nde_settings_view.set_clean_outliers_contour_smoothing(
+            getattr(self.view_state_model, "clean_outliers_contour_smoothing", 0)
         )
 
         self._apply_annotation_action(getattr(self.view_state_model, "annotation_action", "draw"))

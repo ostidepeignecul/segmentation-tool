@@ -13,6 +13,7 @@ from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
 from models.roi_model import RoiModel
 from models.temp_mask_model import TempMaskModel
+from services.mask_modification_service import MaskModificationService
 
 
 class AnnotationService:
@@ -132,17 +133,26 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
         allowed_mask: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """Apply a box mask into the temporary mask model."""
-        mask_to_store = np.asarray(box_mask, dtype=np.uint8)
-        if closing_mask_enabled:
-            mask_to_store = self._apply_closing_mask(
-                mask_to_store,
-                tolerance=closing_mask_tolerance,
-                merge_distance=closing_mask_merge_distance,
-                allowed_mask=allowed_mask,
-            )
+        mask_to_store = self._apply_roi_post_processing(
+            box_mask,
+            closing_mask_enabled=closing_mask_enabled,
+            closing_mask_tolerance=closing_mask_tolerance,
+            closing_mask_merge_distance=closing_mask_merge_distance,
+            clean_outliers_enabled=clean_outliers_enabled,
+            clean_outliers_tolerance=clean_outliers_tolerance,
+            clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+            clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+            clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+            allowed_mask=allowed_mask,
+        )
         temp_model.set_slice_mask(slice_idx, mask_to_store, label=label, persistent=persistent)
         return mask_to_store
 
@@ -340,6 +350,277 @@ class AnnotationService:
                 filled[component] = True
 
         return filled.astype(np.uint8)
+
+    def _apply_clean_outliers_mask(
+        self,
+        mask: np.ndarray,
+        *,
+        tolerance: int,
+    ) -> np.ndarray:
+        try:
+            max_outlier_area = max(0, int(tolerance))
+        except Exception:
+            max_outlier_area = 0
+
+        mask_bool = np.asarray(mask, dtype=bool)
+        if mask_bool.ndim != 2 or not np.any(mask_bool) or max_outlier_area <= 0:
+            return np.asarray(mask, dtype=np.uint8)
+
+        num_components, labels, stats, _ = cv2.connectedComponentsWithStats(
+            mask_bool.astype(np.uint8),
+            connectivity=8,
+        )
+        if num_components <= 2:
+            return mask_bool.astype(np.uint8)
+
+        component_areas = stats[1:, cv2.CC_STAT_AREA]
+        if component_areas.size == 0:
+            return mask_bool.astype(np.uint8)
+
+        largest_component_id = int(np.argmax(component_areas)) + 1
+        kept = np.zeros_like(mask_bool, dtype=bool)
+        for component_id in range(1, int(num_components)):
+            area = int(stats[component_id, cv2.CC_STAT_AREA])
+            if component_id == largest_component_id or area > max_outlier_area:
+                kept[labels == component_id] = True
+
+        return kept.astype(np.uint8)
+
+    def _apply_clean_outliers_thin_line_cleanup(
+        self,
+        mask: np.ndarray,
+        *,
+        max_width: int,
+        allowed_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        try:
+            thin_width = max(0, int(max_width))
+        except Exception:
+            thin_width = 0
+
+        mask_bool = np.asarray(mask, dtype=bool)
+        if mask_bool.ndim != 2 or not np.any(mask_bool) or thin_width <= 0:
+            return np.asarray(mask, dtype=np.uint8)
+
+        if allowed_mask is None:
+            domain = np.ones(mask_bool.shape, dtype=bool)
+        else:
+            domain = np.asarray(allowed_mask, dtype=bool)
+            if domain.shape != mask_bool.shape:
+                return np.asarray(mask, dtype=np.uint8)
+
+        solid = np.logical_and(mask_bool, domain)
+        if not np.any(solid):
+            return solid.astype(np.uint8)
+
+        # Remove narrow foreground protrusions from the mask itself. This is
+        # intentionally more aggressive than contour smoothing and targets the
+        # "1 px spikes" reported by the user.
+        kernel_size = thin_width * 2 + 1
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE,
+            (kernel_size, kernel_size),
+        )
+        cleaned = cv2.morphologyEx(
+            solid.astype(np.uint8),
+            cv2.MORPH_OPEN,
+            kernel,
+        ).astype(bool)
+        cleaned = np.logical_and(cleaned, domain)
+        if not np.any(cleaned):
+            return solid.astype(np.uint8)
+        return cleaned.astype(np.uint8)
+
+    def _apply_clean_outliers_thin_gap_cleanup(
+        self,
+        mask: np.ndarray,
+        *,
+        max_width: int,
+        allowed_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        try:
+            gap_width_limit = max(0, int(max_width))
+        except Exception:
+            gap_width_limit = 0
+
+        mask_bool = np.asarray(mask, dtype=bool)
+        if mask_bool.ndim != 2 or not np.any(mask_bool) or gap_width_limit <= 0:
+            return np.asarray(mask, dtype=np.uint8)
+
+        if allowed_mask is None:
+            domain = np.ones(mask_bool.shape, dtype=bool)
+        else:
+            domain = np.asarray(allowed_mask, dtype=bool)
+            if domain.shape != mask_bool.shape:
+                return np.asarray(mask, dtype=np.uint8)
+
+        solid = np.logical_and(mask_bool, domain)
+        if not np.any(solid):
+            return solid.astype(np.uint8)
+
+        # Fill only narrow background gaps sandwiched between two foreground runs
+        # on the same row. This keeps the former notch-filling behavior under a
+        # dedicated parameter instead of overloading the foreground-pruning one.
+        cleaned = np.array(solid, copy=True)
+        height = int(solid.shape[0])
+        for y in range(height):
+            row = solid[y, :]
+            if not np.any(row):
+                continue
+            padded = np.pad(row.astype(np.uint8), (1, 1), mode="constant")
+            transitions = np.diff(padded.astype(np.int16))
+            run_starts = np.flatnonzero(transitions == 1)
+            run_ends = np.flatnonzero(transitions == -1)
+            if run_starts.size <= 1 or run_ends.size <= 1:
+                continue
+            for prev_end, next_start in zip(run_ends[:-1], run_starts[1:]):
+                gap_width = int(next_start - prev_end)
+                if gap_width <= 0 or gap_width > gap_width_limit:
+                    continue
+                if not np.all(domain[y, prev_end:next_start]):
+                    continue
+                cleaned[y, prev_end:next_start] = True
+        return cleaned.astype(np.uint8)
+
+    def _apply_clean_outliers_contour_smoothing(
+        self,
+        mask: np.ndarray,
+        *,
+        smoothing: int,
+        allowed_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        try:
+            smooth_radius = max(0, int(smoothing))
+        except Exception:
+            smooth_radius = 0
+
+        mask_bool = np.asarray(mask, dtype=bool)
+        if mask_bool.ndim != 2 or not np.any(mask_bool) or smooth_radius <= 0:
+            return np.asarray(mask, dtype=np.uint8)
+
+        if allowed_mask is None:
+            domain = np.ones(mask_bool.shape, dtype=bool)
+        else:
+            domain = np.asarray(allowed_mask, dtype=bool)
+            if domain.shape != mask_bool.shape:
+                return np.asarray(mask, dtype=np.uint8)
+
+        solid = np.logical_and(mask_bool, domain)
+        if not np.any(solid):
+            return solid.astype(np.uint8)
+
+        contours, hierarchy = cv2.findContours(
+            solid.astype(np.uint8),
+            cv2.RETR_CCOMP,
+            cv2.CHAIN_APPROX_NONE,
+        )
+        if not contours:
+            return solid.astype(np.uint8)
+
+        hierarchy_arr = hierarchy[0] if hierarchy is not None and len(hierarchy) > 0 else None
+        smoothed_mask = np.zeros_like(solid, dtype=np.uint8)
+
+        def contour_depth(index: int) -> int:
+            if hierarchy_arr is None:
+                return 0
+            depth = 0
+            parent = int(hierarchy_arr[index][3])
+            while parent >= 0:
+                depth += 1
+                parent = int(hierarchy_arr[parent][3])
+            return depth
+
+        def smoothed_polygon(contour: np.ndarray) -> Optional[np.ndarray]:
+            pts = np.asarray(contour, dtype=np.float32).reshape((-1, 2))
+            pts = MaskModificationService._normalize_contour_points(pts)
+            if pts.shape[0] < 3:
+                return None
+            radius = min(int(smooth_radius), max(0, (int(pts.shape[0]) - 1) // 2))
+            if radius <= 0:
+                return np.rint(pts).astype(np.int32).reshape((-1, 1, 2))
+
+            kernel_size = radius * 2 + 1
+            if pts.shape[0] <= kernel_size:
+                return np.rint(pts).astype(np.int32).reshape((-1, 1, 2))
+
+            padded = np.concatenate((pts[-radius:], pts, pts[:radius]), axis=0)
+            kernel = np.full((kernel_size,), 1.0 / float(kernel_size), dtype=np.float32)
+            xs = np.convolve(padded[:, 0], kernel, mode="valid")
+            ys = np.convolve(padded[:, 1], kernel, mode="valid")
+            smooth_pts = np.column_stack((xs, ys)).astype(np.float32)
+            smooth_pts = MaskModificationService._normalize_contour_points(smooth_pts)
+            if smooth_pts.shape[0] < 3:
+                return np.rint(pts).astype(np.int32).reshape((-1, 1, 2))
+            return np.rint(smooth_pts).astype(np.int32).reshape((-1, 1, 2))
+
+        external_indices: list[int] = []
+        hole_indices: list[int] = []
+        for idx in range(len(contours)):
+            if contour_depth(idx) % 2 == 0:
+                external_indices.append(idx)
+            else:
+                hole_indices.append(idx)
+
+        for idx in external_indices:
+            polygon = smoothed_polygon(contours[idx])
+            if polygon is None:
+                continue
+            cv2.fillPoly(smoothed_mask, [polygon], 1)
+
+        for idx in hole_indices:
+            polygon = smoothed_polygon(contours[idx])
+            if polygon is None:
+                continue
+            cv2.fillPoly(smoothed_mask, [polygon], 0)
+
+        smoothed_mask = np.logical_and(smoothed_mask.astype(bool), domain)
+        if not np.any(smoothed_mask):
+            return solid.astype(np.uint8)
+        return smoothed_mask.astype(np.uint8)
+
+    def _apply_roi_post_processing(
+        self,
+        mask: np.ndarray,
+        *,
+        closing_mask_enabled: bool = False,
+        closing_mask_tolerance: int = 0,
+        closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
+        allowed_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        mask_to_store = np.asarray(mask, dtype=np.uint8)
+        if closing_mask_enabled:
+            mask_to_store = self._apply_closing_mask(
+                mask_to_store,
+                tolerance=closing_mask_tolerance,
+                merge_distance=closing_mask_merge_distance,
+                allowed_mask=allowed_mask,
+            )
+        if clean_outliers_enabled:
+            mask_to_store = self._apply_clean_outliers_thin_line_cleanup(
+                mask_to_store,
+                max_width=clean_outliers_thin_line_max_width,
+                allowed_mask=allowed_mask,
+            )
+            mask_to_store = self._apply_clean_outliers_mask(
+                mask_to_store,
+                tolerance=clean_outliers_tolerance,
+            )
+            mask_to_store = self._apply_clean_outliers_thin_gap_cleanup(
+                mask_to_store,
+                max_width=clean_outliers_thin_gap_max_width,
+                allowed_mask=allowed_mask,
+            )
+            mask_to_store = self._apply_clean_outliers_contour_smoothing(
+                mask_to_store,
+                smoothing=clean_outliers_contour_smoothing,
+                allowed_mask=allowed_mask,
+            )
+        return mask_to_store.astype(np.uint8)
 
     def _normalize_slice_to_uint8(self, slice_data: np.ndarray) -> Optional[np.ndarray]:
         """Normalize arbitrary slice data to uint8 [0, 255]."""
@@ -844,6 +1125,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> Optional[np.ndarray]:
         """
         Region growing ROI: build mask from seed/threshold, store ROI and apply to temp model.
@@ -888,6 +1174,11 @@ class AnnotationService:
             closing_mask_enabled=closing_mask_enabled,
             closing_mask_tolerance=closing_mask_tolerance,
             closing_mask_merge_distance=closing_mask_merge_distance,
+            clean_outliers_enabled=clean_outliers_enabled,
+            clean_outliers_tolerance=clean_outliers_tolerance,
+            clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+            clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+            clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
         )
 
@@ -910,6 +1201,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> Optional[np.ndarray]:
         """
         Region growing ROI from a freehand line (multi-seed), store ROI and apply to temp model.
@@ -958,6 +1254,11 @@ class AnnotationService:
             closing_mask_enabled=closing_mask_enabled,
             closing_mask_tolerance=closing_mask_tolerance,
             closing_mask_merge_distance=closing_mask_merge_distance,
+            clean_outliers_enabled=clean_outliers_enabled,
+            clean_outliers_tolerance=clean_outliers_tolerance,
+            clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+            clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+            clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
         )
 
@@ -980,6 +1281,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> Optional[np.ndarray]:
         """
         Free-hand ROI: fill polygon mask, store ROI metadata and apply to temp model.
@@ -1035,6 +1341,11 @@ class AnnotationService:
             closing_mask_enabled=closing_mask_enabled,
             closing_mask_tolerance=closing_mask_tolerance,
             closing_mask_merge_distance=closing_mask_merge_distance,
+            clean_outliers_enabled=clean_outliers_enabled,
+            clean_outliers_tolerance=clean_outliers_tolerance,
+            clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+            clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+            clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
         )
 
@@ -1061,6 +1372,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> Optional[np.ndarray]:
         """Freehand Peak ROI: one peak per column, then vertical growth from peaks."""
         if precomputed_poly_mask is not None:
@@ -1124,6 +1440,11 @@ class AnnotationService:
             closing_mask_enabled=closing_mask_enabled,
             closing_mask_tolerance=closing_mask_tolerance,
             closing_mask_merge_distance=closing_mask_merge_distance,
+            clean_outliers_enabled=clean_outliers_enabled,
+            clean_outliers_tolerance=clean_outliers_tolerance,
+            clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+            clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+            clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
         )
 
@@ -1149,6 +1470,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> list[Tuple[int, int, int, int]]:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
@@ -1211,6 +1537,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
             )
             boxes.append(box_tuple)
@@ -1254,6 +1585,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
             )
         # Peak ROIs (freehand + per-column peak + vertical growth)
@@ -1302,6 +1638,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
             )
         # Grow ROIs
@@ -1340,6 +1681,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
             )
         # Line ROIs (multi-seed grow)
@@ -1380,6 +1726,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
             )
         return boxes
@@ -1467,6 +1818,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -1518,6 +1874,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             )
 
     def build_thresholded_mask(
@@ -1612,6 +1973,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> Optional[np.ndarray]:
         """
         Normalize a box, build its mask, store ROI metadata and apply mask to temp model.
@@ -1672,6 +2038,11 @@ class AnnotationService:
             closing_mask_enabled=closing_mask_enabled,
             closing_mask_tolerance=closing_mask_tolerance,
             closing_mask_merge_distance=closing_mask_merge_distance,
+            clean_outliers_enabled=clean_outliers_enabled,
+            clean_outliers_tolerance=clean_outliers_tolerance,
+            clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+            clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+            clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
         )
 
@@ -1759,6 +2130,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> None:
         """
         Apply grow ROI forward/backward from a slice until threshold fails.
@@ -1806,6 +2182,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             )
             return mask is not None
 
@@ -1841,6 +2222,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> None:
         """
         Apply line ROI forward/backward from a slice until threshold fails.
@@ -1887,6 +2273,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             )
             return mask is not None
 
@@ -1921,6 +2312,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> None:
         """Apply a free-hand ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -1947,6 +2343,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             )
 
     def apply_peak_roi_to_range(
@@ -1972,6 +2373,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> None:
         """Apply a Peak ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -2014,6 +2420,11 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             )
 
     def apply_box_roi_to_range(
@@ -2036,6 +2447,11 @@ class AnnotationService:
         closing_mask_enabled: bool = False,
         closing_mask_tolerance: int = 0,
         closing_mask_merge_distance: int = 0,
+        clean_outliers_enabled: bool = False,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
     ) -> None:
         """Apply a box ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -2062,4 +2478,9 @@ class AnnotationService:
                 closing_mask_enabled=closing_mask_enabled,
                 closing_mask_tolerance=closing_mask_tolerance,
                 closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             )

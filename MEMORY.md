@@ -3843,3 +3843,22 @@ Le besoin etait d activer le checkbox `Closing mask` deja ajoute dans l interfac
 2. Centraliser l algorithme dans `AnnotationService` plutot que dans `AnnotationController` ou les vues, afin de reutiliser exactement le meme post-traitement pour le preview, le recompute ROI et les applies volume.
 3. Contraindre le closing par un `allowed_mask` derive des restrictions et zones bloquees, afin d eviter de fusionner ou remplir a travers des zones interdites.
 4. Limiter explicitement le scope aux outils ROI (`box`, `free hand`, `grow`, `line`, `peak`) et exclure `paint` / `mod`, conformement au comportement demande.
+
+### 2026-03-31 - Mask cleanup ROI avec ilots, excroissances, entailles et lissage de contour
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_service.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/nde_settings_view.py`, `#views/tools_panel.py`, `#mask-cleanup`, `#clean-outliers`, `#contour-smoothing`, `#roi`, `#mvc`, `#morphology`
+
+**Actions effectuees :**
+- Branche le checkbox `Mask cleanup` dans `toolspanel.ui`, `ui_toolspanel.py`, `views/tools_panel.py` et `controllers/master_controller.py`, avec persistance via `ViewStateModel`.
+- Etend `models/view_state_model.py` et `views/nde_settings_view.py` avec les reglages `aire max ilot`, `largeur max excroissance`, `largeur max entaille` et `lissage contour`.
+- Refactorise `controllers/annotation_controller.py` pour centraliser tous les parametres de post-traitement ROI dans `_mask_post_process_kwargs()` puis les propager sans duplication vers preview, recompute ROI et apply volume.
+- Etend `services/annotation_service.py` avec un pipeline `Mask cleanup` dedie aux ROI: trim des excroissances du masque `1`, suppression des petits ilots detaches, comblement optionnel des entailles fines du `0`, puis lissage optionnel du contour.
+- Reordonne le pipeline pour appliquer le trim des excroissances avant la suppression des petites zones, afin que les fragments crees par le trim soient ensuite supprimes par la tolerance d aire.
+
+**Contexte :**
+Le besoin etait de faire evoluer le simple `Clean outliers` vers un vrai nettoyage de masque ROI plus visuel et plus controllable. L utilisateur voulait retirer les petits ilots, lisser les contours, supprimer les fines excroissances du masque lui-meme, tout en gardant separement un reglage optionnel pour combler des entailles etroits du fond lorsque souhaite.
+
+**Decisions techniques :**
+1. Garder le libelle visible `Mask cleanup` tout en conservant les noms internes `clean_outliers_*`, afin d eviter un refactor transversal inutile dans le code deja branche.
+2. Separer explicitement le nettoyage du foreground et du background avec deux parametres distincts (`largeur max excroissance` pour le masque `1`, `largeur max entaille` pour le fond `0`), afin d eviter l ambiguite du precedent reglage unique.
+3. Centraliser tout le post-traitement ROI dans `AnnotationService`, afin que les memes regles s appliquent partout sans divergence entre preview, recalcul ROI et propagation volume.
+4. Placer la suppression des ilots apres le trim des excroissances, afin que les petits fragments detaches par ce trim puissent etre supprimes automatiquement par la tolerance d aire deja exposee.

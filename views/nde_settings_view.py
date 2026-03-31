@@ -33,6 +33,10 @@ class NdeSettingsView(QDialog):
     roi_peak_vertical_max_changed = pyqtSignal(int)
     closing_mask_tolerance_changed = pyqtSignal(int)
     closing_mask_merge_distance_changed = pyqtSignal(int)
+    clean_outliers_tolerance_changed = pyqtSignal(int)
+    clean_outliers_thin_line_width_changed = pyqtSignal(int)
+    clean_outliers_thin_gap_width_changed = pyqtSignal(int)
+    clean_outliers_contour_smoothing_changed = pyqtSignal(int)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -104,6 +108,39 @@ class NdeSettingsView(QDialog):
         self._closing_mask_merge_distance.setMaximum(9999)
         self._closing_mask_merge_distance.setValue(0)
         form.addRow(QLabel("Closing mask - distance fusion (px)"), self._closing_mask_merge_distance)
+
+        self._clean_outliers_tolerance = QSpinBox(self)
+        self._clean_outliers_tolerance.setMinimum(0)
+        self._clean_outliers_tolerance.setMaximum(99999)
+        self._clean_outliers_tolerance.setValue(64)
+        form.addRow(QLabel("Mask cleanup - aire max ilot (px2)"), self._clean_outliers_tolerance)
+
+        self._clean_outliers_thin_line_width = QSpinBox(self)
+        self._clean_outliers_thin_line_width.setMinimum(0)
+        self._clean_outliers_thin_line_width.setMaximum(20)
+        self._clean_outliers_thin_line_width.setValue(1)
+        form.addRow(
+            QLabel("Mask cleanup - largeur max excroissance (px)"),
+            self._clean_outliers_thin_line_width,
+        )
+
+        self._clean_outliers_thin_gap_width = QSpinBox(self)
+        self._clean_outliers_thin_gap_width.setMinimum(0)
+        self._clean_outliers_thin_gap_width.setMaximum(20)
+        self._clean_outliers_thin_gap_width.setValue(0)
+        form.addRow(
+            QLabel("Mask cleanup - largeur max entaille (px)"),
+            self._clean_outliers_thin_gap_width,
+        )
+
+        self._clean_outliers_contour_smoothing = QSpinBox(self)
+        self._clean_outliers_contour_smoothing.setMinimum(0)
+        self._clean_outliers_contour_smoothing.setMaximum(20)
+        self._clean_outliers_contour_smoothing.setValue(0)
+        form.addRow(
+            QLabel("Mask cleanup - lissage contour (px)"),
+            self._clean_outliers_contour_smoothing,
+        )
 
         layout.addLayout(form)
 
@@ -246,6 +283,54 @@ class NdeSettingsView(QDialog):
         self._closing_mask_merge_distance.setValue(distance)
         self._closing_mask_merge_distance.blockSignals(False)
 
+    def set_clean_outliers_tolerance(self, value: int) -> None:
+        """Update clean-outliers tolerance without emitting signals."""
+        try:
+            tolerance = int(value)
+        except Exception:
+            tolerance = 0
+        if tolerance < 0:
+            tolerance = 0
+        self._clean_outliers_tolerance.blockSignals(True)
+        self._clean_outliers_tolerance.setValue(tolerance)
+        self._clean_outliers_tolerance.blockSignals(False)
+
+    def set_clean_outliers_thin_line_max_width(self, value: int) -> None:
+        """Update mask-cleanup foreground protrusion width without emitting signals."""
+        try:
+            width = int(value)
+        except Exception:
+            width = 0
+        if width < 0:
+            width = 0
+        self._clean_outliers_thin_line_width.blockSignals(True)
+        self._clean_outliers_thin_line_width.setValue(width)
+        self._clean_outliers_thin_line_width.blockSignals(False)
+
+    def set_clean_outliers_thin_gap_max_width(self, value: int) -> None:
+        """Update mask-cleanup background notch width without emitting signals."""
+        try:
+            width = int(value)
+        except Exception:
+            width = 0
+        if width < 0:
+            width = 0
+        self._clean_outliers_thin_gap_width.blockSignals(True)
+        self._clean_outliers_thin_gap_width.setValue(width)
+        self._clean_outliers_thin_gap_width.blockSignals(False)
+
+    def set_clean_outliers_contour_smoothing(self, value: int) -> None:
+        """Update mask-cleanup contour smoothing without emitting signals."""
+        try:
+            smoothing = int(value)
+        except Exception:
+            smoothing = 0
+        if smoothing < 0:
+            smoothing = 0
+        self._clean_outliers_contour_smoothing.blockSignals(True)
+        self._clean_outliers_contour_smoothing.setValue(smoothing)
+        self._clean_outliers_contour_smoothing.blockSignals(False)
+
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -272,6 +357,18 @@ class NdeSettingsView(QDialog):
         self._closing_mask_tolerance.valueChanged.connect(self._on_closing_mask_tolerance_changed)
         self._closing_mask_merge_distance.valueChanged.connect(
             self._on_closing_mask_merge_distance_changed
+        )
+        self._clean_outliers_tolerance.valueChanged.connect(
+            self._on_clean_outliers_tolerance_changed
+        )
+        self._clean_outliers_thin_line_width.valueChanged.connect(
+            self._on_clean_outliers_thin_line_width_changed
+        )
+        self._clean_outliers_thin_gap_width.valueChanged.connect(
+            self._on_clean_outliers_thin_gap_width_changed
+        )
+        self._clean_outliers_contour_smoothing.valueChanged.connect(
+            self._on_clean_outliers_contour_smoothing_changed
         )
 
     def _emit_apply_volume_range(self) -> None:
@@ -346,6 +443,18 @@ class NdeSettingsView(QDialog):
 
     def _on_closing_mask_merge_distance_changed(self, value: int) -> None:
         self.closing_mask_merge_distance_changed.emit(max(0, int(value)))
+
+    def _on_clean_outliers_tolerance_changed(self, value: int) -> None:
+        self.clean_outliers_tolerance_changed.emit(max(0, int(value)))
+
+    def _on_clean_outliers_thin_line_width_changed(self, value: int) -> None:
+        self.clean_outliers_thin_line_width_changed.emit(max(0, int(value)))
+
+    def _on_clean_outliers_thin_gap_width_changed(self, value: int) -> None:
+        self.clean_outliers_thin_gap_width_changed.emit(max(0, int(value)))
+
+    def _on_clean_outliers_contour_smoothing_changed(self, value: int) -> None:
+        self.clean_outliers_contour_smoothing_changed.emit(max(0, int(value)))
 
     @staticmethod
     def _set_current(combo: QComboBox, value: str) -> None:

@@ -35,6 +35,7 @@ class ToolsPanel(QFrame):
     apply_volume_toggled = pyqtSignal(bool)
     roi_persistence_toggled = pyqtSignal(bool)
     closing_mask_toggled = pyqtSignal(bool)
+    clean_outliers_toggled = pyqtSignal(bool)
     volume_view_overlay_toggled = pyqtSignal(bool)
     roi_recompute_requested = pyqtSignal()
     roi_delete_requested = pyqtSignal()
@@ -97,6 +98,7 @@ class ToolsPanel(QFrame):
         self._threshold_auto_checkbox: Optional[QCheckBox] = None
         self._roi_persistence_checkbox: Optional[QCheckBox] = None
         self._closing_mask_checkbox: Optional[QCheckBox] = None
+        self._clean_outliers_checkbox: Optional[QCheckBox] = None
         self._volume_view_checkbox: Optional[QCheckBox] = None
         self._roi_recompute_button: Optional[QPushButton] = None
         self._roi_delete_button: Optional[QPushButton] = None
@@ -134,6 +136,7 @@ class ToolsPanel(QFrame):
         threshold_auto_checkbox: QCheckBox,
         roi_persistence_checkbox: QCheckBox,
         closing_mask_checkbox: Optional[QCheckBox],
+        clean_outliers_checkbox: Optional[QCheckBox],
         volume_view_checkbox: Optional[QCheckBox],
         roi_recompute_button: QPushButton,
         roi_delete_button: QPushButton,
@@ -167,6 +170,7 @@ class ToolsPanel(QFrame):
         self._threshold_auto_checkbox = threshold_auto_checkbox
         self._roi_persistence_checkbox = roi_persistence_checkbox
         self._closing_mask_checkbox = closing_mask_checkbox
+        self._clean_outliers_checkbox = clean_outliers_checkbox
         self._volume_view_checkbox = volume_view_checkbox
         self._roi_recompute_button = roi_recompute_button
         self._roi_delete_button = roi_delete_button
@@ -215,6 +219,8 @@ class ToolsPanel(QFrame):
         self._roi_persistence_checkbox.toggled.connect(self.roi_persistence_toggled.emit)
         if self._closing_mask_checkbox is not None:
             self._closing_mask_checkbox.toggled.connect(self.closing_mask_toggled.emit)
+        if self._clean_outliers_checkbox is not None:
+            self._clean_outliers_checkbox.toggled.connect(self.clean_outliers_toggled.emit)
         if self._volume_view_checkbox is not None:
             self._volume_view_checkbox.toggled.connect(self.volume_view_overlay_toggled.emit)
         self._roi_recompute_button.clicked.connect(self.roi_recompute_requested)
@@ -444,6 +450,14 @@ class ToolsPanel(QFrame):
         self._closing_mask_checkbox.blockSignals(True)
         self._closing_mask_checkbox.setChecked(bool(enabled))
         self._closing_mask_checkbox.blockSignals(False)
+
+    def set_clean_outliers_checked(self, enabled: bool) -> None:
+        """Set clean-outliers checkbox state without emitting signals."""
+        if self._clean_outliers_checkbox is None:
+            return
+        self._clean_outliers_checkbox.blockSignals(True)
+        self._clean_outliers_checkbox.setChecked(bool(enabled))
+        self._clean_outliers_checkbox.blockSignals(False)
 
     def set_volume_view_overlay_checked(self, enabled: bool) -> None:
         """Set volume-view overlay checkbox state without emitting signals."""
