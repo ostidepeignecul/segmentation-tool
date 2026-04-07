@@ -3862,3 +3862,22 @@ Le besoin etait de faire evoluer le simple `Clean outliers` vers un vrai nettoya
 2. Separer explicitement le nettoyage du foreground et du background avec deux parametres distincts (`largeur max excroissance` pour le masque `1`, `largeur max entaille` pour le fond `0`), afin d eviter l ambiguite du precedent reglage unique.
 3. Centraliser tout le post-traitement ROI dans `AnnotationService`, afin que les memes regles s appliquent partout sans divergence entre preview, recalcul ROI et propagation volume.
 4. Placer la suppression des ilots apres le trim des excroissances, afin que les petits fragments detaches par ce trim puissent etre supprimes automatiquement par la tolerance d aire deja exposee.
+
+### 2026-04-07 - Ecrasement des labels generalise par source avec destination configurable
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#views/nde_settings_view.py`, `#labels`, `#overwrite`, `#annotation`, `#ui`, `#mvc`
+
+**Actions effectuees :**
+- Generalise dans `models/view_state_model.py` la regle d ecrasement depuis un cas special `label 0` vers une table `label source -> destination autorisee`, tout en gardant un alias de compatibilite pour `label0_erase_target`.
+- Remplace dans `views/nde_settings_view.py` le seul combo `Effacement label 0` par un editeur a deux listes `label source` et `autorise sur`, avec les modes `Aucun`, `Tous` et un label cible explicite.
+- Refactorise `controllers/master_controller.py` pour synchroniser les sources et destinations disponibles, persister la regle du label selectionne et inclure `Background (0)` parmi les destinations autorisees.
+- Refactorise `controllers/annotation_controller.py` pour resoudre partout un blocked mask generique par label source (paint, grow, line, free hand, box, recompute ROI, apply-volume) au lieu de brancher sur `if label == 0`.
+- Corrige dans `controllers/annotation_controller.py` le cas `destination = 0` en n autorisant le `temp_mask` de fond qu aux pixels reellement couverts, afin d eviter que tout le fond implicite soit considere comme destination valide.
+
+**Contexte :**
+Le besoin etait d obtenir pour les labels non nuls le meme controle d ecrasement que celui deja present pour le `label 0`, puis d etendre ce controle pour autoriser aussi explicitement `Background (0)` comme destination. Le comportement devait rester coherent avec les previews ROI, le paint, les propagations volume et l architecture MVC existante.
+
+**Decisions techniques :**
+1. Stocker la politique d ecrasement dans `ViewStateModel` sous forme de mapping par label source, afin de supprimer les cas speciaux disperses et de rendre `label 0` equivalent aux autres labels.
+2. Garder la resolution du blocked mask dans `AnnotationController` plutot que de pousser cette logique dans les vues ou dans le service, afin de rester dans le role d orchestration du controller sans etendre inutilement l API publique.
+3. Inclure `Background (0)` dans les destinations mais pas dans les sources de dessin actives du `ToolsPanel`, afin de conserver la distinction existante entre action `Erase` et selection de label.
+4. Intersecter le `temp_mask` de destination `0` avec `coverage`, afin que le fond implicite hors preview ne soit pas interprete a tort comme une zone explicitement autorisee.

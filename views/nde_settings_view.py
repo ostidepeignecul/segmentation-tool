@@ -25,7 +25,8 @@ class NdeSettingsView(QDialog):
     endview_colormap_changed = pyqtSignal(str)
     cscan_colormap_changed = pyqtSignal(str)
     apply_volume_range_changed = pyqtSignal(int, int)
-    erase_label_target_changed = pyqtSignal(object)
+    overwrite_source_changed = pyqtSignal(object)
+    overwrite_target_changed = pyqtSignal(object)
     roi_thin_line_width_changed = pyqtSignal(int)
     roi_peak_preference_changed = pyqtSignal(bool)
     roi_peak_ignore_position_changed = pyqtSignal(bool)
@@ -65,8 +66,11 @@ class NdeSettingsView(QDialog):
         form.addRow(QLabel("Appliquer au volume (de)"), self._apply_volume_start)
         form.addRow(QLabel("Appliquer au volume (à)"), self._apply_volume_end)
 
-        self._erase_label_combo = QComboBox(self)
-        form.addRow(QLabel("Effacement label 0"), self._erase_label_combo)
+        self._overwrite_source_combo = QComboBox(self)
+        form.addRow(QLabel("Ecrasement - label source"), self._overwrite_source_combo)
+
+        self._overwrite_target_combo = QComboBox(self)
+        form.addRow(QLabel("Ecrasement - autorise sur"), self._overwrite_target_combo)
 
         self._roi_thin_line_width = QSpinBox(self)
         self._roi_thin_line_width.setMinimum(0)
@@ -192,16 +196,47 @@ class NdeSettingsView(QDialog):
         self._apply_volume_start.blockSignals(False)
         self._apply_volume_end.blockSignals(False)
 
-    def set_erase_label_choices(self, labels: Iterable[int], *, current: Optional[int]) -> None:
-        """Populate the erase-target combo (None = Tous)."""
-        self._erase_label_combo.blockSignals(True)
-        self._erase_label_combo.clear()
-        self._erase_label_combo.addItem("Tous", None)
+    def set_overwrite_source_choices(self, labels: Iterable[int], *, current: Optional[int]) -> None:
+        """Populate the overwrite-source combo."""
+        self._overwrite_source_combo.blockSignals(True)
+        self._overwrite_source_combo.clear()
         for label_id in labels:
             lbl = int(label_id)
-            self._erase_label_combo.addItem(format_label_text(lbl), lbl)
-        self._set_current_data(self._erase_label_combo, current)
-        self._erase_label_combo.blockSignals(False)
+            self._overwrite_source_combo.addItem(format_label_text(lbl), lbl)
+        self._set_current_data(self._overwrite_source_combo, current)
+        self._overwrite_source_combo.blockSignals(False)
+
+    def current_overwrite_source_label(self) -> Optional[int]:
+        """Return the selected overwrite source label."""
+        value = self._overwrite_source_combo.currentData()
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    def set_overwrite_target_choices(
+        self,
+        labels: Iterable[int],
+        *,
+        current_mode: str,
+        current_target: Optional[int],
+    ) -> None:
+        """Populate the overwrite-target combo."""
+        self._overwrite_target_combo.blockSignals(True)
+        self._overwrite_target_combo.clear()
+        self._overwrite_target_combo.addItem("Aucun", ("default", None))
+        self._overwrite_target_combo.addItem("Tous", ("all", None))
+        for label_id in labels:
+            lbl = int(label_id)
+            self._overwrite_target_combo.addItem(format_label_text(lbl), ("label", lbl))
+        self._set_current_rule_data(
+            self._overwrite_target_combo,
+            mode=current_mode,
+            label_id=current_target,
+        )
+        self._overwrite_target_combo.blockSignals(False)
 
     def set_roi_thin_line_max_width(self, value: int) -> None:
         """Update the thin-line pruning width without emitting signals."""
@@ -346,7 +381,8 @@ class NdeSettingsView(QDialog):
         self._cscan_combo.currentTextChanged.connect(self.cscan_colormap_changed.emit)
         self._apply_volume_start.valueChanged.connect(self._on_apply_volume_start_changed)
         self._apply_volume_end.valueChanged.connect(self._on_apply_volume_end_changed)
-        self._erase_label_combo.currentIndexChanged.connect(self._on_erase_label_target_changed)
+        self._overwrite_source_combo.currentIndexChanged.connect(self._on_overwrite_source_changed)
+        self._overwrite_target_combo.currentIndexChanged.connect(self._on_overwrite_target_changed)
         self._roi_thin_line_width.valueChanged.connect(self._on_roi_thin_line_width_changed)
         self._roi_peak_combo.currentIndexChanged.connect(self._on_roi_peak_preference_changed)
         self._roi_peak_ignore_combo.currentIndexChanged.connect(
@@ -391,15 +427,32 @@ class NdeSettingsView(QDialog):
             self._apply_volume_start.blockSignals(False)
         self._emit_apply_volume_range()
 
-    def _on_erase_label_target_changed(self, _index: int) -> None:
-        value = self._erase_label_combo.currentData()
+    def _on_overwrite_source_changed(self, _index: int) -> None:
+        value = self._overwrite_source_combo.currentData()
         if value is None:
-            self.erase_label_target_changed.emit(None)
+            self.overwrite_source_changed.emit(None)
             return
         try:
-            self.erase_label_target_changed.emit(int(value))
+            self.overwrite_source_changed.emit(int(value))
         except Exception:
-            self.erase_label_target_changed.emit(None)
+            self.overwrite_source_changed.emit(None)
+
+    def _on_overwrite_target_changed(self, _index: int) -> None:
+        value = self._overwrite_target_combo.currentData()
+        mode = "default"
+        label_id = None
+        if isinstance(value, tuple) and len(value) == 2:
+            mode = str(value[0])
+            label_id = value[1]
+        if mode == "label":
+            try:
+                label_id = int(label_id)
+            except Exception:
+                mode = "default"
+                label_id = None
+        else:
+            label_id = None
+        self.overwrite_target_changed.emit((mode, label_id))
 
     def _on_roi_thin_line_width_changed(self, value: int) -> None:
         try:
@@ -482,6 +535,34 @@ class NdeSettingsView(QDialog):
                 continue
             try:
                 if int(data) == target:
+                    combo.setCurrentIndex(idx)
+                    return
+            except Exception:
+                continue
+        combo.setCurrentIndex(0)
+
+    @staticmethod
+    def _set_current_rule_data(
+        combo: QComboBox,
+        *,
+        mode: str,
+        label_id: Optional[int],
+    ) -> None:
+        target_mode = str(mode or "default")
+        target_label = None if label_id is None else int(label_id)
+        for idx in range(combo.count()):
+            data = combo.itemData(idx)
+            if not isinstance(data, tuple) or len(data) != 2:
+                continue
+            item_mode = str(data[0])
+            item_label = data[1]
+            if item_mode != target_mode:
+                continue
+            if item_mode != "label":
+                combo.setCurrentIndex(idx)
+                return
+            try:
+                if int(item_label) == target_label:
                     combo.setCurrentIndex(idx)
                     return
             except Exception:

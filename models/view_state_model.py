@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Iterable
 
 from config.constants import DEFAULT_ACTIVE_LABEL_ID
 
@@ -46,7 +46,7 @@ class ViewStateModel:
         self.force_threshold_erase: bool = False
         self.apply_auto: bool = False
         self.active_label: Optional[int] = int(DEFAULT_ACTIVE_LABEL_ID)
-        self.label0_erase_target: Optional[int] = None
+        self.label_overwrite_targets: dict[int, Optional[int]] = {0: None}
         self.roi_thin_line_max_width: int = 2
         self.apply_volume_start: int = 0
         self.apply_volume_end: int = 0
@@ -274,12 +274,69 @@ class ViewStateModel:
             return 0
         return self.threshold
 
+    @property
+    def label0_erase_target(self) -> Optional[int]:
+        """Backward-compatible alias for the label-0 overwrite target."""
+        _has_rule, target = self.get_label_overwrite_target(0)
+        return target
+
+    def get_label_overwrite_target(self, source_label: int) -> tuple[bool, Optional[int]]:
+        """Return whether a source label has an explicit overwrite rule and its target."""
+        try:
+            source = int(source_label)
+        except Exception:
+            return False, None
+        if source not in self.label_overwrite_targets:
+            return False, None
+        target = self.label_overwrite_targets.get(source)
+        return True, (None if target is None else int(target))
+
+    def set_label_overwrite_target(self, source_label: int, target_label: Optional[int]) -> None:
+        """Set an explicit overwrite rule for a source label (None = overwrite all)."""
+        source = int(source_label)
+        self.label_overwrite_targets[source] = (
+            None if target_label is None else int(target_label)
+        )
+
+    def clear_label_overwrite_target(self, source_label: int) -> None:
+        """Remove the explicit overwrite rule for a source label."""
+        try:
+            source = int(source_label)
+        except Exception:
+            return
+        self.label_overwrite_targets.pop(source, None)
+
+    def prune_label_overwrite_targets(
+        self,
+        *,
+        source_labels: Iterable[int],
+        target_labels: Iterable[int],
+    ) -> None:
+        """Drop overwrite rules that reference deleted or unavailable labels."""
+        valid_sources = {int(label_id) for label_id in source_labels}
+        valid_targets = {int(label_id) for label_id in target_labels}
+        cleaned: dict[int, Optional[int]] = {}
+        for raw_source, raw_target in self.label_overwrite_targets.items():
+            try:
+                source = int(raw_source)
+            except Exception:
+                continue
+            if source not in valid_sources:
+                continue
+            if raw_target is None:
+                cleaned[source] = None
+                continue
+            try:
+                target = int(raw_target)
+            except Exception:
+                continue
+            if target in valid_targets:
+                cleaned[source] = target
+        self.label_overwrite_targets = cleaned
+
     def set_label0_erase_target(self, label_id: Optional[int]) -> None:
-        """Set the target label that label 0 is allowed to erase (None = all)."""
-        if label_id is None:
-            self.label0_erase_target = None
-        else:
-            self.label0_erase_target = int(label_id)
+        """Backward-compatible helper: None keeps label 0 allowed on all labels."""
+        self.set_label_overwrite_target(0, label_id)
 
     def set_roi_thin_line_max_width(self, value: int) -> None:
         """Set max width (px) for thin-line pruning in grow/line ROIs (0 disables)."""

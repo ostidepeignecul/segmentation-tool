@@ -534,8 +534,11 @@ class MasterController:
         self.nde_settings_view.apply_volume_range_changed.connect(
             self._on_apply_volume_range_changed
         )
-        self.nde_settings_view.erase_label_target_changed.connect(
-            self._on_erase_label_target_changed
+        self.nde_settings_view.overwrite_source_changed.connect(
+            self._on_overwrite_source_changed
+        )
+        self.nde_settings_view.overwrite_target_changed.connect(
+            self._on_overwrite_target_changed
         )
         self.nde_settings_view.roi_thin_line_width_changed.connect(
             self._on_roi_thin_line_width_changed
@@ -1118,7 +1121,9 @@ class MasterController:
             cscan=self.view_state_model.cscan_colormap,
         )
         self._sync_apply_volume_range_view()
-        self._sync_erase_label_choices()
+        self._sync_overwrite_rule_editor(
+            preferred_source=self._default_overwrite_source_label()
+        )
         self.nde_settings_view.set_roi_thin_line_max_width(
             self.view_state_model.roi_thin_line_max_width
         )
@@ -1284,15 +1289,34 @@ class MasterController:
     def _select_erase_action(self) -> None:
         self._apply_annotation_action("erase")
 
-    def _on_erase_label_target_changed(self, label_id: Optional[int]) -> None:
-        """Handle changes to the label-0 erase target setting."""
-        if label_id is None:
-            self.view_state_model.set_label0_erase_target(None)
+    def _on_overwrite_source_changed(self, label_id: Optional[int]) -> None:
+        """Refresh overwrite-target choices when the source label changes."""
+        self._sync_overwrite_target_choices(current_source=label_id)
+
+    def _on_overwrite_target_changed(self, value: Any) -> None:
+        """Persist the overwrite rule for the currently selected source label."""
+        source_label = self.nde_settings_view.current_overwrite_source_label()
+        if source_label is None:
             return
-        try:
-            self.view_state_model.set_label0_erase_target(int(label_id))
-        except Exception:
-            self.view_state_model.set_label0_erase_target(None)
+        mode = "default"
+        target_label = None
+        if isinstance(value, (tuple, list)) and len(value) == 2:
+            mode = str(value[0])
+            target_label = value[1]
+        if mode == "all":
+            self.view_state_model.set_label_overwrite_target(source_label, None)
+        elif mode == "label":
+            try:
+                self.view_state_model.set_label_overwrite_target(
+                    source_label,
+                    int(target_label),
+                )
+            except Exception:
+                self.view_state_model.clear_label_overwrite_target(source_label)
+        else:
+            self.view_state_model.clear_label_overwrite_target(source_label)
+        self._sync_overwrite_target_choices(current_source=source_label)
+        self.annotation_controller.on_roi_recompute_requested()
 
     def _on_roi_thin_line_width_changed(self, value: int) -> None:
         """Handle changes to thin-line pruning width for grow/line ROIs."""
@@ -1675,18 +1699,75 @@ class MasterController:
         self.view_state_model.set_active_label(current)
         self.tools_panel.set_labels(labels, current=current)
         self.mask_modification_controller.on_active_label_changed(-1 if current is None else int(current))
-        self._sync_erase_label_choices()
+        self._sync_overwrite_rule_editor()
         self._sync_corrosion_label_choices()
 
-    def _sync_erase_label_choices(self) -> None:
-        """Sync the label-0 erase target choices with the current label palette."""
+    def _default_overwrite_source_label(self) -> Optional[int]:
+        """Return the label that should be selected by default in overwrite settings."""
+        current = self.view_state_model.effective_annotation_label()
+        try:
+            return None if current is None else int(current)
+        except Exception:
+            return None
+
+    def _sync_overwrite_rule_editor(self, *, preferred_source: Optional[int] = None) -> None:
+        """Sync overwrite source/target editors with the current label palette."""
         palette = self.annotation_model.get_label_palette()
         labels = sorted(lbl for lbl in palette.keys() if int(lbl) != 0) if palette else []
-        current = getattr(self.view_state_model, "label0_erase_target", None)
-        if current not in labels:
-            current = None
-            self.view_state_model.set_label0_erase_target(None)
-        self.nde_settings_view.set_erase_label_choices(labels, current=current)
+        source_labels = [0, *labels]
+        target_labels = [0, *labels]
+        self.view_state_model.prune_label_overwrite_targets(
+            source_labels=source_labels,
+            target_labels=target_labels,
+        )
+        current_source = preferred_source
+        if current_source is None:
+            current_source = self.nde_settings_view.current_overwrite_source_label()
+        try:
+            current_source = None if current_source is None else int(current_source)
+        except Exception:
+            current_source = None
+        if current_source not in source_labels:
+            current_source = self._default_overwrite_source_label()
+        if current_source not in source_labels:
+            current_source = source_labels[0] if source_labels else None
+        self.nde_settings_view.set_overwrite_source_choices(
+            source_labels,
+            current=current_source,
+        )
+        self._sync_overwrite_target_choices(current_source=current_source, labels=target_labels)
+
+    def _sync_overwrite_target_choices(
+        self,
+        *,
+        current_source: Optional[int],
+        labels: Optional[list[int]] = None,
+    ) -> None:
+        """Sync overwrite-target choices for the selected source label."""
+        if labels is None:
+            palette = self.annotation_model.get_label_palette()
+            labels = [0, *sorted(lbl for lbl in palette.keys() if int(lbl) != 0)] if palette else [0]
+        try:
+            source_label = None if current_source is None else int(current_source)
+        except Exception:
+            source_label = None
+        mode = "default"
+        target = None
+        if source_label is not None:
+            has_rule, explicit_target = self.view_state_model.get_label_overwrite_target(
+                source_label
+            )
+            if has_rule:
+                if explicit_target is None:
+                    mode = "all"
+                elif explicit_target in labels:
+                    mode = "label"
+                    target = explicit_target
+        self.nde_settings_view.set_overwrite_target_choices(
+            labels,
+            current_mode=mode,
+            current_target=target,
+        )
 
     def _sync_corrosion_label_choices(self) -> None:
         """Sync corrosion label choices with current labels and defaults."""

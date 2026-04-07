@@ -453,10 +453,13 @@ class AnnotationController:
             blocked_mask_provider = lambda idx, _shape=mask_shape: self._build_blocked_mask(
                 idx, _shape, include_temp=False
             )
-            blocked_mask_for_label_provider = lambda idx, label_id, _shape=mask_shape: (
-                self._build_label0_blocked_mask(idx, _shape, include_temp=True)
-                if int(label_id) == 0
-                else None
+            blocked_mask_for_label_provider = (
+                lambda idx, label_id, _shape=mask_shape: self._build_label_overwrite_blocked_mask(
+                    idx,
+                    _shape,
+                    int(label_id),
+                    include_temp=True,
+                )
             )
             self.annotation_service.rebuild_volume_preview_from_rois(
                 depth=depth,
@@ -539,27 +542,26 @@ class AnnotationController:
         restriction_mask = self._restriction_mask(shape)
         if restriction_mask is not None and not restriction_mask[point[1], point[0]]:
             return False
-        if int(label) == 0:
-            blocked_mask = self._build_label0_blocked_mask(
-                slice_idx, shape, include_temp=True
-            )
-        else:
-            blocked_mask = self._build_blocked_mask(slice_idx, shape, include_temp=True)
+        blocked_mask = self._build_effective_blocked_mask(
+            slice_idx,
+            shape,
+            int(label),
+            include_temp=True,
+        )
 
         if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
             depth, _ = self._resolve_volume_dimensions()
             if depth is None:
                 return False
             start_idx, end_idx = self._resolve_apply_volume_range(depth)
-            blocked_mask_provider = None
-            if int(label) == 0:
-                blocked_mask_provider = lambda idx, _shape=shape: self._build_label0_blocked_mask(
-                    idx, _shape, include_temp=True
+            blocked_mask_provider = lambda idx, _shape=shape, _label=int(label): (
+                self._build_effective_blocked_mask(
+                    idx,
+                    _shape,
+                    _label,
+                    include_temp=True,
                 )
-            else:
-                blocked_mask_provider = lambda idx, _shape=shape: self._build_blocked_mask(
-                    idx, _shape, include_temp=True
-                )
+            )
             self.annotation_service.propagate_grow_volume_from_slice(
                 start_slice=slice_idx,
                 point=point,
@@ -685,12 +687,12 @@ class AnnotationController:
         if slice_data is None or shape is None:
             return False
         restriction_mask = self._restriction_mask(shape)
-        if int(label) == 0:
-            blocked_mask = self._build_label0_blocked_mask(
-                slice_idx, shape, include_temp=True
-            )
-        else:
-            blocked_mask = self._build_blocked_mask(slice_idx, shape, include_temp=True)
+        blocked_mask = self._build_effective_blocked_mask(
+            slice_idx,
+            shape,
+            int(label),
+            include_temp=True,
+        )
 
         palette = self.annotation_model.get_label_palette()
         if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
@@ -698,15 +700,14 @@ class AnnotationController:
             if depth is None:
                 return False
             start_idx, end_idx = self._resolve_apply_volume_range(depth)
-            blocked_mask_provider = None
-            if int(label) == 0:
-                blocked_mask_provider = lambda idx, _shape=shape: self._build_label0_blocked_mask(
-                    idx, _shape, include_temp=True
+            blocked_mask_provider = lambda idx, _shape=shape, _label=int(label): (
+                self._build_effective_blocked_mask(
+                    idx,
+                    _shape,
+                    _label,
+                    include_temp=True,
                 )
-            else:
-                blocked_mask_provider = lambda idx, _shape=shape: self._build_blocked_mask(
-                    idx, _shape, include_temp=True
-                )
+            )
             self.annotation_service.propagate_line_volume_from_slice(
                 start_slice=slice_idx,
                 points=clean_points,
@@ -799,12 +800,12 @@ class AnnotationController:
             return False
 
         restriction_mask = self._restriction_mask(shape)
-        if int(label) == 0:
-            blocked_mask = self._build_label0_blocked_mask(
-                slice_idx, shape, include_temp=True
-            )
-        else:
-            blocked_mask = self._build_blocked_mask(slice_idx, shape, include_temp=True)
+        blocked_mask = self._build_effective_blocked_mask(
+            slice_idx,
+            shape,
+            int(label),
+            include_temp=True,
+        )
         palette = self.annotation_model.get_label_palette()
 
         peak_mode = self.view_state_model.tool_mode == "peak"
@@ -813,15 +814,14 @@ class AnnotationController:
             if depth is None:
                 return False
             start_idx, end_idx = self._resolve_apply_volume_range(depth)
-            blocked_mask_provider = None
-            if int(label) == 0:
-                blocked_mask_provider = lambda idx, _shape=shape: self._build_label0_blocked_mask(
-                    idx, _shape, include_temp=True
+            blocked_mask_provider = lambda idx, _shape=shape, _label=int(label): (
+                self._build_effective_blocked_mask(
+                    idx,
+                    _shape,
+                    _label,
+                    include_temp=True,
                 )
-            else:
-                blocked_mask_provider = lambda idx, _shape=shape: self._build_blocked_mask(
-                    idx, _shape, include_temp=True
-                )
+            )
             if peak_mode:
                 self.annotation_service.apply_peak_roi_to_range(
                     start_idx=start_idx,
@@ -932,25 +932,24 @@ class AnnotationController:
             if box_tuple is None:
                 return False
         restriction_mask = self._restriction_mask((h, w))
-        if int(label) == 0:
-            blocked_mask = self._build_label0_blocked_mask(
-                slice_idx, (h, w), include_temp=True
-            )
-        else:
-            blocked_mask = self._build_blocked_mask(slice_idx, (h, w), include_temp=True)
+        blocked_mask = self._build_effective_blocked_mask(
+            slice_idx,
+            (h, w),
+            int(label),
+            include_temp=True,
+        )
         palette = self.annotation_model.get_label_palette()
         if self.view_state_model.apply_volume and not self.view_state_model.roi_persistence:
             depth = mask_volume.shape[0]
             start_idx, end_idx = self._resolve_apply_volume_range(depth)
-            blocked_mask_provider = None
-            if int(label) == 0:
-                blocked_mask_provider = lambda idx, _shape=(h, w): self._build_label0_blocked_mask(
-                    idx, _shape, include_temp=True
+            blocked_mask_provider = lambda idx, _shape=(h, w), _label=int(label): (
+                self._build_effective_blocked_mask(
+                    idx,
+                    _shape,
+                    _label,
+                    include_temp=True,
                 )
-            else:
-                blocked_mask_provider = lambda idx, _shape=(h, w): self._build_blocked_mask(
-                    idx, _shape, include_temp=True
-                )
+            )
             self.annotation_service.apply_box_roi_to_range(
                 start_idx=start_idx,
                 end_idx=end_idx,
@@ -1032,12 +1031,12 @@ class AnnotationController:
         radius = self.view_state_model.paint_radius or self.PAINT_RADIUS_DEFAULT
         effective_radius = max(0, int(radius) - 1)
         restriction_mask = self._restriction_mask(mask_shape)
-        if label == 0:
-            blocked_mask = self._build_label0_blocked_mask(
-                slice_idx, mask_shape, include_temp=True
-            )
-        else:
-            blocked_mask = self._build_blocked_mask(slice_idx, mask_shape, include_temp=True)
+        blocked_mask = self._build_effective_blocked_mask(
+            slice_idx,
+            mask_shape,
+            int(label),
+            include_temp=True,
+        )
 
         stroke_mask = np.zeros(mask_shape, dtype=bool)
         for point in points:
@@ -1542,20 +1541,17 @@ class AnnotationController:
             return None
         return blocked
 
-    def _build_label0_blocked_mask(
+    def _build_label_overwrite_blocked_mask(
         self,
         slice_idx: int,
         shape: tuple[int, int],
+        source_label: int,
         *,
         include_temp: bool = True,
     ) -> Optional[np.ndarray]:
-        """Return a blocked mask for label 0 erasing only a target label."""
-        target = getattr(self.view_state_model, "label0_erase_target", None)
-        if target is None:
-            return None
-        try:
-            target = int(target)
-        except Exception:
+        """Return an explicit overwrite mask for a source label, if configured."""
+        has_rule, target = self.view_state_model.get_label_overwrite_target(source_label)
+        if not has_rule:
             return None
         try:
             h, w = int(shape[0]), int(shape[1])
@@ -1563,8 +1559,17 @@ class AnnotationController:
             return None
         if h <= 0 or w <= 0:
             return None
+        if target is None:
+            return np.zeros((h, w), dtype=bool)
 
-        allowed = None
+        try:
+            target = int(target)
+        except Exception:
+            return None
+
+        source = int(source_label)
+        occupied = np.zeros((h, w), dtype=bool)
+        allowed = np.zeros((h, w), dtype=bool)
         mask_volume = self.annotation_model.get_mask_volume()
         if mask_volume is not None:
             try:
@@ -1572,18 +1577,42 @@ class AnnotationController:
             except Exception:
                 ann_slice = None
             if ann_slice is not None and ann_slice.shape == (h, w):
+                occupied = ann_slice > 0
                 allowed = ann_slice == target
 
         if include_temp:
+            coverage = self.temp_mask_model.get_slice_coverage(slice_idx)
+            if coverage is not None and coverage.shape == (h, w):
+                occupied = coverage if not np.any(occupied) else np.logical_or(occupied, coverage)
             temp_slice = self.temp_mask_model.get_slice_mask(slice_idx)
             if temp_slice is not None and temp_slice.shape == (h, w):
                 temp_allowed = temp_slice == target
-                allowed = temp_allowed if allowed is None else np.logical_or(allowed, temp_allowed)
+                if coverage is not None and coverage.shape == (h, w):
+                    temp_allowed = np.logical_and(coverage, temp_allowed)
+                allowed = np.logical_or(allowed, temp_allowed)
 
-        if allowed is None:
-            return np.ones((h, w), dtype=bool)
+        if source == 0:
+            return np.logical_not(allowed)
+        return np.logical_and(occupied, np.logical_not(allowed))
 
-        return np.logical_not(allowed)
+    def _build_effective_blocked_mask(
+        self,
+        slice_idx: int,
+        shape: tuple[int, int],
+        source_label: int,
+        *,
+        include_temp: bool = True,
+    ) -> Optional[np.ndarray]:
+        """Resolve the final blocked mask for a source label."""
+        explicit = self._build_label_overwrite_blocked_mask(
+            slice_idx,
+            shape,
+            int(source_label),
+            include_temp=include_temp,
+        )
+        if explicit is not None:
+            return explicit
+        return self._build_blocked_mask(slice_idx, shape, include_temp=include_temp)
 
     @staticmethod
     def _filter_points_by_restriction(
@@ -1706,10 +1735,13 @@ class AnnotationController:
             mask_shape,
             include_temp=False,
         )
-        blocked_mask_for_label = lambda label_id, _shape=mask_shape: (
-            self._build_label0_blocked_mask(slice_idx, _shape, include_temp=True)
-            if int(label_id) == 0
-            else None
+        blocked_mask_for_label = (
+            lambda label_id, _shape=mask_shape: self._build_label_overwrite_blocked_mask(
+                slice_idx,
+                _shape,
+                int(label_id),
+                include_temp=True,
+            )
         )
         boxes = self.annotation_service.rebuild_temp_masks_for_slice(
             rois=rois,
