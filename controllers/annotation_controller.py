@@ -400,6 +400,13 @@ class AnnotationController:
             "clean_outliers_contour_smoothing": self._clean_outliers_contour_smoothing(),
         }
 
+    def _erase_cleanup_enabled_for_threshold_roi(self) -> bool:
+        return (
+            self.view_state_model.is_erase_action()
+            and bool(getattr(self.view_state_model, "force_threshold_erase", False))
+            and self._clean_outliers_enabled()
+        )
+
     def on_apply_volume_toggled(self, enabled: bool) -> None:
         """Handle apply-to-volume toggle (stub)."""
         self.view_state_model.set_apply_volume(enabled)
@@ -453,6 +460,14 @@ class AnnotationController:
             blocked_mask_provider = lambda idx, _shape=mask_shape: self._build_blocked_mask(
                 idx, _shape, include_temp=False
             )
+            erase_cleanup_source_mask_provider = (
+                lambda idx, _shape=mask_shape: self._build_erase_cleanup_source_mask(
+                    idx,
+                    _shape,
+                    0,
+                    include_temp=True,
+                )
+            )
             blocked_mask_for_label_provider = (
                 lambda idx, label_id, _shape=mask_shape: self._build_label_overwrite_blocked_mask(
                     idx,
@@ -479,6 +494,7 @@ class AnnotationController:
                 ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
                 vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
                 vertical_max_length=self.view_state_model.roi_peak_vertical_max_length,
+                erase_cleanup_source_mask_provider=erase_cleanup_source_mask_provider,
                 **self._mask_post_process_kwargs(),
             )
             self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
@@ -524,6 +540,7 @@ class AnnotationController:
             return False
         threshold = self._effective_annotation_threshold()
         thin_line_width = self.view_state_model.roi_thin_line_max_width
+        erase_cleanup = self._erase_cleanup_enabled_for_threshold_roi()
 
         try:
             slice_idx = int(self.view_state_model.current_slice)
@@ -562,6 +579,14 @@ class AnnotationController:
                     include_temp=True,
                 )
             )
+            erase_cleanup_source_mask_provider = (
+                lambda idx, _shape=shape, _label=int(label): self._build_erase_cleanup_source_mask(
+                    idx,
+                    _shape,
+                    _label,
+                    include_temp=True,
+                )
+            )
             self.annotation_service.propagate_grow_volume_from_slice(
                 start_slice=slice_idx,
                 point=point,
@@ -578,9 +603,21 @@ class AnnotationController:
                 end_idx=end_idx,
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask_provider=erase_cleanup_source_mask_provider,
                 **self._mask_post_process_kwargs(),
             )
         else:
+            erase_cleanup_source_mask = (
+                self._build_erase_cleanup_source_mask(
+                    slice_idx,
+                    shape,
+                    int(label),
+                    include_temp=True,
+                )
+                if erase_cleanup
+                else None
+            )
             grow_mask = self.annotation_service.apply_grow_roi(
                 slice_idx=slice_idx,
                 point=point,
@@ -595,6 +632,8 @@ class AnnotationController:
                 palette=self.annotation_model.get_label_palette(),
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
                 **self._mask_post_process_kwargs(),
             )
             if grow_mask is None:
@@ -671,6 +710,7 @@ class AnnotationController:
             return False
         threshold = self._effective_annotation_threshold()
         thin_line_width = self.view_state_model.roi_thin_line_max_width
+        erase_cleanup = self._erase_cleanup_enabled_for_threshold_roi()
 
         try:
             slice_idx = int(self.view_state_model.current_slice)
@@ -708,6 +748,14 @@ class AnnotationController:
                     include_temp=True,
                 )
             )
+            erase_cleanup_source_mask_provider = (
+                lambda idx, _shape=shape, _label=int(label): self._build_erase_cleanup_source_mask(
+                    idx,
+                    _shape,
+                    _label,
+                    include_temp=True,
+                )
+            )
             self.annotation_service.propagate_line_volume_from_slice(
                 start_slice=slice_idx,
                 points=clean_points,
@@ -724,9 +772,21 @@ class AnnotationController:
                 end_idx=end_idx,
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask_provider=erase_cleanup_source_mask_provider,
                 **self._mask_post_process_kwargs(),
             )
         else:
+            erase_cleanup_source_mask = (
+                self._build_erase_cleanup_source_mask(
+                    slice_idx,
+                    shape,
+                    int(label),
+                    include_temp=True,
+                )
+                if erase_cleanup
+                else None
+            )
             line_mask = self.annotation_service.apply_line_roi(
                 slice_idx=slice_idx,
                 points=clean_points,
@@ -741,6 +801,8 @@ class AnnotationController:
                 palette=palette,
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
                 **self._mask_post_process_kwargs(),
             )
             if line_mask is None:
@@ -785,6 +847,7 @@ class AnnotationController:
         if label is None:
             return False
         threshold = self._effective_annotation_threshold()
+        erase_cleanup = self._erase_cleanup_enabled_for_threshold_roi()
         try:
             slice_idx = int(self.view_state_model.current_slice)
         except Exception:
@@ -822,6 +885,14 @@ class AnnotationController:
                     include_temp=True,
                 )
             )
+            erase_cleanup_source_mask_provider = (
+                lambda idx, _shape=shape, _label=int(label): self._build_erase_cleanup_source_mask(
+                    idx,
+                    _shape,
+                    _label,
+                    include_temp=True,
+                )
+            )
             if peak_mode:
                 self.annotation_service.apply_peak_roi_to_range(
                     start_idx=start_idx,
@@ -841,6 +912,8 @@ class AnnotationController:
                     slice_data_provider=self._slice_data,
                     restriction_mask=restriction_mask,
                     blocked_mask_provider=blocked_mask_provider,
+                    erase_cleanup=erase_cleanup,
+                    erase_cleanup_source_mask_provider=erase_cleanup_source_mask_provider,
                     **self._mask_post_process_kwargs(),
                 )
             else:
@@ -859,9 +932,21 @@ class AnnotationController:
                     restriction_mask=restriction_mask,
                     blocked_mask_provider=blocked_mask_provider,
                     use_box_percentiles=self.view_state_model.threshold_auto,
+                    erase_cleanup=erase_cleanup,
+                    erase_cleanup_source_mask_provider=erase_cleanup_source_mask_provider,
                     **self._mask_post_process_kwargs(),
                 )
         else:
+            erase_cleanup_source_mask = (
+                self._build_erase_cleanup_source_mask(
+                    slice_idx,
+                    shape,
+                    int(label),
+                    include_temp=True,
+                )
+                if erase_cleanup
+                else None
+            )
             if peak_mode:
                 free_hand_mask = self.annotation_service.apply_peak_roi(
                     slice_idx=slice_idx,
@@ -880,6 +965,8 @@ class AnnotationController:
                     slice_data=slice_data,
                     restriction_mask=restriction_mask,
                     blocked_mask=blocked_mask,
+                    erase_cleanup=erase_cleanup,
+                    erase_cleanup_source_mask=erase_cleanup_source_mask,
                     **self._mask_post_process_kwargs(),
                 )
             else:
@@ -897,6 +984,8 @@ class AnnotationController:
                     restriction_mask=restriction_mask,
                     blocked_mask=blocked_mask,
                     use_box_percentiles=self.view_state_model.threshold_auto,
+                    erase_cleanup=erase_cleanup,
+                    erase_cleanup_source_mask=erase_cleanup_source_mask,
                     **self._mask_post_process_kwargs(),
                 )
             if free_hand_mask is None:
@@ -916,6 +1005,7 @@ class AnnotationController:
         if label is None:
             return False
         threshold = self._effective_annotation_threshold()
+        erase_cleanup = self._erase_cleanup_enabled_for_threshold_roi()
 
         try:
             slice_idx = int(self.view_state_model.current_slice)
@@ -950,6 +1040,14 @@ class AnnotationController:
                     include_temp=True,
                 )
             )
+            erase_cleanup_source_mask_provider = (
+                lambda idx, _shape=(h, w), _label=int(label): self._build_erase_cleanup_source_mask(
+                    idx,
+                    _shape,
+                    _label,
+                    include_temp=True,
+                )
+            )
             self.annotation_service.apply_box_roi_to_range(
                 start_idx=start_idx,
                 end_idx=end_idx,
@@ -965,9 +1063,21 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask_provider=blocked_mask_provider,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask_provider=erase_cleanup_source_mask_provider,
                 **self._mask_post_process_kwargs(),
             )
         else:
+            erase_cleanup_source_mask = (
+                self._build_erase_cleanup_source_mask(
+                    slice_idx,
+                    (h, w),
+                    int(label),
+                    include_temp=True,
+                )
+                if erase_cleanup
+                else None
+            )
             self.annotation_service.apply_box_roi(
                 slice_idx=slice_idx,
                 box=box_tuple,
@@ -982,6 +1092,8 @@ class AnnotationController:
                 restriction_mask=restriction_mask,
                 blocked_mask=blocked_mask,
                 use_box_percentiles=self.view_state_model.threshold_auto,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
                 **self._mask_post_process_kwargs(),
             )
         self.refresh_roi_overlay_for_slice(slice_idx)
@@ -1614,6 +1726,68 @@ class AnnotationController:
             return explicit
         return self._build_blocked_mask(slice_idx, shape, include_temp=include_temp)
 
+    def _build_effective_mask_slice(
+        self,
+        slice_idx: int,
+        shape: tuple[int, int],
+        *,
+        include_temp: bool = True,
+    ) -> Optional[np.ndarray]:
+        try:
+            h, w = int(shape[0]), int(shape[1])
+        except Exception:
+            return None
+
+        resolved: Optional[np.ndarray] = None
+        mask_volume = self.annotation_model.get_mask_volume()
+        if mask_volume is not None:
+            try:
+                ann_slice = np.asarray(mask_volume[int(slice_idx)], dtype=np.uint8)
+            except Exception:
+                ann_slice = None
+            if ann_slice is not None and ann_slice.shape == (h, w):
+                resolved = np.array(ann_slice, copy=True)
+
+        if resolved is None:
+            resolved = np.zeros((h, w), dtype=np.uint8)
+
+        if include_temp:
+            coverage = self.temp_mask_model.get_slice_coverage(slice_idx)
+            temp_slice = self.temp_mask_model.get_slice_mask(slice_idx)
+            if (
+                coverage is not None
+                and temp_slice is not None
+                and coverage.shape == (h, w)
+                and temp_slice.shape == (h, w)
+            ):
+                resolved[coverage] = temp_slice[coverage]
+
+        return resolved
+
+    def _build_erase_cleanup_source_mask(
+        self,
+        slice_idx: int,
+        shape: tuple[int, int],
+        source_label: int,
+        *,
+        include_temp: bool = True,
+    ) -> Optional[np.ndarray]:
+        effective_slice = self._build_effective_mask_slice(
+            slice_idx,
+            shape,
+            include_temp=include_temp,
+        )
+        if effective_slice is None:
+            return None
+
+        source = int(source_label)
+        if source == 0:
+            has_rule, target = self.view_state_model.get_label_overwrite_target(0)
+            if has_rule and target is not None:
+                return effective_slice == int(target)
+            return effective_slice > 0
+        return effective_slice == source
+
     @staticmethod
     def _filter_points_by_restriction(
         points: list[tuple[int, int]],
@@ -1760,6 +1934,14 @@ class AnnotationController:
             ignore_peak_position=self.view_state_model.roi_peak_ignore_position,
             vertical_min_length=self.view_state_model.roi_peak_vertical_min_length,
             vertical_max_length=self.view_state_model.roi_peak_vertical_max_length,
+            erase_cleanup_source_mask_provider=(
+                lambda idx, _shape=mask_shape: self._build_erase_cleanup_source_mask(
+                    idx,
+                    _shape,
+                    0,
+                    include_temp=True,
+                )
+            ),
             **self._mask_post_process_kwargs(),
         )
 

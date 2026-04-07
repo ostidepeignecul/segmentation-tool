@@ -139,20 +139,32 @@ class AnnotationService:
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
         allowed_mask: Optional[np.ndarray] = None,
+        erase_cleanup_source_mask: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """Apply a box mask into the temporary mask model."""
-        mask_to_store = self._apply_roi_post_processing(
-            box_mask,
-            closing_mask_enabled=closing_mask_enabled,
-            closing_mask_tolerance=closing_mask_tolerance,
-            closing_mask_merge_distance=closing_mask_merge_distance,
-            clean_outliers_enabled=clean_outliers_enabled,
-            clean_outliers_tolerance=clean_outliers_tolerance,
-            clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
-            clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
-            clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
-            allowed_mask=allowed_mask,
-        )
+        if erase_cleanup_source_mask is not None and clean_outliers_enabled:
+            mask_to_store = self._build_cleanup_erase_mask(
+                box_mask,
+                source_mask=erase_cleanup_source_mask,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+                allowed_mask=allowed_mask,
+            )
+        else:
+            mask_to_store = self._apply_roi_post_processing(
+                box_mask,
+                closing_mask_enabled=closing_mask_enabled,
+                closing_mask_tolerance=closing_mask_tolerance,
+                closing_mask_merge_distance=closing_mask_merge_distance,
+                clean_outliers_enabled=clean_outliers_enabled,
+                clean_outliers_tolerance=clean_outliers_tolerance,
+                clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+                clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+                clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+                allowed_mask=allowed_mask,
+            )
         temp_model.set_slice_mask(slice_idx, mask_to_store, label=label, persistent=persistent)
         return mask_to_store
 
@@ -621,6 +633,43 @@ class AnnotationService:
                 allowed_mask=allowed_mask,
             )
         return mask_to_store.astype(np.uint8)
+
+    def _build_cleanup_erase_mask(
+        self,
+        mask: np.ndarray,
+        *,
+        source_mask: np.ndarray,
+        clean_outliers_tolerance: int = 0,
+        clean_outliers_thin_line_max_width: int = 0,
+        clean_outliers_thin_gap_max_width: int = 0,
+        clean_outliers_contour_smoothing: int = 0,
+        allowed_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        selection = np.asarray(mask, dtype=bool)
+        target = np.asarray(source_mask, dtype=bool)
+        if selection.ndim != 2 or target.shape != selection.shape:
+            return np.zeros_like(selection, dtype=np.uint8)
+
+        selected_target = np.logical_and(selection, target)
+        if not np.any(selected_target):
+            return np.zeros_like(selection, dtype=np.uint8)
+
+        cleanup_domain = selection
+        if allowed_mask is not None:
+            domain = np.asarray(allowed_mask, dtype=bool)
+            if domain.shape == selection.shape:
+                cleanup_domain = np.logical_and(selection, domain)
+
+        cleaned_target = self._apply_roi_post_processing(
+            selected_target.astype(np.uint8),
+            clean_outliers_enabled=True,
+            clean_outliers_tolerance=clean_outliers_tolerance,
+            clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
+            clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
+            clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+            allowed_mask=cleanup_domain,
+        ).astype(bool)
+        return np.logical_and(selected_target, np.logical_not(cleaned_target)).astype(np.uint8)
 
     def _normalize_slice_to_uint8(self, slice_data: np.ndarray) -> Optional[np.ndarray]:
         """Normalize arbitrary slice data to uint8 [0, 255]."""
@@ -1130,6 +1179,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """
         Region growing ROI: build mask from seed/threshold, store ROI and apply to temp model.
@@ -1158,6 +1209,7 @@ class AnnotationService:
             label=label,
             threshold=threshold,
             persistent=persistent,
+            erase_cleanup=erase_cleanup,
         )
         temp_mask_model.ensure_label(label, color, visible=True)
         allowed_mask = self._build_closing_allowed_mask(
@@ -1165,6 +1217,9 @@ class AnnotationService:
             restriction_mask=restriction_mask,
             blocked_mask=blocked_mask,
         )
+        cleanup_source_mask = None
+        if erase_cleanup and int(label) == 0 and threshold is not None and slice_data is not None:
+            cleanup_source_mask = erase_cleanup_source_mask
         return self.apply_temp_box(
             temp_mask_model,
             slice_idx,
@@ -1180,6 +1235,7 @@ class AnnotationService:
             clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
             clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
+            erase_cleanup_source_mask=cleanup_source_mask,
         )
 
     def apply_line_roi(
@@ -1206,6 +1262,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """
         Region growing ROI from a freehand line (multi-seed), store ROI and apply to temp model.
@@ -1238,6 +1296,7 @@ class AnnotationService:
             label=label,
             threshold=threshold,
             persistent=persistent,
+            erase_cleanup=erase_cleanup,
         )
         temp_mask_model.ensure_label(label, color, visible=True)
         allowed_mask = self._build_closing_allowed_mask(
@@ -1245,6 +1304,9 @@ class AnnotationService:
             restriction_mask=restriction_mask,
             blocked_mask=blocked_mask,
         )
+        cleanup_source_mask = None
+        if erase_cleanup and int(label) == 0 and threshold is not None and slice_data is not None:
+            cleanup_source_mask = erase_cleanup_source_mask
         return self.apply_temp_box(
             temp_mask_model,
             slice_idx,
@@ -1260,6 +1322,7 @@ class AnnotationService:
             clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
             clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
+            erase_cleanup_source_mask=cleanup_source_mask,
         )
 
     def apply_free_hand_roi(
@@ -1286,6 +1349,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """
         Free-hand ROI: fill polygon mask, store ROI metadata and apply to temp model.
@@ -1311,6 +1376,7 @@ class AnnotationService:
             label=label,
             threshold=threshold,
             persistent=persistent,
+            erase_cleanup=erase_cleanup,
         )
         temp_mask_model.ensure_label(label, color, visible=True)
 
@@ -1332,6 +1398,9 @@ class AnnotationService:
             restriction_mask=restriction_mask,
             blocked_mask=blocked_mask,
         )
+        cleanup_source_mask = None
+        if erase_cleanup and int(label) == 0 and slice_data is not None and threshold is not None:
+            cleanup_source_mask = erase_cleanup_source_mask
         return self.apply_temp_box(
             temp_mask_model,
             slice_idx,
@@ -1347,6 +1416,7 @@ class AnnotationService:
             clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
             clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
+            erase_cleanup_source_mask=cleanup_source_mask,
         )
 
     def apply_peak_roi(
@@ -1377,6 +1447,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """Freehand Peak ROI: one peak per column, then vertical growth from peaks."""
         if precomputed_poly_mask is not None:
@@ -1413,6 +1485,7 @@ class AnnotationService:
             label=label,
             threshold=threshold,
             persistent=persistent,
+            erase_cleanup=erase_cleanup,
         )
         temp_mask_model.ensure_label(label, color, visible=True)
 
@@ -1431,6 +1504,9 @@ class AnnotationService:
             restriction_mask=restriction_mask,
             blocked_mask=blocked_mask,
         )
+        cleanup_source_mask = None
+        if erase_cleanup and int(label) == 0 and slice_data is not None and threshold is not None:
+            cleanup_source_mask = erase_cleanup_source_mask
         return self.apply_temp_box(
             temp_mask_model,
             slice_idx,
@@ -1446,6 +1522,7 @@ class AnnotationService:
             clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
             clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
+            erase_cleanup_source_mask=cleanup_source_mask,
         )
 
     def rebuild_temp_masks_for_slice(
@@ -1475,6 +1552,7 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup_source_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> list[Tuple[int, int, int, int]]:
         """
         Rebuild all temporary masks for a slice from ROI definitions.
@@ -1528,6 +1606,14 @@ class AnnotationService:
                 restriction_mask=restriction,
                 blocked_mask=blocked,
             )
+            erase_cleanup_source_mask = None
+            if (
+                bool(getattr(roi, "erase_cleanup", False))
+                and erase_cleanup_source_mask_provider is not None
+                and slice_data is not None
+                and roi_threshold is not None
+            ):
+                erase_cleanup_source_mask = erase_cleanup_source_mask_provider(int(slice_idx))
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
@@ -1543,6 +1629,7 @@ class AnnotationService:
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )
             boxes.append(box_tuple)
         # Free-hand ROIs (filled polygon)
@@ -1576,6 +1663,14 @@ class AnnotationService:
                 restriction_mask=restriction,
                 blocked_mask=blocked,
             )
+            erase_cleanup_source_mask = None
+            if (
+                bool(getattr(roi, "erase_cleanup", False))
+                and erase_cleanup_source_mask_provider is not None
+                and slice_data is not None
+                and roi_threshold is not None
+            ):
+                erase_cleanup_source_mask = erase_cleanup_source_mask_provider(int(slice_idx))
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
@@ -1591,6 +1686,7 @@ class AnnotationService:
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )
         # Peak ROIs (freehand + per-column peak + vertical growth)
         for roi in rois:
@@ -1629,6 +1725,13 @@ class AnnotationService:
                 restriction_mask=restriction,
                 blocked_mask=blocked,
             )
+            erase_cleanup_source_mask = None
+            if (
+                bool(getattr(roi, "erase_cleanup", False))
+                and erase_cleanup_source_mask_provider is not None
+                and getattr(roi, "threshold", None) is not None
+            ):
+                erase_cleanup_source_mask = erase_cleanup_source_mask_provider(int(slice_idx))
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
@@ -1644,6 +1747,7 @@ class AnnotationService:
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )
         # Grow ROIs
         for roi in rois:
@@ -1672,6 +1776,13 @@ class AnnotationService:
                 restriction_mask=restriction,
                 blocked_mask=blocked,
             )
+            erase_cleanup_source_mask = None
+            if (
+                bool(getattr(roi, "erase_cleanup", False))
+                and erase_cleanup_source_mask_provider is not None
+                and getattr(roi, "threshold", None) is not None
+            ):
+                erase_cleanup_source_mask = erase_cleanup_source_mask_provider(int(slice_idx))
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
@@ -1687,6 +1798,7 @@ class AnnotationService:
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )
         # Line ROIs (multi-seed grow)
         for roi in rois:
@@ -1717,6 +1829,13 @@ class AnnotationService:
                 restriction_mask=restriction,
                 blocked_mask=blocked,
             )
+            erase_cleanup_source_mask = None
+            if (
+                bool(getattr(roi, "erase_cleanup", False))
+                and erase_cleanup_source_mask_provider is not None
+                and getattr(roi, "threshold", None) is not None
+            ):
+                erase_cleanup_source_mask = erase_cleanup_source_mask_provider(int(slice_idx))
             self.apply_temp_box(
                 temp_mask_model,
                 slice_idx,
@@ -1732,6 +1851,7 @@ class AnnotationService:
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
                 allowed_mask=allowed_mask,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )
         return boxes
 
@@ -1823,6 +1943,7 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup_source_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """
         Rebuild temporary masks for the whole volume from stored ROIs.
@@ -1879,6 +2000,7 @@ class AnnotationService:
                 clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+                erase_cleanup_source_mask_provider=erase_cleanup_source_mask_provider,
             )
 
     def build_thresholded_mask(
@@ -1978,6 +2100,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask: Optional[np.ndarray] = None,
     ) -> Optional[np.ndarray]:
         """
         Normalize a box, build its mask, store ROI metadata and apply mask to temp model.
@@ -2009,6 +2133,7 @@ class AnnotationService:
             label=label,
             threshold=threshold,
             persistent=persistent,
+            erase_cleanup=erase_cleanup,
         )
         temp_mask_model.ensure_label(label, color, visible=True)
         mask_to_apply = box_mask
@@ -2029,6 +2154,9 @@ class AnnotationService:
             restriction_mask=restriction,
             blocked_mask=blocked_mask,
         )
+        cleanup_source_mask = None
+        if erase_cleanup and int(label) == 0 and slice_data is not None and threshold is not None:
+            cleanup_source_mask = erase_cleanup_source_mask
         return self.apply_temp_box(
             temp_mask_model,
             slice_idx,
@@ -2044,6 +2172,7 @@ class AnnotationService:
             clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
             clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
             allowed_mask=allowed_mask,
+            erase_cleanup_source_mask=cleanup_source_mask,
         )
 
     @staticmethod
@@ -2135,6 +2264,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """
         Apply grow ROI forward/backward from a slice until threshold fails.
@@ -2165,6 +2296,11 @@ class AnnotationService:
             blocked_mask = (
                 blocked_mask_provider(idx) if blocked_mask_provider is not None else None
             )
+            erase_cleanup_source_mask = (
+                erase_cleanup_source_mask_provider(idx)
+                if erase_cleanup and erase_cleanup_source_mask_provider is not None
+                else None
+            )
             mask = self.apply_grow_roi(
                 slice_idx=idx,
                 point=point,
@@ -2187,6 +2323,8 @@ class AnnotationService:
                 clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )
             return mask is not None
 
@@ -2227,6 +2365,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """
         Apply line ROI forward/backward from a slice until threshold fails.
@@ -2256,6 +2396,11 @@ class AnnotationService:
             blocked_mask = (
                 blocked_mask_provider(idx) if blocked_mask_provider is not None else None
             )
+            erase_cleanup_source_mask = (
+                erase_cleanup_source_mask_provider(idx)
+                if erase_cleanup and erase_cleanup_source_mask_provider is not None
+                else None
+            )
             mask = self.apply_line_roi(
                 slice_idx=idx,
                 points=points,
@@ -2278,6 +2423,8 @@ class AnnotationService:
                 clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )
             return mask is not None
 
@@ -2317,6 +2464,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """Apply a free-hand ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -2325,6 +2474,11 @@ class AnnotationService:
             slice_data = slice_data_provider(idx) if slice_data_provider is not None else None
             blocked_mask = (
                 blocked_mask_provider(idx) if blocked_mask_provider is not None else None
+            )
+            erase_cleanup_source_mask = (
+                erase_cleanup_source_mask_provider(idx)
+                if erase_cleanup and erase_cleanup_source_mask_provider is not None
+                else None
             )
             self.apply_free_hand_roi(
                 slice_idx=idx,
@@ -2348,6 +2502,8 @@ class AnnotationService:
                 clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )
 
     def apply_peak_roi_to_range(
@@ -2378,6 +2534,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """Apply a Peak ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -2398,6 +2556,11 @@ class AnnotationService:
                 continue
             blocked_mask = (
                 blocked_mask_provider(idx) if blocked_mask_provider is not None else None
+            )
+            erase_cleanup_source_mask = (
+                erase_cleanup_source_mask_provider(idx)
+                if erase_cleanup and erase_cleanup_source_mask_provider is not None
+                else None
             )
             self.apply_peak_roi(
                 slice_idx=idx,
@@ -2425,6 +2588,8 @@ class AnnotationService:
                 clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )
 
     def apply_box_roi_to_range(
@@ -2452,6 +2617,8 @@ class AnnotationService:
         clean_outliers_thin_line_max_width: int = 0,
         clean_outliers_thin_gap_max_width: int = 0,
         clean_outliers_contour_smoothing: int = 0,
+        erase_cleanup: bool = False,
+        erase_cleanup_source_mask_provider: Optional[Callable[[int], Optional[np.ndarray]]] = None,
     ) -> None:
         """Apply a box ROI across a slice range."""
         min_idx = int(min(start_idx, end_idx))
@@ -2460,6 +2627,11 @@ class AnnotationService:
             slice_data = slice_data_provider(idx) if slice_data_provider is not None else None
             blocked_mask = (
                 blocked_mask_provider(idx) if blocked_mask_provider is not None else None
+            )
+            erase_cleanup_source_mask = (
+                erase_cleanup_source_mask_provider(idx)
+                if erase_cleanup and erase_cleanup_source_mask_provider is not None
+                else None
             )
             self.apply_box_roi(
                 slice_idx=idx,
@@ -2483,4 +2655,6 @@ class AnnotationService:
                 clean_outliers_thin_line_max_width=clean_outliers_thin_line_max_width,
                 clean_outliers_thin_gap_max_width=clean_outliers_thin_gap_max_width,
                 clean_outliers_contour_smoothing=clean_outliers_contour_smoothing,
+                erase_cleanup=erase_cleanup,
+                erase_cleanup_source_mask=erase_cleanup_source_mask,
             )

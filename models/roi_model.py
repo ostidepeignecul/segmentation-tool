@@ -15,6 +15,7 @@ class ROI:
     label: int = 1
     threshold: Optional[float] = None
     persistent: bool = False
+    erase_cleanup: bool = False
 
 
 class RoiModel:
@@ -47,6 +48,7 @@ class RoiModel:
         label: int = 1,
         threshold: Optional[float] = None,
         persistent: bool = False,
+        erase_cleanup: bool = False,
     ) -> ROI:
         roi = ROI(
             id=self._next_id,
@@ -56,6 +58,7 @@ class RoiModel:
             label=int(label),
             threshold=threshold,
             persistent=bool(persistent),
+            erase_cleanup=bool(erase_cleanup),
         )
         self._next_id += 1
         self._rois.append(roi)
@@ -69,6 +72,7 @@ class RoiModel:
         label: int = 1,
         threshold: Optional[float] = None,
         persistent: bool = False,
+        erase_cleanup: bool = False,
     ) -> ROI:
         roi = ROI(
             id=self._next_id,
@@ -78,6 +82,7 @@ class RoiModel:
             label=int(label),
             threshold=threshold,
             persistent=bool(persistent),
+            erase_cleanup=bool(erase_cleanup),
         )
         self._next_id += 1
         self._rois.append(roi)
@@ -91,6 +96,7 @@ class RoiModel:
         label: int = 1,
         threshold: Optional[float] = None,
         persistent: bool = False,
+        erase_cleanup: bool = False,
     ) -> ROI:
         roi = ROI(
             id=self._next_id,
@@ -100,6 +106,7 @@ class RoiModel:
             label=int(label),
             threshold=threshold,
             persistent=bool(persistent),
+            erase_cleanup=bool(erase_cleanup),
         )
         self._next_id += 1
         self._rois.append(roi)
@@ -113,6 +120,7 @@ class RoiModel:
         label: int = 1,
         threshold: Optional[float] = None,
         persistent: bool = False,
+        erase_cleanup: bool = False,
     ) -> ROI:
         roi = ROI(
             id=self._next_id,
@@ -122,6 +130,7 @@ class RoiModel:
             label=int(label),
             threshold=threshold,
             persistent=bool(persistent),
+            erase_cleanup=bool(erase_cleanup),
         )
         self._next_id += 1
         self._rois.append(roi)
@@ -135,6 +144,7 @@ class RoiModel:
         label: int = 1,
         threshold: Optional[float] = None,
         persistent: bool = False,
+        erase_cleanup: bool = False,
     ) -> ROI:
         roi = ROI(
             id=self._next_id,
@@ -144,6 +154,7 @@ class RoiModel:
             label=int(label),
             threshold=threshold,
             persistent=bool(persistent),
+            erase_cleanup=bool(erase_cleanup),
         )
         self._next_id += 1
         self._rois.append(roi)

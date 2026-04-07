@@ -3881,3 +3881,22 @@ Le besoin etait d obtenir pour les labels non nuls le meme controle d ecrasement
 2. Garder la resolution du blocked mask dans `AnnotationController` plutot que de pousser cette logique dans les vues ou dans le service, afin de rester dans le role d orchestration du controller sans etendre inutilement l API publique.
 3. Inclure `Background (0)` dans les destinations mais pas dans les sources de dessin actives du `ToolsPanel`, afin de conserver la distinction existante entre action `Erase` et selection de label.
 4. Intersecter le `temp_mask` de destination `0` avec `coverage`, afin que le fond implicite hors preview ne soit pas interprete a tort comme une zone explicitement autorisee.
+
+### 2026-04-07 - Mask cleanup inverse pour ROI thresholdes en mode erase
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#models/roi_model.py`, `#services/annotation_service.py`, `#erase`, `#mask-cleanup`, `#roi`, `#threshold`, `#mvc`
+
+**Actions effectuees :**
+- Etend `controllers/annotation_controller.py` pour activer un mode special seulement quand `action == erase`, `Force threshold (erase)` est coche et `Mask cleanup` est actif, puis propager ce mode sur les flux ROI `box`, `free hand`, `grow`, `line`, `peak`, ainsi que sur `apply volume` et `Recalculer ROI`.
+- Ajoute dans `controllers/annotation_controller.py` des helpers pour reconstruire le masque effectif d une slice et en extraire le masque source a nettoyer avant conversion en `label 0`, en respectant les regles d overwrite deja generalisees.
+- Etend `models/roi_model.py` avec un flag `erase_cleanup` persiste sur chaque ROI afin que les previews reconstruits et les recalculs ROI conservent le comportement inverse apres creation.
+- Refactorise `services/annotation_service.py` pour accepter un `erase_cleanup_source_mask`, appliquer `Mask cleanup` sur le masque source existant selectionne par la ROI, puis generer seulement le delta `original - cleaned` comme masque d effacement.
+- Verifie le flux par compilation `py_compile` et par sanity checks Python en memoire sur le chemin `ROI -> rebuild preview`, sans ajouter de script temporaire au depot.
+
+**Contexte :**
+Le besoin etait de faire fonctionner `Mask cleanup` comme un nettoyage inverse en mode `erase` pour les ROI basees sur le threshold. Au lieu d effacer toute la zone seuillee en `label 0`, il fallait n effacer que les petites composantes et excroissances que le pipeline de cleanup aurait supprimees, tout en laissant `draw` et le pinceau `erase` classiques inchanges.
+
+**Decisions techniques :**
+1. Activer ce comportement uniquement sous la combinaison `erase + force threshold (erase) + mask cleanup`, afin de limiter le scope aux ROI thresholdes et de ne pas changer le sens du mode `erase` standard.
+2. Stocker un flag `erase_cleanup` dans `RoiModel`, afin que `Recalculer ROI` et les reconstructions volume rejouent exactement le meme comportement sans dependre seulement de l etat transitoire du controller.
+3. Calculer le masque a effacer comme `selected_target - cleaned_target` dans `AnnotationService`, afin de reutiliser le pipeline `Mask cleanup` existant sans jamais rajouter de pixels en mode `erase`.
+4. Reutiliser le masque effectif de slice resolu par le controller comme source de nettoyage, afin de respecter les masques deja appliques et les regles d overwrite ciblees lors de l effacement.
