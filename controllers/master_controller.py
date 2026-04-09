@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from config.constants import DEFAULT_ACTIVE_LABEL_ID, MASK_COLORS_BGRA, PERSISTENT_LABEL_IDS
+from config.constants import DEFAULT_ACTIVE_LABEL_ID, PERSISTENT_LABEL_IDS
 from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
@@ -65,6 +65,13 @@ from views.endview_resize_dialog import EndviewResizeDialog
 from views.overlay_class_remap_dialog import OverlayClassRemapDialog
 from views.overlay_settings_view import OverlaySettingsView
 from views.piece3d_view import Piece3DView
+
+
+class NnUnetUiSignals(QObject):
+    """Bridge nnUNet completion callbacks back onto the UI thread."""
+
+    success = pyqtSignal(object)
+    error = pyqtSignal(object)
 
 
 class MasterController:
@@ -126,6 +133,9 @@ class MasterController:
         self._secondary_axis_name: str = "VCoordinate"
         self.main_window.closeEvent = self._on_main_window_close_event  # type: ignore[method-assign]
         self._app = QApplication.instance()
+        self._nnunet_ui_signals = NnUnetUiSignals()
+        self._nnunet_ui_signals.success.connect(self._handle_nnunet_success)
+        self._nnunet_ui_signals.error.connect(self._handle_nnunet_error)
         if self._app is not None:
             self._app.aboutToQuit.connect(self._on_app_about_to_quit)
 
@@ -659,21 +669,68 @@ class MasterController:
         )
         if not file_path:
             return
-        volume = self._current_volume()
-        if volume is None:
-            QMessageBox.warning(self.main_window, "Overlay", "Volume NDE indisponible.")
-            return
         try:
-            mask_volume = self.overlay_loader.load(file_path, target_shape=volume.shape)
-            self._apply_overlay_mask_volume(mask_volume, preserve_labels=True)
-            self.imported_overlay_model.set_imported_overlay(
-                source_path=file_path,
-                original_mask_volume=mask_volume,
-                original_label_ids=self.annotation_model.get_detected_label_ids(),
+            self._load_overlay_from_file(
+                file_path,
+                preserve_labels=True,
+                force_visible=False,
             )
             self.status_message(f"Overlay chargé: {file_path}")
         except Exception as exc:
             QMessageBox.critical(self.main_window, "Erreur overlay", str(exc))
+
+    def _load_overlay_from_file(
+        self,
+        file_path: str | Path,
+        *,
+        preserve_labels: bool,
+        force_visible: bool,
+    ) -> np.ndarray:
+        """Load an overlay file and apply it through the standard MVC refresh pipeline."""
+        volume = self._current_volume()
+        if volume is None:
+            raise ValueError("Volume NDE indisponible.")
+
+        overlay_path = Path(file_path)
+        mask_volume = self.overlay_loader.load(str(overlay_path), target_shape=volume.shape)
+        self._apply_overlay_mask_volume(mask_volume, preserve_labels=preserve_labels)
+        self.imported_overlay_model.set_imported_overlay(
+            source_path=str(overlay_path),
+            original_mask_volume=mask_volume,
+            original_label_ids=self.annotation_model.get_detected_label_ids(),
+        )
+        if force_visible:
+            self._on_overlay_toggled(True)
+        return mask_volume
+
+    def _handle_nnunet_success(self, payload: Any) -> None:
+        """Load the saved nnUNet NPZ through the standard overlay-import path."""
+        if not isinstance(payload, NnUnetResult):
+            self._handle_nnunet_error(RuntimeError("Résultat nnUNet invalide."))
+            return
+        try:
+            self._load_overlay_from_file(
+                payload.output_path,
+                preserve_labels=True,
+                force_visible=True,
+            )
+            self.status_message(
+                f"nnUNet terminé, NPZ affiché : {payload.output_path}",
+                timeout_ms=5000,
+            )
+            QMessageBox.information(
+                self.main_window,
+                "nnUNet",
+                f"Résultat enregistré et affiché :\n{payload.output_path}",
+            )
+        except Exception as exc:
+            self._handle_nnunet_error(exc)
+
+    def _handle_nnunet_error(self, payload: Any) -> None:
+        """Display nnUNet errors once they have been marshalled back to the UI thread."""
+        exc = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
+        QMessageBox.critical(self.main_window, "nnUNet", str(exc))
+        self.status_message("Echec de l'inférence nnUNet", timeout_ms=5000)
 
     def _on_remap_classes(self) -> None:
         """Open the in-memory class remap dialog for the last imported NPZ overlay."""
@@ -756,10 +813,11 @@ class MasterController:
         if not model_path:
             return
 
+        suggested_save_path = self._suggest_nnunet_output_path(model_path)
         save_path, _ = QFileDialog.getSaveFileName(
             self.main_window,
             "Enregistrer le résultat nnUNet (.npz)",
-            "",
+            suggested_save_path,
             "NPZ Files (*.npz)",
         )
         if not save_path:
@@ -769,46 +827,10 @@ class MasterController:
         dataset_id = self.nde_model.metadata.get("path") if self.nde_model.metadata else "current"
 
         def _on_success(result: NnUnetResult) -> None:
-            def _apply() -> None:
-                try:
-                    self.imported_overlay_model.clear()
-                    self.annotation_controller.reset_overlay_state()
-                    self.mask_modification_controller.reset()
-                    self.annotation_model.clear()
-                    self.annotation_model.set_mask_volume(result.mask)
-                    labels = (
-                        result.labels_mapping.get("labels", {})
-                        if isinstance(result.labels_mapping, dict)
-                        else {}
-                    )
-                    for _, label_id in labels.items():
-                        color = MASK_COLORS_BGRA.get(int(label_id), (255, 0, 255, 160))
-                        self.annotation_model.ensure_label(int(label_id), color, visible=True)
-                    self.view_state_model.toggle_overlay(True)
-                    self.annotation_controller.clear_labels()
-                    self.annotation_controller.sync_overlay_settings()
-                    self.annotation_controller.refresh_overlay()
-                    self._sync_tools_labels()
-                    self._mark_active_session_dirty()
-                    self.status_message(
-                        f"nnUNet terminé, masque sauvegardé : {result.output_path}", timeout_ms=5000
-                    )
-                    QMessageBox.information(
-                        self.main_window,
-                        "nnUNet",
-                        f"Résultat enregistré dans :\n{result.output_path}",
-                    )
-                except Exception as exc:
-                    QMessageBox.critical(self.main_window, "nnUNet", str(exc))
-
-            QTimer.singleShot(0, _apply)
+            self._nnunet_ui_signals.success.emit(result)
 
         def _on_error(exc: Exception) -> None:
-            def _show() -> None:
-                QMessageBox.critical(self.main_window, "nnUNet", str(exc))
-                self.status_message("Echec de l'inférence nnUNet", timeout_ms=5000)
-
-            QTimer.singleShot(0, _show)
+            self._nnunet_ui_signals.error.emit(exc)
 
         try:
             self.status_message("Inférence nnUNet en cours...", timeout_ms=4000)
@@ -823,6 +845,26 @@ class MasterController:
             )
         except Exception as exc:
             QMessageBox.critical(self.main_window, "nnUNet", str(exc))
+
+    def _suggest_nnunet_output_path(self, model_path: str | Path) -> str:
+        """Build the default nnUNet NPZ path from the current NDE and selected model."""
+        model_file = Path(model_path)
+        try:
+            nde_file = Path(self._require_nde_path())
+        except Exception:
+            nde_file = Path.cwd() / "current.nde"
+
+        nde_stem = self._sanitize_output_stem(nde_file.stem, fallback="nde")
+        model_name = model_file.stem if model_file.suffix else model_file.name
+        model_stem = self._sanitize_output_stem(model_name, fallback="model")
+        return str(nde_file.with_name(f"{nde_stem}_{model_stem}.npz"))
+
+    @staticmethod
+    def _sanitize_output_stem(value: str, *, fallback: str) -> str:
+        """Sanitize a filename stem for a Windows-friendly NPZ output path."""
+        cleaned = "".join("_" if ch in '<>:"/\\|?*' else ch for ch in str(value))
+        cleaned = cleaned.strip().strip(".")
+        return cleaned or fallback
 
     def _on_export_overlay_npz(self) -> None:
         """Export the current overlay to a standalone NPZ file."""

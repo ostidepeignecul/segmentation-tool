@@ -3900,3 +3900,22 @@ Le besoin etait de faire fonctionner `Mask cleanup` comme un nettoyage inverse e
 2. Stocker un flag `erase_cleanup` dans `RoiModel`, afin que `Recalculer ROI` et les reconstructions volume rejouent exactement le meme comportement sans dependre seulement de l etat transitoire du controller.
 3. Calculer le masque a effacer comme `selected_target - cleaned_target` dans `AnnotationService`, afin de reutiliser le pipeline `Mask cleanup` existant sans jamais rajouter de pixels en mode `erase`.
 4. Reutiliser le masque effectif de slice resolu par le controller comme source de nettoyage, afin de respecter les masques deja appliques et les regles d overwrite ciblees lors de l effacement.
+
+### 2026-04-08 - Rechargement du NPZ nnUNet via le pipeline overlay standard
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/master_controller.py`, `#services/overlay_loader.py`, `#nnunet`, `#npz`, `#overlay`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Refactorise `controllers/master_controller.py` pour centraliser le chargement d un fichier overlay dans `_load_overlay_from_file()`, puis reutiliser ce helper a la fois pour `Charger un overlay` et pour la fin d inference nnUNet.
+- Ajoute dans `controllers/master_controller.py` un pont `NnUnetUiSignals` base sur `QObject` et `pyqtSignal` afin de rerouter les callbacks nnUNet asynchrones vers le thread UI avant de pousser le NPZ sauvegarde dans `annotation_model` et les vues.
+- Met a jour `controllers/master_controller.py` pour pre-remplir la boite de sauvegarde nnUNet avec un nom `NDE_MODELE.npz` derive du `.nde` courant et du modele choisi.
+- Etend `services/overlay_loader.py` pour preferer la cle `mask` puis `arr_0` lors du chargement d un NPZ, afin de relire correctement les sorties nnUNet qui contiennent aussi `labels_mapping`.
+- Verifie les changements par compilation ciblee `python -m py_compile controllers/master_controller.py services/overlay_loader.py services/nnunet_service.py`.
+
+**Contexte :**
+Le besoin etait que le resultat d inference nnUNet se comporte exactement comme un `Charger NPZ` manuel une fois le fichier enregistre, au lieu d injecter directement le masque en memoire avec un chemin special. Il fallait aussi eviter que le post-traitement UI dependa d un callback potentiellement hors thread principal.
+
+**Decisions techniques :**
+1. Passer par un helper unique `_load_overlay_from_file()` dans `MasterController`, afin que le chargement manuel et le rechargement post-nnUNet appliquent la meme sequence `overlay_loader -> annotation_model -> refresh_overlay`.
+2. Utiliser un `QObject` avec `pyqtSignal` pour rapatrier la fin nnUNet sur le thread UI, plutot que de continuer a faire du push direct depuis le callback du plugin.
+3. Lire en priorite la cle `mask` dans `OverlayLoader`, afin de rendre les NPZ nnUNet compatibles avec le chargeur overlay existant sans dependre de l ordre interne des cles du fichier.
+4. Conserver la boite de sauvegarde nnUNet mais la pre-remplir a partir du NDE et du modele, afin d automatiser le nommage sans supprimer le controle utilisateur sur l emplacement final.

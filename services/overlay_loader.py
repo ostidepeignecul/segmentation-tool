@@ -29,7 +29,11 @@ class OverlayLoader:
             keys = list(data.keys())
             if not keys:
                 raise ValueError("NPZ sans données utilisables.")
-            arr = data[keys[0]]
+            selected_key = next(
+                (key for key in ("mask", "arr_0") if key in keys),
+                keys[0],
+            )
+            arr = data[selected_key]
         else:
             arr = data
 
