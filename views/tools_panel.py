@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, Iterable, Optional, Tuple
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QColorDialog,
     QFrame,
     QLabel,
     QPushButton,
@@ -41,6 +43,7 @@ class ToolsPanel(QFrame):
     roi_delete_requested = pyqtSignal()
     selection_cancel_requested = pyqtSignal()
     label_selected = pyqtSignal(int)
+    label_color_changed = pyqtSignal(int, QColor)
     paint_size_changed = pyqtSignal(int)
     overlay_opacity_changed = pyqtSignal(float)
     nde_opacity_changed = pyqtSignal(float)
@@ -104,10 +107,14 @@ class ToolsPanel(QFrame):
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
         self._apply_roi_button: Optional[QPushButton] = None
-        self._label_container: Optional[QWidget] = None
-        self._label_layout: Optional[QVBoxLayout] = None
+        self._label_text_container: Optional[QWidget] = None
+        self._label_color_container: Optional[QWidget] = None
+        self._label_text_layout: Optional[QVBoxLayout] = None
+        self._label_color_layout: Optional[QVBoxLayout] = None
         self._label_group: Optional[QButtonGroup] = None
         self._label_buttons: Dict[int, QBtn] = {}
+        self._label_color_buttons: Dict[int, QPushButton] = {}
+        self._label_colors: Dict[int, QColor] = {}
 
         self._primary_min: int = 0
         self._primary_max: int = 0
@@ -142,7 +149,8 @@ class ToolsPanel(QFrame):
         roi_delete_button: QPushButton,
         selection_cancel_button: QPushButton,
         apply_roi_button: QPushButton,
-        label_container: QWidget,
+        label_text_container: QWidget,
+        label_color_container: QWidget,
         nde_opacity_label: Optional[QLabel] = None,
         nde_contrast_label: Optional[QLabel] = None,
     ) -> None:
@@ -176,8 +184,9 @@ class ToolsPanel(QFrame):
         self._roi_delete_button = roi_delete_button
         self._selection_cancel_button = selection_cancel_button
         self._apply_roi_button = apply_roi_button
-        self._label_container = label_container
-        self._ensure_label_layout()
+        self._label_text_container = label_text_container
+        self._label_color_container = label_color_container
+        self._ensure_label_layouts()
 
         self._prepare_tool_combo()
         self._tool_combo.currentIndexChanged.connect(self._on_tool_combo_changed)
@@ -296,36 +305,110 @@ class ToolsPanel(QFrame):
         slider.valueChanged.connect(handler)
         spinbox.valueChanged.connect(handler)
 
-    def _ensure_label_layout(self) -> None:
-        if self._label_container is None:
+    def _ensure_label_layouts(self) -> None:
+        if self._label_text_container is None or self._label_color_container is None:
             return
-        if self._label_layout is None:
-            self._label_layout = QVBoxLayout(self._label_container)
-            self._label_layout.setContentsMargins(0, 0, 0, 0)
-            self._label_layout.setSpacing(4)
+
+        if self._label_text_layout is None:
+            existing = self._label_text_container.layout()
+            if isinstance(existing, QVBoxLayout):
+                self._label_text_layout = existing
+            else:
+                self._label_text_layout = QVBoxLayout(self._label_text_container)
+            self._label_text_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        if self._label_color_layout is None:
+            existing = self._label_color_container.layout()
+            if isinstance(existing, QVBoxLayout):
+                self._label_color_layout = existing
+            else:
+                self._label_color_layout = QVBoxLayout(self._label_color_container)
+            self._label_color_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
         if self._label_group is None:
             self._label_group = QButtonGroup(self)
             self._label_group.idClicked.connect(self.label_selected.emit)
 
-    def set_labels(self, labels: list[int], *, current: Optional[int] = None) -> None:
-        """Populate the label list and select the requested/current label if possible."""
-        self._ensure_label_layout()
-        if self._label_layout is None or self._label_group is None:
+    def _clear_label_widgets(self) -> None:
+        if self._label_group is not None:
+            for btn in self._label_buttons.values():
+                self._label_group.removeButton(btn)
+                btn.setParent(None)
+                btn.deleteLater()
+
+        for btn in self._label_color_buttons.values():
+            btn.setParent(None)
+            btn.deleteLater()
+
+        self._label_buttons.clear()
+        self._label_color_buttons.clear()
+        self._label_colors.clear()
+
+    def set_labels(
+        self,
+        entries: Iterable[Tuple[int, QColor]],
+        *,
+        current: Optional[int] = None,
+    ) -> None:
+        """Populate the label list with editable colors and restore selection."""
+        self._ensure_label_layouts()
+        if (
+            self._label_text_layout is None
+            or self._label_color_layout is None
+            or self._label_group is None
+        ):
             return
 
-        for btn in self._label_buttons.values():
-            self._label_group.removeButton(btn)
-            btn.setParent(None)
-        self._label_buttons.clear()
+        self._clear_label_widgets()
 
-        for lbl in labels:
-            btn = QBtn(format_label_text(lbl), self._label_container)
-            btn.setCheckable(True)
-            self._label_group.addButton(btn, lbl)
-            self._label_layout.addWidget(btn)
-            self._label_buttons[lbl] = btn
+        label_ids: list[int] = []
+        max_label_width = 0
+        max_row_height = 0
 
-        target = current if current in labels else (labels[0] if labels else None)
+        for label_id, color in entries:
+            lbl = int(label_id)
+            qcolor = QColor(color)
+
+            label_button = QBtn(format_label_text(lbl), self._label_text_container)
+            label_button.setCheckable(True)
+            self._label_group.addButton(label_button, lbl)
+            self._label_text_layout.addWidget(
+                label_button,
+                0,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            )
+
+            color_button = QPushButton(qcolor.name(), self._label_color_container)
+            color_button.setFixedWidth(90)
+            color_button.clicked.connect(
+                lambda _checked=False, label_id=lbl: self._on_pick_label_color(label_id)
+            )
+            self._label_color_layout.addWidget(
+                color_button,
+                0,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            )
+
+            self._label_buttons[lbl] = label_button
+            self._label_color_buttons[lbl] = color_button
+            self._label_colors[lbl] = qcolor
+            label_ids.append(lbl)
+            max_label_width = max(max_label_width, label_button.sizeHint().width())
+            max_row_height = max(
+                max_row_height,
+                label_button.sizeHint().height(),
+                color_button.sizeHint().height(),
+            )
+
+        for lbl in label_ids:
+            label_button = self._label_buttons[lbl]
+            color_button = self._label_color_buttons[lbl]
+            label_button.setFixedWidth(max_label_width)
+            label_button.setFixedHeight(max_row_height)
+            color_button.setFixedHeight(max_row_height)
+            self._apply_color_button_style(lbl)
+
+        target = current if current in label_ids else (label_ids[0] if label_ids else None)
         if target is not None:
             self.select_label(target)
 
@@ -334,6 +417,40 @@ class ToolsPanel(QFrame):
         btn = self._label_buttons.get(int(label_id))
         if btn is not None:
             btn.setChecked(True)
+
+    def set_label_color(self, label_id: int, color: QColor) -> None:
+        """Update a label color button without rebuilding the full list."""
+        label = int(label_id)
+        if label not in self._label_color_buttons:
+            return
+        self._label_colors[label] = QColor(color)
+        self._apply_color_button_style(label)
+
+    def _on_pick_label_color(self, label_id: int) -> None:
+        current = QColor(self._label_colors.get(int(label_id), QColor("#ff00ff")))
+        picked = QColorDialog.getColor(
+            current,
+            self,
+            f"Couleur pour {format_label_text(int(label_id))}",
+        )
+        if picked.isValid():
+            self.set_label_color(int(label_id), picked)
+            self.label_color_changed.emit(int(label_id), picked)
+
+    def _apply_color_button_style(self, label_id: int) -> None:
+        label = int(label_id)
+        button = self._label_color_buttons.get(label)
+        color = self._label_colors.get(label)
+        if button is None or color is None:
+            return
+        text_color = "#000000" if color.lightness() >= 140 else "#ffffff"
+        button.setText(color.name())
+        button.setStyleSheet(
+            f"background-color: {color.name()}; color: {text_color}; font-weight: bold;"
+        )
+        button.setToolTip(
+            f"Changer la couleur de {format_label_text(label)} ({color.name()})"
+        )
 
     def set_slice_bounds(self, minimum: int, maximum: int) -> None:
         """Backward-compatible wrapper for the primary coordinate bounds."""

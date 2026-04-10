@@ -6,7 +6,7 @@ from typing import Any, Optional
 import numpy as np
 
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtGui import QColor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -396,7 +396,8 @@ class MasterController:
             roi_delete_button=self._tools_ui.pushButton_3,
             selection_cancel_button=self._tools_ui.pushButton_4,
             apply_roi_button=self._tools_ui.pushButton_7,
-            label_container=self._tools_ui.scrollAreaWidgetContents,
+            label_text_container=self._tools_ui.frame_5,
+            label_color_container=self._tools_ui.frame_6,
             nde_opacity_label=getattr(self._tools_ui, "label_10", None),
             nde_contrast_label=getattr(self._tools_ui, "label_12", None),
         )
@@ -464,6 +465,7 @@ class MasterController:
             self.corrosion_profile_controller.on_apply_roi_requested
         )
         self.tools_panel.label_selected.connect(self.annotation_controller.on_label_selected)
+        self.tools_panel.label_color_changed.connect(self._on_label_color_changed)
         self.tools_panel.label_selected.connect(
             self.corrosion_profile_controller.on_active_label_changed
         )
@@ -532,7 +534,7 @@ class MasterController:
             self.annotation_controller.on_label_visibility_changed
         )
         self.overlay_settings_view.label_color_changed.connect(
-            self.annotation_controller.on_label_color_changed
+            self._on_label_color_changed
         )
         self.overlay_settings_view.overlay_opacity_changed.connect(
             self._on_overlay_opacity_changed
@@ -1275,6 +1277,17 @@ class MasterController:
         self.overlay_settings_view.set_overlay_opacity(alpha)
         self.tools_panel.set_overlay_opacity(alpha)
 
+    def _on_label_color_changed(self, label_id: int, color: Any) -> None:
+        """Keep label colors synchronized across both label editors and render views."""
+        qcolor = QColor(color)
+        if not qcolor.isValid():
+            return
+        label = int(label_id)
+        self.annotation_controller.on_label_color_changed(label, qcolor)
+        visible = self.annotation_model.label_visibility.get(label, True)
+        self.overlay_settings_view.ensure_label(label, qcolor, visible=visible)
+        self.tools_panel.set_label_color(label, qcolor)
+
     def _on_nde_opacity_changed(self, opacity: float) -> None:
         """Keep NDE opacity synchronized across the tools panel and render views."""
         self.view_state_model.set_nde_alpha(opacity)
@@ -1722,7 +1735,15 @@ class MasterController:
         self.annotation_model.ensure_persistent_labels()
         self.temp_mask_model.ensure_persistent_labels()
         palette = self.annotation_model.get_label_palette()
-        labels = sorted(lbl for lbl in palette.keys() if int(lbl) != 0) if palette else []
+        entries = [
+            (
+                int(label_id),
+                QColor(int(color[2]), int(color[1]), int(color[0]), int(color[3])),
+            )
+            for label_id, color in sorted(palette.items())
+            if int(label_id) != 0
+        ] if palette else []
+        labels = [label_id for label_id, _color in entries]
         current = select_label_id if select_label_id is not None else self.view_state_model.active_label
         try:
             current = None if current is None else int(current)
@@ -1739,7 +1760,7 @@ class MasterController:
                     (labels[0] if labels else None),
                 )
         self.view_state_model.set_active_label(current)
-        self.tools_panel.set_labels(labels, current=current)
+        self.tools_panel.set_labels(entries, current=current)
         self.mask_modification_controller.on_active_label_changed(-1 if current is None else int(current))
         self._sync_overwrite_rule_editor()
         self._sync_corrosion_label_choices()

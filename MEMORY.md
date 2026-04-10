@@ -3919,3 +3919,21 @@ Le besoin etait que le resultat d inference nnUNet se comporte exactement comme 
 2. Utiliser un `QObject` avec `pyqtSignal` pour rapatrier la fin nnUNet sur le thread UI, plutot que de continuer a faire du push direct depuis le callback du plugin.
 3. Lire en priorite la cle `mask` dans `OverlayLoader`, afin de rendre les NPZ nnUNet compatibles avec le chargeur overlay existant sans dependre de l ordre interne des cles du fichier.
 4. Conserver la boite de sauvegarde nnUNet mais la pre-remplir a partir du NDE et du modele, afin d automatiser le nommage sans supprimer le controle utilisateur sur l emplacement final.
+
+### 2026-04-10 - Tools panel labels dynamiques en deux colonnes
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/master_controller.py`, `#views/tools_panel.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#labels`, `#overlay`, `#ui`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Recompose `toolspanel.ui` pour reserver dans le panneau d outils une zone labels basee sur un `QScrollArea` avec deux colonnes dediees `frame_5` et `frame_6`, tout en reajustant la presentation visuelle des sections opacite/colormap et en regenerant `ui_toolspanel.py`.
+- Etend `views/tools_panel.py` pour generer dynamiquement les labels a partir de la palette courante sous forme de radios dans `frame_5` et de boutons couleur dans `frame_6`, avec alignement des lignes, selection du label actif et edition de couleur via `QColorDialog`.
+- Ajoute dans `views/tools_panel.py` le signal `label_color_changed` et la mise a jour locale des boutons couleur afin que le panneau principal puisse modifier la palette sans reconstruire toute l interface.
+- Refactorise `controllers/master_controller.py` pour passer les deux conteneurs Designer au `ToolsPanel`, convertir la palette BGRA du modele en `QColor`, et centraliser la synchro des changements de couleur entre le tools panel, `OverlaySettingsView` et le modele d annotation.
+
+**Contexte :**
+Le besoin etait d obtenir dans le tools panel principal un rendu visuel en deux colonnes distinctes, avec les labels a gauche et les couleurs a droite, sans perdre la generation dynamique deja en place. L utilisateur voulait aussi pouvoir modifier la couleur depuis ce panneau comme dans les parametres d overlay, tout en s appuyant sur le nouveau layout Designer plutot que sur une ligne de widgets generes dans un conteneur unique.
+
+**Decisions techniques :**
+1. Conserver la generation dynamique dans `ToolsPanel`, mais l injecter dans les conteneurs Designer `frame_5` et `frame_6`, afin de garder un nombre de labels arbitraire sans figer l interface a quatre widgets statiques.
+2. Faire transiter tous les changements de couleur par `MasterController` via `_on_label_color_changed`, afin de synchroniser en un seul point le tools panel, `OverlaySettingsView`, la palette du modele et les previews ROI.
+3. Convertir explicitement les couleurs BGRA en `QColor` au moment de la synchro des labels, afin de laisser `ToolsPanel` purement focalise sur l UI PyQt et d eviter de dupliquer cette conversion dans la vue.
+4. Fixer une largeur et une hauteur homogenes aux widgets generes d une meme passe de rendu, afin que les deux colonnes restent visuellement alignees malgre des libelles de labels de longueurs variables.
