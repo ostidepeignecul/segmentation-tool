@@ -75,6 +75,7 @@ class AnnotationController:
         self._paint_stroke_last_point: Optional[tuple[int, int]] = None
         self._paint_stroke_preview_created: bool = False
         self.on_paint_size_changed(self.view_state_model.paint_radius)
+        self.set_outline_only(getattr(self.view_state_model, "show_outline_only", False))
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -143,6 +144,17 @@ class AnnotationController:
         """Gère le toggle de visibilité de l'overlay."""
         self.view_state_model.toggle_overlay(enabled)
         self.refresh_overlay(rebuild=False)
+
+    def set_outline_only(self, enabled: bool) -> None:
+        """Propagate outline-only display mode to 2D overlay views."""
+        self.view_state_model.set_show_outline_only(enabled)
+        self.annotation_view.set_overlay_outline_only(enabled)
+        if self.annotation_secondary_view is not None:
+            self.annotation_secondary_view.set_overlay_outline_only(enabled)
+        if self.annotation_corrosion_view is not None:
+            self.annotation_corrosion_view.set_overlay_outline_only(enabled)
+        if self.annotation_secondary_corrosion_view is not None:
+            self.annotation_secondary_corrosion_view.set_overlay_outline_only(enabled)
 
     def on_volume_view_overlay_toggled(self, enabled: bool) -> None:
         """Gère l'envoi optionnel de l'overlay vers la vue volume."""

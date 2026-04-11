@@ -78,6 +78,7 @@
     <addaction name="separator"/>
     <addaction name="actionToggle_cross"/>
     <addaction name="actionToggle_overlay"/>
+    <addaction name="actionToggle_outline_only"/>
     <addaction name="separator"/>
     <addaction name="actionResize_endview"/>
     <addaction name="actionR_initialisation_docks"/>
@@ -234,6 +235,11 @@
   <action name="actionRemap_classes">
    <property name="text">
     <string>Remap classes</string>
+   </property>
+  </action>
+  <action name="actionToggle_outline_only">
+   <property name="text">
+    <string>Toggle outline only</string>
    </property>
   </action>
  </widget>

@@ -93,6 +93,8 @@ class Ui_MainWindow(object):
         self.actionEnregistrer_sous.setObjectName("actionEnregistrer_sous")
         self.actionRemap_classes = QtGui.QAction(parent=MainWindow)
         self.actionRemap_classes.setObjectName("actionRemap_classes")
+        self.actionToggle_outline_only = QtGui.QAction(parent=MainWindow)
+        self.actionToggle_outline_only.setObjectName("actionToggle_outline_only")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionOuvrir_une_session)
@@ -122,6 +124,7 @@ class Ui_MainWindow(object):
         self.menuAffichage.addSeparator()
         self.menuAffichage.addAction(self.actionToggle_cross)
         self.menuAffichage.addAction(self.actionToggle_overlay)
+        self.menuAffichage.addAction(self.actionToggle_outline_only)
         self.menuAffichage.addSeparator()
         self.menuAffichage.addAction(self.actionResize_endview)
         self.menuAffichage.addAction(self.actionR_initialisation_docks)
@@ -173,6 +176,7 @@ class Ui_MainWindow(object):
         self.actionOuvrir_une_session.setText(_translate("MainWindow", "Ouvrir une session"))
         self.actionEnregistrer_sous.setText(_translate("MainWindow", "Enregistrer sous"))
         self.actionRemap_classes.setText(_translate("MainWindow", "Remap classes"))
+        self.actionToggle_outline_only.setText(_translate("MainWindow", "Toggle outline only"))
 
 
 if __name__ == "__main__":

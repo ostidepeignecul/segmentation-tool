@@ -40,6 +40,7 @@ class AnnotationView(EndviewView):
         self._freehand_drawing: bool = False
         self._line_drawing: bool = False
         self._roi_overlay: Optional[Any] = None
+        self._roi_overlay_palette: dict[int, tuple[int, int, int, int]] = {}
         self._box_start: Optional[Tuple[int, int]] = None
         self._roi_item = QGraphicsPixmapItem()
         self._roi_item.setOpacity(0.35)
@@ -100,6 +101,16 @@ class AnnotationView(EndviewView):
         """Set base colormap and adapt ROI box contour color for readability."""
         super().set_colormap(name, lut)
         self._update_roi_outline_color()
+
+    def set_overlay_outline_only(self, enabled: bool) -> None:
+        """Apply outline-only mode to both imported overlay and ROI preview."""
+        super().set_overlay_outline_only(enabled)
+        if self._roi_overlay is None:
+            self._roi_item.setPixmap(self._blank_pixmap())
+            return
+        self._roi_item.setPixmap(
+            self._roi_to_pixmap(self._roi_overlay, palette=self._roi_overlay_palette)
+        )
 
     # ------------------------------------------------------------------ #
     # Temporary shapes (stubs)
@@ -167,12 +178,14 @@ class AnnotationView(EndviewView):
     def set_roi_overlay(self, roi_mask: Any, palette: Optional[dict[int, tuple[int, int, int, int]]] = None) -> None:
         """Display a ROI mask overlay."""
         self._roi_overlay = roi_mask
+        self._roi_overlay_palette = dict(palette or {})
         pixmap = self._roi_to_pixmap(roi_mask, palette=palette)
         self._roi_item.setPixmap(pixmap)
 
     def clear_roi_overlay(self) -> None:
         """Remove any ROI overlay."""
         self._roi_overlay = None
+        self._roi_overlay_palette = {}
         self._roi_item.setPixmap(self._blank_pixmap())
         self.clear_roi_boxes()
         self.clear_roi_points()
@@ -434,6 +447,8 @@ class AnnotationView(EndviewView):
         arr = np.asarray(mask) if mask is not None else None
         if arr is None or arr.ndim != 2:
             return self._blank_pixmap()
+        if self._overlay_outline_only:
+            arr = self._build_outline_only_slice(arr)
         rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
         palette = palette or {}
         for lbl in np.unique(arr):

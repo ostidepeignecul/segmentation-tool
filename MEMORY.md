@@ -3937,3 +3937,23 @@ Le besoin etait d obtenir dans le tools panel principal un rendu visuel en deux 
 2. Faire transiter tous les changements de couleur par `MasterController` via `_on_label_color_changed`, afin de synchroniser en un seul point le tools panel, `OverlaySettingsView`, la palette du modele et les previews ROI.
 3. Convertir explicitement les couleurs BGRA en `QColor` au moment de la synchro des labels, afin de laisser `ToolsPanel` purement focalise sur l UI PyQt et d eviter de dupliquer cette conversion dans la vue.
 4. Fixer une largeur et une hauteur homogenes aux widgets generes d une meme passe de rendu, afin que les deux colonnes restent visuellement alignees malgre des libelles de labels de longueurs variables.
+
+### 2026-04-11 - Affichage outline only des overlays 2D
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#views/annotation_view.py`, `#views/endview_view.py`, `#overlay`, `#outline`, `#ui`, `#pyqt6`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute dans `ui_mainwindow.py` et `untitled.ui` l action menu `Affichage > Toggle outline only`.
+- Etend `models/view_state_model.py` avec un etat UI `show_outline_only` pour piloter ce mode d affichage.
+- Refactorise `controllers/master_controller.py` pour rendre l action cochable, synchroniser son etat avec le modele et propager le toggle vers le pipeline d annotation.
+- Etend `controllers/annotation_controller.py` avec `set_outline_only()` afin de pousser le mode `outline only` vers les vues 2D principales et secondaires sans toucher au pipeline metier de post-traitement.
+- Etend `views/endview_view.py` avec un rendu non destructif de contour 4-connexe qui conserve les ids de labels, puis l applique au rendu des overlays 2D.
+- Etend `views/annotation_view.py` pour reutiliser ce rendu contour sur les previews ROI temporaires et maintenir la coherence visuelle entre overlay importe et preview de masque.
+
+**Contexte :**
+L utilisateur avait ajoute l option `Affichage > Toggle outline only` et voulait afficher uniquement le contour des masques quand ce toggle est actif. Le code de post-traitement contenait deja une logique de contour pour le lissage, mais pas de sortie d affichage directement reutilisable. Il fallait donc introduire un mode de rendu dedie, strictement cote UI, sans melanger logique metier et vue.
+
+**Decisions techniques :**
+1. Ne pas reutiliser directement le contour du post-traitement ROI, car il sert a lisser puis rerasterizer un masque plein et non a produire une representation d affichage stable.
+2. Stocker le toggle dans `ViewStateModel`, afin que l etat reste centralise et synchronisable entre menu, controllers et restauration de session.
+3. Implementer l extraction de contour dans `EndviewView`, afin de traiter `outline only` comme une option de rendu 2D non destructive, independante des donnees source et du pipeline d annotation.
+4. Conserver les ids de labels sur les pixels de bord, afin de reutiliser la palette existante sans introduire de mapping special pour le mode contour.

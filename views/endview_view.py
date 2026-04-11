@@ -51,6 +51,7 @@ class EndviewView(QFrame):
         self._mask_volume: Optional[np.ndarray] = None  # New single mask volume
         self._overlay_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self._visible_labels: Optional[set[int]] = None
+        self._overlay_outline_only: bool = False
         self._colormap_name: str = "Gris"
         self._colormap_lut: Optional[np.ndarray] = None
         self._pixmaps = _PixmapBundle()
@@ -205,6 +206,11 @@ class EndviewView(QFrame):
             value = 1.0
         self._overlay_opacity = max(0.0, min(1.0, value))
         self._overlay_item.setOpacity(self._overlay_opacity)
+
+    def set_overlay_outline_only(self, enabled: bool) -> None:
+        """Render overlays as label contours only when enabled."""
+        self._overlay_outline_only = bool(enabled)
+        self._refresh_overlay_pixmap()
 
     def set_nde_opacity(self, opacity: float) -> None:
         """Set base NDE slice opacity (0.0 - 1.0)."""
@@ -507,6 +513,28 @@ class EndviewView(QFrame):
             rgba[labels == cls_int] = (r, g, b, a)
         return rgba
 
+    @staticmethod
+    def _build_outline_only_slice(mask_slice: np.ndarray) -> np.ndarray:
+        """Keep only 4-connected boundary pixels while preserving label ids."""
+        labels = np.asarray(mask_slice)
+        if labels.ndim != 2 or labels.size == 0:
+            return np.asarray(labels)
+
+        labels_i32 = np.asarray(labels, dtype=np.int32)
+        padded = np.pad(labels_i32, 1, mode="constant", constant_values=-1)
+        center = padded[1:-1, 1:-1]
+        nonzero = center > 0
+        is_boundary = (
+            (padded[:-2, 1:-1] != center)
+            | (padded[2:, 1:-1] != center)
+            | (padded[1:-1, :-2] != center)
+            | (padded[1:-1, 2:] != center)
+        )
+        outline_mask = nonzero & is_boundary
+        outlined = np.zeros_like(labels)
+        outlined[outline_mask] = labels[outline_mask]
+        return outlined
+
     def _compose_slice_rgba(self, index: int) -> np.ndarray:
         """Compose une slice RGBA à partir du masque uint8 et de la palette (LUT)."""
         if self._mask_volume is None:
@@ -543,8 +571,11 @@ class EndviewView(QFrame):
         except IndexError:
              return np.zeros((height, width, 4), dtype=np.uint8)
 
+        if self._overlay_outline_only:
+            slice_indices = self._build_outline_only_slice(slice_indices)
+
         # Apply LUT -> (H, W, 4)
-        rgba = lut[slice_indices]
+        rgba = lut[np.asarray(slice_indices, dtype=np.uint8)]
         return rgba
 
     # ------------------------------------------------------------------ #

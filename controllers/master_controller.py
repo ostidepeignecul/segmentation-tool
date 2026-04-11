@@ -356,6 +356,9 @@ class MasterController:
         if hasattr(self.ui, "actionToggle_overlay"):
             self.ui.actionToggle_overlay.setCheckable(True)
             self.ui.actionToggle_overlay.toggled.connect(self._on_overlay_toggled)
+        if hasattr(self.ui, "actionToggle_outline_only"):
+            self.ui.actionToggle_outline_only.setCheckable(True)
+            self.ui.actionToggle_outline_only.toggled.connect(self._on_outline_only_toggled)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionR_initialisation_docks"):
@@ -1608,6 +1611,11 @@ class MasterController:
         self.annotation_controller.on_overlay_toggled(enabled)
         self._set_action_checked(getattr(self.ui, "actionToggle_overlay", None), enabled)
 
+    def _on_outline_only_toggled(self, enabled: bool) -> None:
+        """Handle outline-only overlay rendering toggle."""
+        self.annotation_controller.set_outline_only(enabled)
+        self._set_action_checked(getattr(self.ui, "actionToggle_outline_only", None), enabled)
+
     def _on_annotation_freehand_completed(self, points: Any) -> None:
         """Create the ROI preview, then optionally apply it immediately."""
         preview_created = self.annotation_controller.on_annotation_freehand_completed(points)
@@ -1897,6 +1905,10 @@ class MasterController:
         self._set_action_checked(
             getattr(self.ui, "actionToggle_overlay", None),
             self.view_state_model.show_overlay,
+        )
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_outline_only", None),
+            getattr(self.view_state_model, "show_outline_only", False),
         )
 
     def _sync_coordinate_view_labels(self) -> None:
@@ -2396,6 +2408,9 @@ class MasterController:
         self.endview_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
+        self.annotation_controller.set_outline_only(
+            getattr(self.view_state_model, "show_outline_only", False)
+        )
 
         # Colormaps
         self.endview_controller.set_colormap(self.view_state_model.endview_colormap, None)
