@@ -20,6 +20,7 @@ class ViewStateModel:
         self.endview_colormap: str = "Gris"
         self.cscan_colormap: str = "Gris"
         self.show_overlay: bool = True
+        self.show_overlay_ascan: bool = True
         self.show_outline_only: bool = False
         self.show_volume_view_overlay: bool = True
         self.show_volume: bool = True
@@ -386,6 +387,9 @@ class ViewStateModel:
     # ------------------------------------------------------------------ #
     def toggle_overlay(self, visible: bool) -> None:
         self.show_overlay = bool(visible)
+
+    def set_show_overlay_ascan(self, visible: bool) -> None:
+        self.show_overlay_ascan = bool(visible)
 
     def set_show_outline_only(self, visible: bool) -> None:
         self.show_outline_only = bool(visible)

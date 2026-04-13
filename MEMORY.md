@@ -3957,3 +3957,24 @@ L utilisateur avait ajoute l option `Affichage > Toggle outline only` et voulait
 2. Stocker le toggle dans `ViewStateModel`, afin que l etat reste centralise et synchronisable entre menu, controllers et restauration de session.
 3. Implementer l extraction de contour dans `EndviewView`, afin de traiter `outline only` comme une option de rendu 2D non destructive, independante des donnees source et du pipeline d annotation.
 4. Conserver les ids de labels sur les pixels de bord, afin de reutiliser la palette existante sans introduire de mapping special pour le mode contour.
+
+### 2026-04-13 - Overlay des masques sur l A-scan avec toggle menu
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/ascan_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/ascan_service.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#views/ascan_view.py`, `#ascan`, `#overlay`, `#pyqtgraph`, `#ui`, `#mvc`
+
+**Actions effectuees :**
+- Etend `models/view_state_model.py` avec un etat UI `show_overlay_ascan` afin de piloter independamment l affichage des overlays dans l A-scan.
+- Branche dans `controllers/master_controller.py` l action menu `Affichage > Toggle overlay ascan`, synchronise son etat avec le modele et propage aussi l opacite globale d overlay vers les vues A-scan.
+- Refactorise `services/ascan_service.py` pour projeter le `mask_volume` courant sur le profil A-scan actif et produire des intervalles continus `(start, end, label)` limites aux labels visibles.
+- Etend `controllers/ascan_controller.py` pour injecter `mask_volume`, palette et visibilite des labels dans le calcul du profil, puis pousser les segments projetes vers les vues standard et corrosion.
+- Etend `views/ascan_view.py` avec un rendu PyQtGraph base sur `BarGraphItem` afin d afficher des zones rectangulaires semi-transparentes derriere la courbe A-scan pour chaque section segmentee.
+- Ajoute dans `controllers/annotation_controller.py` un callback de rafraichissement afin que l A-scan soit recalcule automatiquement apres import overlay, changement de visibilite/couleur ou toggle d overlay.
+- Verifie l implementation par compilation ciblee `python -m compileall` et par smoke tests Python sur la generation des spans et l instanciation `offscreen` de `AScanView`.
+
+**Contexte :**
+L utilisateur voulait voir directement sur l A-scan quelles portions du profil courant correspondent a des zones segmentees, sous forme de rectangles colores. Il avait aussi ajoute manuellement l entree menu `Toggle overlay ascan`, qu il fallait rendre reellement fonctionnelle sans introduire un calcul global couteux sur tous les A-scans du volume.
+
+**Decisions techniques :**
+1. Calculer l overlay uniquement pour le profil A-scan courant, afin de garder un cout lineaire sur la longueur du signal affiche plutot que sur tout le volume.
+2. Produire des spans continus par label dans `AScanService`, afin de fusionner les pixels contigus et d eviter un rendu ou une allocation par echantillon.
+3. Garder le rendu des rectangles strictement dans `AScanView`, afin de preserver la separation MVC entre calcul metier, orchestration controller et dessin UI.
+4. Faire dependre l overlay A-scan de `show_overlay`, `show_overlay_ascan`, de la visibilite des labels et de l opacite globale, afin de conserver un comportement coherent avec le pipeline d overlay deja existant.

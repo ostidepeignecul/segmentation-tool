@@ -7,6 +7,7 @@ from typing import Callable, Optional, Tuple
 import numpy as np
 from PyQt6.QtWidgets import QStackedLayout
 
+from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService, AScanProfile
@@ -21,6 +22,7 @@ class AScanController:
         self,
         *,
         ascan_service: AScanService,
+        annotation_model: AnnotationModel,
         standard_view: Optional[AScanView],
         corrosion_view: Optional[AScanViewCorrosion],
         stacked_layout: Optional[QStackedLayout],
@@ -29,6 +31,7 @@ class AScanController:
         set_endview_crosshair: Callable[[int, int], None],
     ) -> None:
         self.ascan_service = ascan_service
+        self.annotation_model = annotation_model
         self.standard_view = standard_view
         self.corrosion_view = corrosion_view
         self._stack = stacked_layout
@@ -47,10 +50,23 @@ class AScanController:
             self.clear()
             return
 
+        mask_volume = None
+        visible_labels = None
+        palette: dict[int, tuple[int, int, int, int]] = {}
+        if (
+            getattr(self.view_state_model, "show_overlay", True)
+            and getattr(self.view_state_model, "show_overlay_ascan", True)
+        ):
+            mask_volume = self.annotation_model.get_mask_volume()
+            visible_labels = self.annotation_model.get_visible_labels()
+            palette = self.annotation_model.get_label_palette()
+
         profile: Optional[AScanProfile] = self.ascan_service.build_profile(
             nde_model,
             slice_idx=self.view_state_model.current_slice,
             point_hint=point or self.view_state_model.current_point,
+            mask_volume=mask_volume,
+            visible_labels=visible_labels,
         )
         if profile is None:
             self.clear()
@@ -61,6 +77,7 @@ class AScanController:
                 continue
             view.set_signal(profile.signal_percent, positions=profile.positions)
             view.set_marker(profile.marker_index)
+            view.set_overlay_segments(profile.overlay_spans, palette=palette)
 
         if self.view_state_model.corrosion_active and self.corrosion_view is not None:
             self.show_corrosion()
@@ -98,6 +115,13 @@ class AScanController:
             self.standard_view.set_marker_visible(visible)
         if self.corrosion_view is not None:
             self.corrosion_view.set_marker_visible(visible)
+
+    def set_overlay_opacity(self, opacity: float) -> None:
+        """Propagate shared overlay opacity to A-scan views."""
+        if self.standard_view is not None:
+            self.standard_view.set_overlay_opacity(opacity)
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_overlay_opacity(opacity)
 
     def _update_corrosion_measurement(
         self,

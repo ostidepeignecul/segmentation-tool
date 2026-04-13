@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -54,6 +54,7 @@ class AnnotationController:
         applied_annotation_history_model: AppliedAnnotationHistoryModel,
         logger: logging.Logger,
         get_volume: Optional[callable] = None,
+        on_overlay_updated: Optional[Callable[[], None]] = None,
     ) -> None:
         self.annotation_model = annotation_model
         self.view_state_model = view_state_model
@@ -72,6 +73,7 @@ class AnnotationController:
         self.applied_annotation_history_model = applied_annotation_history_model
         self.logger = logger
         self._get_volume = get_volume
+        self._on_overlay_updated = on_overlay_updated
         self._paint_stroke_last_point: Optional[tuple[int, int]] = None
         self._paint_stroke_preview_created: bool = False
         self.on_paint_size_changed(self.view_state_model.paint_radius)
@@ -177,6 +179,7 @@ class AnnotationController:
             if self.annotation_corrosion_view is not None:
                 self.annotation_corrosion_view.set_overlay(None)
             self.volume_view.set_overlay(None)
+            self._notify_overlay_updated()
 
         mask_volume = self.annotation_model.get_mask_volume()
         palette = self.annotation_model.get_label_palette()
@@ -215,6 +218,7 @@ class AnnotationController:
             if self.annotation_corrosion_view is not None:
                 self.annotation_corrosion_view.set_overlay(None)
             self.volume_view.set_overlay(None)
+            self._notify_overlay_updated()
             return
 
         mask_label_count = len(palette) # approximate
@@ -252,6 +256,7 @@ class AnnotationController:
                 )
             else:
                 self.volume_view.set_overlay(None)
+        self._notify_overlay_updated()
 
     def clear_labels(self) -> None:
         """Efface tous les labels de la vue de paramètres overlay."""
@@ -1515,6 +1520,16 @@ class AnnotationController:
             entries.append((label_id, qcolor, visible))
         self.overlay_settings_view.set_labels(entries)
         self.overlay_settings_view.set_overlay_opacity(self.view_state_model.overlay_alpha)
+
+    def _notify_overlay_updated(self) -> None:
+        """Notify listeners after overlay state has been pushed to views."""
+        callback = self._on_overlay_updated
+        if callback is None:
+            return
+        try:
+            callback()
+        except Exception:
+            self.logger.debug("Overlay update callback failed.", exc_info=True)
 
     def _resolve_volume_dimensions(self) -> tuple[Optional[int], Optional[tuple[int, int]]]:
         """Return (depth, (H, W)) from annotation/temp models or underlying volume."""

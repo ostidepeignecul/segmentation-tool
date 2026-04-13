@@ -204,6 +204,7 @@ class MasterController:
             applied_annotation_history_model=self.applied_annotation_history_model,
             logger=self.logger,
             get_volume=self._current_volume,
+            on_overlay_updated=self._update_ascan_trace,
         )
         self.mask_modification_controller = MaskModificationController(
             view_state_model=self.view_state_model,
@@ -258,6 +259,7 @@ class MasterController:
         self.ascan_service = AScanService()
         self.ascan_controller = AScanController(
             ascan_service=self.ascan_service,
+            annotation_model=self.annotation_model,
             standard_view=self.ascan_view,
             corrosion_view=self.ascan_view_corrosion,
             stacked_layout=self.ascan_stack,
@@ -284,6 +286,7 @@ class MasterController:
         self._connect_signals()
         self._register_shortcuts()
         self.annotation_controller.apply_overlay_opacity()
+        self.ascan_controller.set_overlay_opacity(self.view_state_model.overlay_alpha)
         self._apply_annotation_action(getattr(self.view_state_model, "annotation_action", "draw"))
         self._update_main_window_title()
         self._update_endview_label()
@@ -356,6 +359,9 @@ class MasterController:
         if hasattr(self.ui, "actionToggle_overlay"):
             self.ui.actionToggle_overlay.setCheckable(True)
             self.ui.actionToggle_overlay.toggled.connect(self._on_overlay_toggled)
+        if hasattr(self.ui, "actionToggle_overlay_ascan"):
+            self.ui.actionToggle_overlay_ascan.setCheckable(True)
+            self.ui.actionToggle_overlay_ascan.toggled.connect(self._on_overlay_ascan_toggled)
         if hasattr(self.ui, "actionToggle_outline_only"):
             self.ui.actionToggle_outline_only.setCheckable(True)
             self.ui.actionToggle_outline_only.toggled.connect(self._on_outline_only_toggled)
@@ -1277,6 +1283,7 @@ class MasterController:
         """Keep overlay opacity synchronized across the tools panel and settings dialog."""
         self.annotation_controller.on_overlay_opacity_changed(opacity)
         alpha = float(self.view_state_model.overlay_alpha)
+        self.ascan_controller.set_overlay_opacity(alpha)
         self.overlay_settings_view.set_overlay_opacity(alpha)
         self.tools_panel.set_overlay_opacity(alpha)
 
@@ -1611,6 +1618,12 @@ class MasterController:
         self.annotation_controller.on_overlay_toggled(enabled)
         self._set_action_checked(getattr(self.ui, "actionToggle_overlay", None), enabled)
 
+    def _on_overlay_ascan_toggled(self, enabled: bool) -> None:
+        """Handle A-scan overlay visibility toggle from the display menu."""
+        self.view_state_model.set_show_overlay_ascan(enabled)
+        self._set_action_checked(getattr(self.ui, "actionToggle_overlay_ascan", None), enabled)
+        self._update_ascan_trace()
+
     def _on_outline_only_toggled(self, enabled: bool) -> None:
         """Handle outline-only overlay rendering toggle."""
         self.annotation_controller.set_outline_only(enabled)
@@ -1905,6 +1918,10 @@ class MasterController:
         self._set_action_checked(
             getattr(self.ui, "actionToggle_overlay", None),
             self.view_state_model.show_overlay,
+        )
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_overlay_ascan", None),
+            getattr(self.view_state_model, "show_overlay_ascan", True),
         )
         self._set_action_checked(
             getattr(self.ui, "actionToggle_outline_only", None),
@@ -2408,6 +2425,7 @@ class MasterController:
         self.endview_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
         self.ascan_controller.set_marker_visible(self.view_state_model.show_cross)
+        self.ascan_controller.set_overlay_opacity(self.view_state_model.overlay_alpha)
         self.annotation_controller.set_outline_only(
             getattr(self.view_state_model, "show_outline_only", False)
         )

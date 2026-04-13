@@ -22,6 +22,7 @@ class AScanProfile:
     positions: np.ndarray
     marker_index: int
     crosshair: Tuple[int, int]
+    overlay_spans: tuple[tuple[int, int, int], ...] = ()
 
 
 class AScanService:
@@ -32,6 +33,9 @@ class AScanService:
         model: NdeModel,
         slice_idx: int,
         point_hint: Optional[Tuple[int, int]] = None,
+        *,
+        mask_volume: Optional[np.ndarray] = None,
+        visible_labels: Optional[Set[int]] = None,
     ) -> Optional[AScanProfile]:
         """Return a normalized profile and metadata for the requested point."""
         volume = model.get_active_volume()
@@ -76,12 +80,22 @@ class AScanService:
             normalized.size,
             ultrasound_axis,
         )
+        overlay_spans = self._build_overlay_spans(
+            mask_volume=mask_volume,
+            volume_shape=tuple(volume.shape),
+            slice_idx=slice_idx,
+            px=px,
+            py=py,
+            ultrasound_axis=ultrasound_axis,
+            visible_labels=visible_labels,
+        )
 
         return AScanProfile(
             signal_percent=normalized * 100.0,
             positions=positions,
             marker_index=marker_index,
             crosshair=(px, py),
+            overlay_spans=overlay_spans,
         )
 
     def log_preview(
@@ -383,6 +397,68 @@ class AScanService:
             tail_axes.sort(key=lambda item: item[1], reverse=True)
             return tail_axes[0][0]
         return max(0, len(shape) - 1)
+
+    def _build_overlay_spans(
+        self,
+        *,
+        mask_volume: Optional[np.ndarray],
+        volume_shape: Tuple[int, ...],
+        slice_idx: int,
+        px: int,
+        py: int,
+        ultrasound_axis: int,
+        visible_labels: Optional[Set[int]],
+    ) -> tuple[tuple[int, int, int], ...]:
+        if mask_volume is None:
+            return ()
+
+        mask_data = np.asarray(mask_volume, dtype=np.uint8)
+        if mask_data.ndim != 3 or tuple(mask_data.shape) != tuple(volume_shape):
+            return ()
+
+        try:
+            if ultrasound_axis == 2:
+                labels = np.asarray(mask_data[slice_idx, py, :], dtype=np.uint8).reshape(-1)
+            elif ultrasound_axis == 1:
+                labels = np.asarray(mask_data[slice_idx, :, px], dtype=np.uint8).reshape(-1)
+            elif ultrasound_axis == 0:
+                labels = np.asarray(mask_data[:, py, px], dtype=np.uint8).reshape(-1)
+            else:
+                return ()
+        except Exception:
+            return ()
+
+        if labels.size == 0:
+            return ()
+
+        allowed_labels: Optional[Set[int]] = None
+        if visible_labels is not None:
+            allowed_labels = {int(label_id) for label_id in visible_labels if int(label_id) > 0}
+            if not allowed_labels:
+                return ()
+
+        spans: list[tuple[int, int, int]] = []
+        current_label = 0
+        start_idx = -1
+
+        for idx, raw_label in enumerate(labels.tolist()):
+            label = int(raw_label)
+            if label <= 0 or (allowed_labels is not None and label not in allowed_labels):
+                label = 0
+
+            if label == current_label:
+                continue
+
+            if current_label > 0 and start_idx >= 0:
+                spans.append((start_idx, idx - 1, current_label))
+
+            current_label = label
+            start_idx = idx if label > 0 else -1
+
+        if current_label > 0 and start_idx >= 0:
+            spans.append((start_idx, int(labels.size) - 1, current_label))
+
+        return tuple(spans)
 
 
 class AScanExtractor:

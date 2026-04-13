@@ -78,6 +78,7 @@
     <addaction name="separator"/>
     <addaction name="actionToggle_cross"/>
     <addaction name="actionToggle_overlay"/>
+    <addaction name="actionToggle_overlay_ascan"/>
     <addaction name="actionToggle_outline_only"/>
     <addaction name="separator"/>
     <addaction name="actionResize_endview"/>
@@ -240,6 +241,11 @@
   <action name="actionToggle_outline_only">
    <property name="text">
     <string>Toggle outline only</string>
+   </property>
+  </action>
+  <action name="actionToggle_overlay_ascan">
+   <property name="text">
+    <string>Toggle overlay ascan</string>
    </property>
   </action>
  </widget>
