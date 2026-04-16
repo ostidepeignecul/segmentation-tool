@@ -4002,3 +4002,15 @@ L utilisateur souhaitait pouvoir comparer facilement differents algorithmes d in
 2. Stocker les peak maps bruts dans le resultat (`raw_peak_index_map_a/b`) plutot que de re-executer `run_analysis()` a chaque changement d algorithme.
 3. Garder le signal `corrosion_interpolation_requested(str)` dans la View (`ToolsPanel`) et le handler dans le Controller (`MasterController`) pour respecter MVC.
 4. Le combobox et le bouton dans `toolspanel.ui` (frame_12) sont connectes via `attach_designer_widgets` avec des parametres optionnels pour rester retrocompatible.
+
+### 2026-04-15 - Masques overlay absents de la vue A-scan corrosion
+**Tags :** `#branch:annotation`, `#controllers/ascan_controller.py`, `#ascan`, `#corrosion`, `#overlay`, `#mvc`
+
+**Actions effectuees :**
+- Modifie `controllers/ascan_controller.py` dans la boucle `update_trace` pour ne passer que `[]` a `corrosion_view.set_overlay_segments()` quand `corrosion_active` est vrai, au lieu de `profile.overlay_spans`.
+
+**Contexte :**
+Apres l activation du pipeline corrosion avec interpolation, des rectangles de spans de masque restaient visibles sur la vue A-scan corrosion. Le profil corrosion est una simple ligne FW/BW — il ne peut avoir qu une seule valeur y par x — donc les spans de masque de segmentation n y ont pas de sens.
+
+**Decisions techniques :**
+1. Conserver le calcul de `overlay_spans` dans `AScanService` tel quel et filtrer uniquement a l injection dans la vue corrosion, afin de ne pas changer le comportement de la vue standard ni le pipeline de calcul existant.

@@ -72,12 +72,16 @@ class AScanController:
             self.clear()
             return
 
+        corrosion_active = self.view_state_model.corrosion_active
         for view in (self.standard_view, self.corrosion_view):
             if view is None:
                 continue
             view.set_signal(profile.signal_percent, positions=profile.positions)
             view.set_marker(profile.marker_index)
-            view.set_overlay_segments(profile.overlay_spans, palette=palette)
+            # Les spans de masque ne sont pas pertinents sur la vue corrosion :
+            # le profil corrosion est une ligne simple (FW/BW), pas un profil segmenté.
+            spans = [] if (corrosion_active and view is self.corrosion_view) else profile.overlay_spans
+            view.set_overlay_segments(spans, palette=palette)
 
         if self.view_state_model.corrosion_active and self.corrosion_view is not None:
             self.show_corrosion()
