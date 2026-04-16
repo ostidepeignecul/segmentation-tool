@@ -3978,3 +3978,27 @@ L utilisateur voulait voir directement sur l A-scan quelles portions du profil c
 2. Produire des spans continus par label dans `AScanService`, afin de fusionner les pixels contigus et d eviter un rendu ou une allocation par echantillon.
 3. Garder le rendu des rectangles strictement dans `AScanView`, afin de preserver la separation MVC entre calcul metier, orchestration controller et dessin UI.
 4. Faire dependre l overlay A-scan de `show_overlay`, `show_overlay_ascan`, de la visibilite des labels et de l opacite globale, afin de conserver un comportement coherent avec le pipeline d overlay deja existant.
+
+### 2026-04-15 - Pipeline corrosion decouple : donnees brutes puis interpolation a la demande
+**Tags :** `#branch:annotation`, `#services/cscan_corrosion_service.py`, `#controllers/master_controller.py`, `#views/tools_panel.py`, `#models/view_state_model.py`, `#ui_toolspanel.py`, `#toolspanel.ui`, `#corrosion`, `#interpolation`, `#pipeline`, `#mvc`
+
+**Actions effectuees :**
+- Modifie `run_analysis()` dans `CScanCorrosionService` pour ne plus interpoler automatiquement les peak maps. Les donnees brutes (distance_map, peak maps, overlay) sont retournees directement.
+- Ajout de `raw_peak_index_map_a` / `raw_peak_index_map_b` dans `CorrosionAnalysisResult` et `CorrosionWorkflowResult` pour conserver les peak maps originaux.
+- Ajout du champ `mask_height` dans `CorrosionWorkflowResult` pour permettre la re-interpolation sans recalcul du volume masque.
+- Nouvelle methode `apply_interpolation(raw_result, algo, mask_height, ...)` dans `CScanCorrosionService` : accepte `"brut"` ou `"1d_dual_axis"`, reconstruit peak maps + distance map + overlay + piece 3D.
+- Nouvelle methode `run_interpolation(raw_result, algo, nde_model)` dans `CorrosionWorkflowService` : orchestre l interpolation a la demande sur un resultat brut existant.
+- Ajout de `corrosion_raw_peak_index_map_a/b` dans `ViewStateModel` avec reset dans `deactivate_corrosion()`.
+- Ajout du signal `corrosion_interpolation_requested(str)` dans `ToolsPanel`, avec mapping `_INTERP_ALGO_BY_TEXT` (`"brut"` → `"brut"`, `"1d dual-axis"` → `"1d_dual_axis"`).
+- Wiring de `comboBox_4` (algorithme) et `pushButton` (Calculer) dans `attach_designer_widgets()` du ToolsPanel.
+- Reecrit `_on_corrosion_completed()` dans `MasterController` pour afficher les donnees brutes sans interpolation et stocker le resultat dans `_raw_corrosion_workflow_result`.
+- Nouveau handler `_on_corrosion_interpolation_requested(algo)` dans `MasterController` : appelle `run_interpolation()` puis rafraichit toutes les vues (C-scan, Endview, overlay, 3D piece).
+
+**Contexte :**
+L utilisateur souhaitait pouvoir comparer facilement differents algorithmes d interpolation sur les profils de corrosion. Auparavant, l interpolation 1D dual-axis etait appliquee automatiquement lors de l analyse, rendant impossible la visualisation des donnees brutes ou la comparaison entre algorithmes. Le nouveau workflow affiche d abord les donnees brutes, puis permet de lancer un algorithme choisi via le combobox + bouton Calculer du ToolsPanel. A terme, d autres algorithmes (scipy.interpolate) seront ajoutes au combobox.
+
+**Decisions techniques :**
+1. Separer le calcul brut de l interpolation dans `CScanCorrosionService` via une methode dediee `apply_interpolation()`, pour ne pas dupliquer le pipeline complet a chaque nouvel algorithme.
+2. Stocker les peak maps bruts dans le resultat (`raw_peak_index_map_a/b`) plutot que de re-executer `run_analysis()` a chaque changement d algorithme.
+3. Garder le signal `corrosion_interpolation_requested(str)` dans la View (`ToolsPanel`) et le handler dans le Controller (`MasterController`) pour respecter MVC.
+4. Le combobox et le bouton dans `toolspanel.ui` (frame_12) sont connectes via `attach_designer_widgets` avec des parametres optionnels pour rester retrocompatible.

@@ -6,19 +6,19 @@
 Avant toute action, consulter la mémoire pour contexte et historique.
 
 ### Contexte Variable
-1.  **Si prompt contient `query` (Avec `brv query`)** :
+1.  **Si prompt contient `rag`** :
     *   **Date du jour**.
     *   **Git Recent** : Analyser les diffs des 3 derniers commits (`git show HEAD~2..HEAD`).
-2.  **Si prompt contient `curate` (Avec `brv curate`)** :
+2.  **Si prompt contient `brew`** :
     *   **Git Staged Changes** : Analyser les diffs des commits staged (`git diff --cached`).
 
 ### Stratégie Hybride
-1.  **Priorité 1 : ByteRover (`brv query`)**
-    *   **Fréquence** : Exécuter **UNIQUEMENT si le mot `query` est explicitement présent dans le prompt**.
-    *   **Attente** : Patienter jusqu'à **200 secondes** pour la réponse.
-    *   **Format Requis** : `"Question ou Sujets #tag1 #tag2"`
-    *   *Exemple* : `brv query "Logique de redimensionnement #endview #resize"`
-2.  **Fallback : MEMORY.md** (Si timeout > 200s ou KO)
+1.  **Priorité 1 : Ragbrew MCP (`search_memory`)**
+    *   **Fréquence** : Exécuter **UNIQUEMENT si le mot `rag` est explicitement présent dans le prompt**.
+    *   **Outil MCP** : `search_memory(query="Question ou Sujets", top_k=5)`
+    *   **Détail chunk** : Si un résultat est pertinent, utiliser `get_memory_chunk(chunk_id="...")` pour le texte complet.
+    *   *Exemple* : `search_memory(query="Logique de redimensionnement endview resize")`
+2.  **Fallback : MEMORY.md en lecture directe** (Si MCP indisponible)
 
 ## 2. Plan & Validation
 **RÈGLE D'OR :** Pas de code sans plan validé.
@@ -41,22 +41,16 @@ Avant toute action, consulter la mémoire pour contexte et historique.
 *   *Controllers*: `controllers/annotation_controller.py`, `controllers/volume_controller.py`
 
 ## 4. Documentation & Double Storage
-**RÈGLE :** Documenter **UNIQUEMENT si le mot `curate` est explicitement présent dans le prompt**.
+**RÈGLE :** Documenter **UNIQUEMENT si le mot `brew` est explicitement présent dans le prompt**.
 
-Si le prompt contient le mot `curate` :
+Si le prompt contient le mot `brew` :
 1.  **Récupérer Contexte** : Date du jour + **Git Staged Changes** (`git diff --cached`).
-2.  **ByteRover** : `brv curate "CONTENU_COMPLET_DE_LA_MEMOIRE (Titre + Tags + Actions + Contexte)"`
-    *   **Règle** : Tout le bloc texte doit être entre guillemets `" "`.
-    *   **Attention** : Échapper les guillemets internes (`\"`).
-    *   *Exemple* : `brv curate "### Titre ... avec \"citation\" interne ..."`
-    *   **Fallback Shell** : Si erreur d'arguments (PowerShell), retirer les guillemets internes problématiques.
-3.  **MEMORY.md** : Copie **IDENTIQUE** du contenu.
-    *   **CRITIQUE** : Toujours ajouter **À LA FIN** du fichier (ordre chronologique croissant).
+2.  **MEMORY.md** (Storage principal) : Ajouter l'entrée **À LA FIN** du fichier (ordre chronologique croissant).
     *   **FORMAT STRICT OBLIGATOIRE** :
 
     ```markdown
-    ---
-    ### **YYYY-MM-DD** - Titre de la modification
+
+    ### YYYY-MM-DD - Titre de la modification
     **Tags :** `#branch:<nom>`, `#fichier.py`, `#concept` 
 
     **Actions effectuées :**
@@ -72,6 +66,11 @@ Si le prompt contient le mot `curate` :
     
     ```
 
+3.  **Ragbrew MCP** (`rebuild_index`) : Après modification de MEMORY.md, reconstruire l'index vectoriel.
+    *   **Outil MCP** : `rebuild_index()` — ré-indexe automatiquement MEMORY.md.
+    *   **Vérification** : `get_memory_status()` pour confirmer le nombre d'entrées/chunks.
+    *   **CRITIQUE** : Toujours rebuilder après un `brew` pour que `search_memory` retourne les nouvelles entrées.
+
 ## 5. Propreté & Rigueur
 *   **Scripts de Test** : Créer, Tester, **SUPPRIMER**. Ne jamais commiter `test_*.py`.
 *   **Nettoyage** : Aucun fichier temporaire ne doit survivre à la tâche.
@@ -81,17 +80,24 @@ Si le prompt contient le mot `curate` :
 ## 6. Checklist de Démarrage
 Avant de coder :
 - [ ] Contexte acquis (Date + Git adapté à l'action).
-- [ ] Mémoire consultée (ByteRover ou MEMORY.md).
+- [ ] Mémoire consultée (Ragbrew `search_memory` ou MEMORY.md).
 - [ ] Architecture comprise.
 - [ ] Plan validé par l'utilisateur.
 - [ ] Environnement propre (pas de vieux scripts).
 
-## 7. Reference ByteRover CLI
+## 7. Référence Ragbrew MCP
 
-### Available Commands
+### Outils MCP Disponibles
 
-- `brv curate` - Curate context to the context tree
-- `brv query` - Query and retrieve information from the context tree
-- `brv status` - Show CLI status and project information
+| Outil | Usage | Description |
+| :--- | :--- | :--- |
+| `search_memory` | `rag` | Recherche sémantique dans l'index vectoriel de MEMORY.md |
+| `get_memory_chunk` | `rag` | Récupère le texte complet d'un chunk par son ID |
+| `get_memory_status` | `rag` / `brew` | Affiche le statut de l'index (nb entrées, chunks, projet) |
+| `rebuild_index` | `brew` | Reconstruit l'index après modification de MEMORY.md |
 
-Run `brv query --help` for query instruction and `brv curate --help` for curation instruction.
+### Workflow type
+
+1. **Consulter** : `search_memory(query="sujet", top_k=5)` → résultats avec scores
+2. **Approfondir** : `get_memory_chunk(chunk_id="...")` → texte complet
+3. **Documenter** : Écrire dans MEMORY.md → `rebuild_index()` → `get_memory_status()`

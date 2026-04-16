@@ -26,6 +26,8 @@ class CorrosionAnalysisResult:
     distance_map: np.ndarray
     peak_index_map_a: np.ndarray
     peak_index_map_b: np.ndarray
+    raw_peak_index_map_a: np.ndarray
+    raw_peak_index_map_b: np.ndarray
     ascan_support_map: np.ndarray
     distance_value_range: Tuple[float, float]
     interpolated_distance_map: np.ndarray
@@ -153,22 +155,11 @@ class CScanCorrosionService(CScanService):
         self._logger.info("[Corrosion] Carte distance calculee en %.2f s", time.perf_counter() - t0)
         self._log_progress(0.5, "Carte distance")
         t_overlay = time.perf_counter()
-        peak_index_map_a = self.interpolate_peak_map_1d_dual_axis(
-            peak_index_map_a,
-            height=mask_stack.shape[1],
-            support_map=ascan_support_map,
-        )
-        peak_index_map_b = self.interpolate_peak_map_1d_dual_axis(
-            peak_index_map_b,
-            height=mask_stack.shape[1],
-            support_map=ascan_support_map,
-        )
-        distance_map = self._build_distance_map_from_peak_maps(
-            peak_map_a=peak_index_map_a,
-            peak_map_b=peak_index_map_b,
-            use_mm=use_mm,
-            resolution_ultrasound_mm=resolution_ultrasound_mm,
-        )
+
+        # Conserver les peak maps bruts avant toute opération
+        raw_peak_index_map_a = peak_index_map_a.copy()
+        raw_peak_index_map_b = peak_index_map_b.copy()
+
         distance_results: Dict = {}
 
         color_A = int(class_A_id)
@@ -183,21 +174,15 @@ class CScanCorrosionService(CScanService):
         )
         self._logger.info("[Corrosion] Overlay lignes construit en %.2f s", time.perf_counter() - t_overlay)
         self._log_progress(0.75, "Overlay lignes")
-        t_interp = time.perf_counter()
 
         value_range = self.compute_display_value_range(distance_map)
 
-        interpolated_distance_map = self.build_interpolated_distance_map(
-            overlay=lines_overlay,
-            class_A_value=color_A,
-            class_B_value=color_B,
-            use_mm=use_mm,
-            resolution_ultrasound_mm=resolution_ultrasound_mm,
-        )
-        self._logger.info("[Corrosion] Carte interpolée calculée en %.2f s", time.perf_counter() - t_interp)
-        self._log_progress(0.9, "Interpolation")
+        # Pas d'interpolation au lancement — les données brutes sont affichées en premier.
+        # L'interpolation sera déclenchée manuellement via le bouton Calculer.
+        interpolated_distance_map = np.empty((0, 0), dtype=np.float32)
+        interpolated_value_range = (0.0, 0.0)
 
-        interpolated_value_range = self.compute_display_value_range(interpolated_distance_map)
+        self._log_progress(0.9, "Palette")
 
         palette_source = label_palette or {}
         color_a_bgra = palette_source.get(color_A)
@@ -216,13 +201,9 @@ class CScanCorrosionService(CScanService):
             class_A_id=class_A_id,
             class_B_id=class_B_id,
         )
-        piece_volume_legacy_interpolated = self._build_solid_volume(
-            mask_stack=lines_overlay,
-            class_A_id=color_A,
-            class_B_id=color_B,
-        )
+        piece_volume_legacy_interpolated = None
         piece_volume_raw = self._build_prismatic_piece_from_distance_map(distance_map)
-        piece_volume_interpolated = self._build_prismatic_piece_from_distance_map(interpolated_distance_map)
+        piece_volume_interpolated = None
         piece_anchor = self._compute_piece_anchor(
             piece_volume_interpolated,
             piece_volume_raw,
@@ -238,6 +219,8 @@ class CScanCorrosionService(CScanService):
             distance_map=distance_map,
             peak_index_map_a=peak_index_map_a,
             peak_index_map_b=peak_index_map_b,
+            raw_peak_index_map_a=raw_peak_index_map_a,
+            raw_peak_index_map_b=raw_peak_index_map_b,
             ascan_support_map=ascan_support_map,
             distance_value_range=value_range,
             interpolated_distance_map=interpolated_distance_map,
@@ -249,6 +232,102 @@ class CScanCorrosionService(CScanService):
             piece_volume_raw=piece_volume_raw,
             piece_volume_interpolated=piece_volume_interpolated,
             piece_volume_legacy_raw=piece_volume_legacy_raw,
+            piece_volume_legacy_interpolated=piece_volume_legacy_interpolated,
+            piece_anchor=piece_anchor,
+        )
+
+    def apply_interpolation(
+        self,
+        *,
+        raw_result: CorrosionAnalysisResult,
+        algo: str,
+        mask_height: int,
+        use_mm: bool = False,
+        resolution_ultrasound_mm: float = 1.0,
+    ) -> CorrosionAnalysisResult:
+        """Apply an interpolation algorithm on the raw peak maps and return a new result.
+
+        ``algo`` can be:
+        - ``"brut"`` — return a copy of *raw_result* without interpolation.
+        - ``"1d_dual_axis"`` — existing dual-axis linear interpolation.
+        """
+        if algo == "brut":
+            # Rebuild from raw peaks without any interpolation
+            peak_a = raw_result.raw_peak_index_map_a.copy()
+            peak_b = raw_result.raw_peak_index_map_b.copy()
+        elif algo == "1d_dual_axis":
+            peak_a = self.interpolate_peak_map_1d_dual_axis(
+                raw_result.raw_peak_index_map_a.copy(),
+                height=mask_height,
+                support_map=raw_result.ascan_support_map,
+            )
+            peak_b = self.interpolate_peak_map_1d_dual_axis(
+                raw_result.raw_peak_index_map_b.copy(),
+                height=mask_height,
+                support_map=raw_result.ascan_support_map,
+            )
+        else:
+            raise ValueError(f"Algorithme d'interpolation inconnu : {algo!r}")
+
+        distance_map = self._build_distance_map_from_peak_maps(
+            peak_map_a=peak_a,
+            peak_map_b=peak_b,
+            use_mm=use_mm,
+            resolution_ultrasound_mm=resolution_ultrasound_mm,
+        )
+        value_range = self.compute_display_value_range(distance_map)
+
+        class_A_id, class_B_id = raw_result.overlay_label_ids
+        overlay = self.build_overlay_from_peak_maps(
+            peak_map_a=peak_a,
+            peak_map_b=peak_b,
+            image_shape=(mask_height, peak_a.shape[1]) if peak_a.ndim == 2 else (mask_height, 1),
+            class_A_id=class_A_id,
+            class_B_id=class_B_id,
+            line_thickness=1,
+        )
+
+        interpolated_distance_map = self.build_interpolated_distance_map(
+            overlay=overlay,
+            class_A_value=int(class_A_id),
+            class_B_value=int(class_B_id),
+            use_mm=use_mm,
+            resolution_ultrasound_mm=resolution_ultrasound_mm,
+        )
+        interpolated_value_range = self.compute_display_value_range(interpolated_distance_map)
+
+        piece_volume_raw = self._build_prismatic_piece_from_distance_map(distance_map)
+        piece_volume_interpolated = self._build_prismatic_piece_from_distance_map(interpolated_distance_map)
+        piece_volume_legacy_interpolated = self._build_solid_volume(
+            mask_stack=overlay,
+            class_A_id=class_A_id,
+            class_B_id=class_B_id,
+        )
+        piece_anchor = self._compute_piece_anchor(
+            piece_volume_interpolated,
+            piece_volume_raw,
+            piece_volume_legacy_interpolated,
+            raw_result.piece_volume_legacy_raw,
+        )
+
+        return CorrosionAnalysisResult(
+            distance_results={},
+            distance_map=distance_map,
+            peak_index_map_a=peak_a,
+            peak_index_map_b=peak_b,
+            raw_peak_index_map_a=raw_result.raw_peak_index_map_a,
+            raw_peak_index_map_b=raw_result.raw_peak_index_map_b,
+            ascan_support_map=raw_result.ascan_support_map,
+            distance_value_range=value_range,
+            interpolated_distance_map=interpolated_distance_map,
+            interpolated_value_range=interpolated_value_range,
+            overlay_volume=overlay,
+            overlay_label_ids=raw_result.overlay_label_ids,
+            overlay_palette=raw_result.overlay_palette,
+            overlay_npz_path=None,
+            piece_volume_raw=piece_volume_raw,
+            piece_volume_interpolated=piece_volume_interpolated,
+            piece_volume_legacy_raw=raw_result.piece_volume_legacy_raw,
             piece_volume_legacy_interpolated=piece_volume_legacy_interpolated,
             piece_anchor=piece_anchor,
         )
@@ -937,6 +1016,8 @@ class CorrosionWorkflowResult:
     raw_distance_map: Optional[np.ndarray] = None
     peak_index_map_a: Optional[np.ndarray] = None
     peak_index_map_b: Optional[np.ndarray] = None
+    raw_peak_index_map_a: Optional[np.ndarray] = None
+    raw_peak_index_map_b: Optional[np.ndarray] = None
     ascan_support_map: Optional[np.ndarray] = None
     interpolated_distance_map: Optional[np.ndarray] = None
     interpolated_projection: Optional[np.ndarray] = None
@@ -944,6 +1025,7 @@ class CorrosionWorkflowResult:
     overlay_volume: Optional[np.ndarray] = None
     overlay_label_ids: Optional[Tuple[int, int]] = None
     overlay_palette: Optional[Dict[int, Tuple[int, int, int, int]]] = None
+    mask_height: Optional[int] = None
     piece_volume_raw: Optional[np.ndarray] = None
     piece_volume_interpolated: Optional[np.ndarray] = None
     piece_volume_legacy_raw: Optional[np.ndarray] = None
@@ -1090,12 +1172,14 @@ class CorrosionWorkflowService:
 
             return CorrosionWorkflowResult(
                 ok=True,
-                message="Analyse corrosion terminée",
+                message="Analyse corrosion terminée (données brutes)",
                 projection=projection,
                 value_range=value_range,
                 raw_distance_map=result.distance_map,
                 peak_index_map_a=result.peak_index_map_a,
                 peak_index_map_b=result.peak_index_map_b,
+                raw_peak_index_map_a=result.raw_peak_index_map_a,
+                raw_peak_index_map_b=result.raw_peak_index_map_b,
                 ascan_support_map=result.ascan_support_map,
                 interpolated_distance_map=result.interpolated_distance_map,
                 interpolated_projection=interpolated_projection,
@@ -1103,6 +1187,7 @@ class CorrosionWorkflowService:
                 overlay_volume=result.overlay_volume,
                 overlay_label_ids=result.overlay_label_ids,
                 overlay_palette=result.overlay_palette,
+                mask_height=int(mask_volume.shape[1]),
                 piece_volume_raw=result.piece_volume_raw,
                 piece_volume_interpolated=result.piece_volume_interpolated,
                 piece_volume_legacy_raw=result.piece_volume_legacy_raw,
@@ -1133,4 +1218,93 @@ class CorrosionWorkflowService:
         if ultra is None:
             ultra = 1.0
         return float(cross), float(ultra)
+
+    def run_interpolation(
+        self,
+        *,
+        raw_result: CorrosionWorkflowResult,
+        algo: str,
+        nde_model: Optional[NdeModel] = None,
+    ) -> CorrosionWorkflowResult:
+        """Apply interpolation on a previous raw workflow result and return a new result."""
+        if not raw_result.ok:
+            return CorrosionWorkflowResult(ok=False, message="Pas de résultat brut valide.")
+        if raw_result.raw_peak_index_map_a is None or raw_result.raw_peak_index_map_b is None:
+            return CorrosionWorkflowResult(ok=False, message="Peak maps bruts manquants.")
+
+        mask_height = raw_result.mask_height or 1
+        _, resolution_ultra = self._extract_resolutions(nde_model)
+
+        try:
+            # Build a temporary CorrosionAnalysisResult to feed apply_interpolation
+            raw_analysis = CorrosionAnalysisResult(
+                distance_results={},
+                distance_map=raw_result.raw_distance_map if raw_result.raw_distance_map is not None else np.empty((0, 0), dtype=np.float32),
+                peak_index_map_a=raw_result.peak_index_map_a,
+                peak_index_map_b=raw_result.peak_index_map_b,
+                raw_peak_index_map_a=raw_result.raw_peak_index_map_a,
+                raw_peak_index_map_b=raw_result.raw_peak_index_map_b,
+                ascan_support_map=raw_result.ascan_support_map if raw_result.ascan_support_map is not None else np.empty((0, 0), dtype=np.uint8),
+                distance_value_range=raw_result.value_range or (0.0, 0.0),
+                interpolated_distance_map=np.empty((0, 0), dtype=np.float32),
+                interpolated_value_range=(0.0, 0.0),
+                overlay_volume=raw_result.overlay_volume if raw_result.overlay_volume is not None else np.empty((0, 0, 0), dtype=np.uint8),
+                overlay_label_ids=raw_result.overlay_label_ids or (0, 0),
+                overlay_palette=raw_result.overlay_palette or {},
+                overlay_npz_path=None,
+                piece_volume_legacy_raw=raw_result.piece_volume_legacy_raw,
+            )
+
+            interp_result = self.cscan_corrosion_service.apply_interpolation(
+                raw_result=raw_analysis,
+                algo=algo,
+                mask_height=mask_height,
+                use_mm=False,
+                resolution_ultrasound_mm=resolution_ultra,
+            )
+
+            projection, value_range = self.cscan_corrosion_service.compute_corrosion_projection(
+                interp_result.distance_map,
+                value_range=interp_result.distance_value_range,
+            )
+
+            interpolated_projection: Optional[np.ndarray] = None
+            interpolated_value_range: Optional[Tuple[float, float]] = None
+            if interp_result.interpolated_distance_map.size > 0:
+                interpolated_projection, interpolated_value_range = self.cscan_corrosion_service.compute_corrosion_projection(
+                    interp_result.interpolated_distance_map,
+                    value_range=interp_result.interpolated_value_range,
+                )
+
+            algo_label = algo if algo != "brut" else "brut"
+            return CorrosionWorkflowResult(
+                ok=True,
+                message=f"Interpolation ({algo_label}) terminée",
+                projection=projection,
+                value_range=value_range,
+                raw_distance_map=raw_result.raw_distance_map,
+                peak_index_map_a=interp_result.peak_index_map_a,
+                peak_index_map_b=interp_result.peak_index_map_b,
+                raw_peak_index_map_a=raw_result.raw_peak_index_map_a,
+                raw_peak_index_map_b=raw_result.raw_peak_index_map_b,
+                ascan_support_map=raw_result.ascan_support_map,
+                interpolated_distance_map=interp_result.interpolated_distance_map,
+                interpolated_projection=interpolated_projection,
+                interpolated_value_range=interpolated_value_range,
+                overlay_volume=interp_result.overlay_volume,
+                overlay_label_ids=interp_result.overlay_label_ids,
+                overlay_palette=interp_result.overlay_palette,
+                mask_height=mask_height,
+                piece_volume_raw=interp_result.piece_volume_raw,
+                piece_volume_interpolated=interp_result.piece_volume_interpolated,
+                piece_volume_legacy_raw=interp_result.piece_volume_legacy_raw,
+                piece_volume_legacy_interpolated=interp_result.piece_volume_legacy_interpolated,
+                piece_anchor=interp_result.piece_anchor,
+            )
+
+        except Exception as exc:
+            return CorrosionWorkflowResult(
+                ok=False,
+                message=f"Interpolation failed: {exc}",
+            )
 

@@ -49,6 +49,7 @@ class ToolsPanel(QFrame):
     nde_opacity_changed = pyqtSignal(float)
     nde_contrast_changed = pyqtSignal(float)
     endview_colormap_changed = pyqtSignal(str)
+    corrosion_interpolation_requested = pyqtSignal(str)
 
     _TOOL_MODE_BY_TEXT = {
         "free hand": "free_hand",
@@ -67,6 +68,10 @@ class ToolsPanel(QFrame):
         "omniscan": "OmniScan",
         "gray": "Gris",
         "gris": "Gris",
+    }
+    _INTERP_ALGO_BY_TEXT = {
+        "brut": "brut",
+        "1d dual-axis": "1d_dual_axis",
     }
 
     def __init__(self, parent=None) -> None:
@@ -107,6 +112,8 @@ class ToolsPanel(QFrame):
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
         self._apply_roi_button: Optional[QPushButton] = None
+        self._corrosion_interp_combo: Optional[QComboBox] = None
+        self._corrosion_calc_button: Optional[QPushButton] = None
         self._label_text_container: Optional[QWidget] = None
         self._label_color_container: Optional[QWidget] = None
         self._label_text_layout: Optional[QVBoxLayout] = None
@@ -153,6 +160,8 @@ class ToolsPanel(QFrame):
         label_color_container: QWidget,
         nde_opacity_label: Optional[QLabel] = None,
         nde_contrast_label: Optional[QLabel] = None,
+        corrosion_interp_combo: Optional[QComboBox] = None,
+        corrosion_calc_button: Optional[QPushButton] = None,
     ) -> None:
         """Receive Designer-created widgets and wire them to the exposed signals."""
         if self._wired:
@@ -184,6 +193,8 @@ class ToolsPanel(QFrame):
         self._roi_delete_button = roi_delete_button
         self._selection_cancel_button = selection_cancel_button
         self._apply_roi_button = apply_roi_button
+        self._corrosion_interp_combo = corrosion_interp_combo
+        self._corrosion_calc_button = corrosion_calc_button
         self._label_text_container = label_text_container
         self._label_color_container = label_color_container
         self._ensure_label_layouts()
@@ -243,6 +254,10 @@ class ToolsPanel(QFrame):
             self._paint_size_slider.setValue(8)
             self._paint_size_slider.valueChanged.connect(self.paint_size_changed.emit)
 
+        self._prepare_corrosion_interp_combo()
+        if self._corrosion_calc_button is not None:
+            self._corrosion_calc_button.clicked.connect(self._on_corrosion_calc_clicked)
+
         self._wired = True
         self.set_nde_opacity_available(False)
 
@@ -286,6 +301,35 @@ class ToolsPanel(QFrame):
             normalized = self._normalize_colormap_name(text)
             self._colormap_combo.setItemData(idx, normalized)
             self._colormap_combo.setItemText(idx, normalized)
+
+    def _prepare_corrosion_interp_combo(self) -> None:
+        if self._corrosion_interp_combo is None:
+            return
+        for idx in range(self._corrosion_interp_combo.count()):
+            text = self._corrosion_interp_combo.itemText(idx).strip().lower()
+            algo = self._INTERP_ALGO_BY_TEXT.get(text)
+            if algo is not None:
+                self._corrosion_interp_combo.setItemData(idx, algo)
+
+    def _on_corrosion_calc_clicked(self) -> None:
+        if self._corrosion_interp_combo is None:
+            return
+        data = self._corrosion_interp_combo.currentData()
+        if data is not None:
+            algo = str(data)
+        else:
+            text = self._corrosion_interp_combo.currentText().strip().lower()
+            algo = self._INTERP_ALGO_BY_TEXT.get(text, text)
+        self.corrosion_interpolation_requested.emit(algo)
+
+    def current_corrosion_algo(self) -> str:
+        if self._corrosion_interp_combo is None:
+            return "brut"
+        data = self._corrosion_interp_combo.currentData()
+        if data is not None:
+            return str(data)
+        text = self._corrosion_interp_combo.currentText().strip().lower()
+        return self._INTERP_ALGO_BY_TEXT.get(text, "brut")
 
     def _configure_percentage_controls(
         self,
