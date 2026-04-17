@@ -4014,3 +4014,23 @@ Apres l activation du pipeline corrosion avec interpolation, des rectangles de s
 
 **Decisions techniques :**
 1. Conserver le calcul de `overlay_spans` dans `AScanService` tel quel et filtrer uniquement a l injection dans la vue corrosion, afin de ne pas changer le comportement de la vue standard ni le pipeline de calcul existant.
+
+### 2026-04-17 - Piece 3D integree au dock Volume et commit corrosion aligne sur l algo courant
+**Tags :** `#branch:annotation`, `#controllers/corrosion_profile_controller.py`, `#controllers/dock_layout_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/corrosion_profile_edit_service.py`, `#services/cscan_corrosion_service.py`, `#views/piece3d_view.py`, `#views/tools_panel.py`, `#corrosion`, `#piece3d`, `#volume`, `#interpolation`, `#mvc`, `#stack`
+
+**Actions effectuees :**
+- Ajoute `corrosion_interpolation_algo` dans `ViewStateModel` et le wiring associe dans `ToolsPanel` et `MasterController` pour conserver l algo corrosion actuellement selectionne dans l UI.
+- Remplace le `1d_dual_axis` hardcode du commit du profil corrosion par un passage via `interpolate_peak_map_with_algo(...)` dans `CScanCorrosionService`, appele depuis `CorrosionProfileEditService` et `CorrosionProfileController`.
+- Refactorise `DockLayoutController` pour construire un `volume_stack` contenant `VolumeView` standard et une page corrosion avec `Piece3DView` + bouton de bascule brut/interpole.
+- Supprime dans `MasterController` l ouverture de la fenetre flottante `QDialog` pour la piece 3D, et fait basculer l action `Afficher solide 3d` entre la vue Volume standard et la vue corrosion embarquee.
+- Ajoute le reset explicite de l etat 3D corrosion lors des changements de dataset, de session et d overlay global pour revenir a la vue Volume standard et eviter l affichage de donnees stale.
+- Ajuste `Piece3DView` pour masquer le slider secondaire et vider proprement la vue quand aucun volume corrosion n est disponible.
+
+**Contexte :**
+L utilisateur voulait conserver le comportement actuel du commit du profil corrosion, mais selon l algorithme choisi dans le combo plutot qu avec `1d_dual_axis` par defaut. En parallele, la piece 3D corrosion ne devait plus s ouvrir automatiquement dans une fenetre libre, et devait suivre le meme principe de remplacement de vue que les stacks deja utilises pour les vues A-scan, C-scan et Endview corrosion.
+
+**Decisions techniques :**
+1. Centraliser le choix de l algorithme de commit dans `CScanCorrosionService` avec `interpolate_peak_map_with_algo(...)`, afin que le commit du profil et le recalcul d interpolation partagent le meme dispatch.
+2. Stocker l algo courant dans `ViewStateModel` et le synchroniser depuis `ToolsPanel`, afin de rester dans un flux MVC sans lecture directe de widgets depuis les services.
+3. Integrer `Piece3DView` dans le dock `Volume` via un `QStackedLayout`, plutot que de remplacer l instance `volume_view` ou de maintenir un `QDialog` flottant, pour rester coherent avec l architecture corrosion existante.
+4. Conserver l affichage de la piece 3D comme action manuelle via `Afficher solide 3d`, tout en mettant a jour les donnees en cache apres les calculs corrosion sans changement visuel implicite.

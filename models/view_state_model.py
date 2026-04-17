@@ -81,6 +81,7 @@ class ViewStateModel:
         self.corrosion_raw_peak_index_map_a: Optional[Any] = None
         self.corrosion_raw_peak_index_map_b: Optional[Any] = None
         self.corrosion_ascan_support_map: Optional[Any] = None
+        self.corrosion_interpolation_algo: str = "brut"
         self.corrosion_label_a: Optional[int] = None
         self.corrosion_label_b: Optional[int] = None
 
@@ -434,6 +435,16 @@ class ViewStateModel:
 
     def set_cscan_colormap(self, name: str) -> None:
         self.cscan_colormap = str(name)
+
+    @staticmethod
+    def normalize_corrosion_interpolation_algo(algo: Optional[str]) -> str:
+        value = str(algo or "").strip().casefold()
+        return value or "brut"
+
+    def set_corrosion_interpolation_algo(self, algo: Optional[str]) -> str:
+        normalized = self.normalize_corrosion_interpolation_algo(algo)
+        self.corrosion_interpolation_algo = normalized
+        return normalized
 
     # ------------------------------------------------------------------ #
     # Metadata

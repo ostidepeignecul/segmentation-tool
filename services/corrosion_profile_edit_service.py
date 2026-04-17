@@ -268,6 +268,7 @@ class CorrosionProfileEditService:
         self,
         *,
         cscan_corrosion_service: CScanCorrosionService,
+        algo: str = "brut",
         rebuild_projection: bool = True,
     ) -> Optional[CorrosionCommitPayload]:
         if (
@@ -279,13 +280,15 @@ class CorrosionProfileEditService:
             return None
 
         height, _width = self._image_shape
-        committed_a = cscan_corrosion_service.interpolate_peak_map_1d_dual_axis(
+        committed_a = cscan_corrosion_service.interpolate_peak_map_with_algo(
             self._pending_peak_map_a,
+            algo=algo,
             height=height,
             support_map=self._ascan_support_map,
         )
-        committed_b = cscan_corrosion_service.interpolate_peak_map_1d_dual_axis(
+        committed_b = cscan_corrosion_service.interpolate_peak_map_with_algo(
             self._pending_peak_map_b,
+            algo=algo,
             height=height,
             support_map=self._ascan_support_map,
         )

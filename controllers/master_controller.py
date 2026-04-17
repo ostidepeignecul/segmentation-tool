@@ -15,8 +15,8 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QStackedLayout,
     QWidget,
-    QVBoxLayout,
 )
 
 from config.constants import DEFAULT_ACTIVE_LABEL_ID, PERSISTENT_LABEL_IDS
@@ -115,7 +115,8 @@ class MasterController:
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
         self.nde_settings_view = NdeSettingsView(self.main_window)
         self.corrosion_settings_view = CorrosionSettingsView(self.main_window)
-        self._piece3d_window: Optional[QWidget] = None
+        self._volume_stack: Optional[QStackedLayout] = None
+        self._piece3d_page: Optional[QWidget] = None
         self._piece3d_view: Optional[Piece3DView] = None
         self._piece_toggle_btn: Optional[QPushButton] = None
         self._piece_volume_raw: Optional[np.ndarray] = None
@@ -161,6 +162,12 @@ class MasterController:
         self.ascan_view_corrosion = self.dock_layout_controller.ascan_view_corrosion
         self.cscan_stack = self.dock_layout_controller.cscan_stack
         self.ascan_stack = self.dock_layout_controller.ascan_stack
+        self._volume_stack = self.dock_layout_controller.volume_stack
+        self._piece3d_page = self.dock_layout_controller.piece3d_page
+        self._piece3d_view = self.dock_layout_controller.piece3d_view
+        self._piece_toggle_btn = self.dock_layout_controller.piece3d_toggle_button
+        if self._piece_toggle_btn is not None:
+            self._piece_toggle_btn.clicked.connect(self._toggle_piece_volume)
 
         self.endview_controller = EndviewController(
             standard_view=self.annotation_view,
@@ -483,6 +490,9 @@ class MasterController:
         )
         self.tools_panel.label_selected.connect(
             self.mask_modification_controller.on_active_label_changed
+        )
+        self.tools_panel.corrosion_interpolation_algo_changed.connect(
+            self._on_corrosion_algo_changed
         )
         self.tools_panel.corrosion_interpolation_requested.connect(
             self._on_corrosion_interpolation_requested
@@ -1338,6 +1348,10 @@ class MasterController:
         self.cscan_controller.set_colormap(normalized, lut)
         self.nde_settings_view.set_cscan_colormap(normalized)
 
+    def _on_corrosion_algo_changed(self, algo: str) -> None:
+        normalized = self.view_state_model.set_corrosion_interpolation_algo(algo)
+        self.tools_panel.set_corrosion_algo(normalized)
+
     def _on_apply_volume_range_changed(self, start: int, end: int) -> None:
         """Handle apply-to-volume range updates from settings."""
         volume = self._current_volume()
@@ -2062,6 +2076,7 @@ class MasterController:
         self.roi_model.clear()
         self.annotation_controller.sync_overlay_settings()
         self.cscan_controller.reset_corrosion()
+        self._reset_piece3d_state(sync_action=True)
         self.mask_modification_controller.reset()
 
         self.session_manager.reset_for_new_dataset(
@@ -2121,6 +2136,7 @@ class MasterController:
         self.roi_model.clear()
         self.annotation_model.set_mask_volume(mask_volume, preserve_labels=preserve_labels)
         self.cscan_controller.reset_corrosion()
+        self._reset_piece3d_state(sync_action=True)
         self.mask_modification_controller.reset()
         self.annotation_controller.sync_overlay_settings()
         self.annotation_controller.refresh_overlay()
@@ -2238,6 +2254,7 @@ class MasterController:
 
     def _clear_session_runtime_state(self, *, remove_autosaves: bool) -> None:
         self.session_workspace_controller.clear_runtime_state(remove_autosaves=remove_autosaves)
+        self._reset_piece3d_state(sync_action=True)
 
     def _suggest_session_save_path(
         self,
@@ -2400,6 +2417,7 @@ class MasterController:
 
     def _after_session_switch(self) -> None:
         """Synchronise l'état du modèle actif vers les vues."""
+        self._reset_piece3d_state(sync_action=True)
         self.annotation_controller.clear_apply_history()
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
@@ -2441,6 +2459,9 @@ class MasterController:
         self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
         self.cscan_controller.set_colormap(self.view_state_model.cscan_colormap, None)
         self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
+        self.tools_panel.set_corrosion_algo(
+            getattr(self.view_state_model, "corrosion_interpolation_algo", "brut")
+        )
         self.nde_settings_view.set_colormaps(
             endview=self.view_state_model.endview_colormap,
             cscan=self.view_state_model.cscan_colormap,
@@ -2571,6 +2592,8 @@ class MasterController:
 
     def _on_corrosion_interpolation_requested(self, algo: str) -> None:
         """Applique l'algorithme d'interpolation choisi sur les données brutes."""
+        algo = self.view_state_model.set_corrosion_interpolation_algo(algo)
+        self.tools_panel.set_corrosion_algo(algo)
         raw = self._raw_corrosion_workflow_result
         if raw is None or not raw.ok:
             self.status_message("Aucune analyse corrosion brute disponible.", 3000)
@@ -2652,11 +2675,15 @@ class MasterController:
         return self.nde_model.get_active_volume()
 
     def _on_piece3d_toggled(self, checked: bool) -> None:
-        """Show/hide the piece3D window from the Analyse menu."""
+        """Show/hide the embedded piece3D view inside the Volume dock."""
         if checked:
-            self._show_piece3d_window()
+            if not self._has_piece3d_data():
+                self.status_message("Aucun solide 3D corrosion disponible.", 3000)
+                self._show_standard_volume_view(sync_action=True)
+                return
+            self._show_piece3d_view(sync_action=True)
         else:
-            self._close_piece3d_window()
+            self._show_standard_volume_view(sync_action=False)
 
     def _sync_piece3d_action(self, checked: bool) -> None:
         """Update the menu action without re-triggering the toggle handler."""
@@ -2667,38 +2694,30 @@ class MasterController:
         action.setChecked(bool(checked))
         action.blockSignals(False)
 
-    def _ensure_piece3d_window(self) -> None:
-        """Create the piece3D window lazily and wire close tracking."""
-        if self._piece3d_window is not None:
-            return
-        self._piece3d_window = QDialog(self.main_window)
-        self._piece3d_window.setWindowTitle("Pièce 3D corrosion")
-        self._piece3d_window.finished.connect(self._on_piece3d_window_closed)
-        layout = QVBoxLayout(self._piece3d_window)
-        self._piece3d_view = Piece3DView(parent=self._piece3d_window)
-        self._piece_toggle_btn = QPushButton("Afficher version brute", parent=self._piece3d_window)
-        self._piece_toggle_btn.clicked.connect(self._toggle_piece_volume)
-        layout.addWidget(self._piece3d_view)
-        layout.addWidget(self._piece_toggle_btn)
-
-    def _show_piece3d_window(self) -> None:
-        """Open the piece3D window using the latest available volume."""
-        self._ensure_piece3d_window()
-        if self._piece3d_view is None or self._piece3d_window is None:
-            return
-
-        has_interp = (
-            self._piece_volume_interpolated is not None and self._piece_volume_interpolated.size > 0
-        ) or (
-            self._piece_volume_legacy_interpolated is not None
-            and self._piece_volume_legacy_interpolated.size > 0
+    def _has_piece3d_interpolated(self) -> bool:
+        return bool(
+            (self._piece_volume_interpolated is not None and self._piece_volume_interpolated.size > 0)
+            or (
+                self._piece_volume_legacy_interpolated is not None
+                and self._piece_volume_legacy_interpolated.size > 0
+            )
         )
-        has_raw = (self._piece_volume_raw is not None and self._piece_volume_raw.size > 0) or (
-            self._piece_volume_legacy_raw is not None and self._piece_volume_legacy_raw.size > 0
+
+    def _has_piece3d_raw(self) -> bool:
+        return bool(
+            (self._piece_volume_raw is not None and self._piece_volume_raw.size > 0)
+            or (self._piece_volume_legacy_raw is not None and self._piece_volume_legacy_raw.size > 0)
         )
-        if has_interp:
+
+    def _has_piece3d_data(self) -> bool:
+        return self._has_piece3d_interpolated() or self._has_piece3d_raw()
+
+    def _sync_piece3d_view(self) -> None:
+        if self._piece3d_view is None:
+            return
+        if self._has_piece3d_interpolated():
             self._piece_show_interpolated = True
-        elif has_raw:
+        elif self._has_piece3d_raw():
             self._piece_show_interpolated = False
 
         self._piece3d_view.set_piece_volume_sources(
@@ -2711,20 +2730,32 @@ class MasterController:
         self._piece3d_view.set_anchor_point(self._piece_anchor)
         self._update_piece_toggle_label()
 
-        self._piece3d_window.show()
-        self._piece3d_window.raise_()
-        self._piece3d_window.activateWindow()
-        self._sync_piece3d_action(True)
-
-    def _close_piece3d_window(self) -> None:
-        """Close the piece3D window if open."""
-        if self._piece3d_window is None:
+    def _show_piece3d_view(self, *, sync_action: bool) -> None:
+        """Display the corrosion piece view inside the Volume dock stack."""
+        if self._volume_stack is None or self._piece3d_page is None:
             return
-        self._piece3d_window.close()
+        self._sync_piece3d_view()
+        self._volume_stack.setCurrentWidget(self._piece3d_page)
+        if sync_action:
+            self._sync_piece3d_action(True)
 
-    def _on_piece3d_window_closed(self, *_args) -> None:
-        """Keep the menu action in sync when the window is closed."""
-        self._sync_piece3d_action(False)
+    def _show_standard_volume_view(self, *, sync_action: bool) -> None:
+        """Display the standard NDE volume view inside the Volume dock stack."""
+        if self._volume_stack is not None:
+            self._volume_stack.setCurrentWidget(self.volume_view)
+        if sync_action:
+            self._sync_piece3d_action(False)
+
+    def _reset_piece3d_state(self, *, sync_action: bool) -> None:
+        """Clear cached corrosion piece data and restore the standard volume page."""
+        self._piece_volume_raw = None
+        self._piece_volume_interpolated = None
+        self._piece_volume_legacy_raw = None
+        self._piece_volume_legacy_interpolated = None
+        self._piece_anchor = None
+        self._piece_show_interpolated = True
+        self._sync_piece3d_view()
+        self._show_standard_volume_view(sync_action=sync_action)
 
     def _show_piece3d_volume(
         self,
@@ -2734,11 +2765,7 @@ class MasterController:
         legacy_raw_volume: Optional[np.ndarray],
         legacy_interpolated_volume: Optional[np.ndarray],
     ) -> None:
-        """Affiche ou met à jour la fenêtre flottante de la pièce 3D corrosion."""
-        self._ensure_piece3d_window()
-        if self._piece3d_view is None:
-            return
-
+        """Cache et rafraîchit les données de la pièce 3D corrosion."""
         self._piece_volume_raw = raw_volume.astype(np.float32) if raw_volume is not None else None
         self._piece_volume_interpolated = (
             interpolated_volume.astype(np.float32) if interpolated_volume is not None else None
@@ -2751,38 +2778,17 @@ class MasterController:
             if legacy_interpolated_volume is not None
             else None
         )
-
-        has_interp = (
-            self._piece_volume_interpolated is not None and self._piece_volume_interpolated.size > 0
-        ) or (
-            self._piece_volume_legacy_interpolated is not None
-            and self._piece_volume_legacy_interpolated.size > 0
-        )
-        has_raw = (self._piece_volume_raw is not None and self._piece_volume_raw.size > 0) or (
-            self._piece_volume_legacy_raw is not None and self._piece_volume_legacy_raw.size > 0
-        )
-        if has_interp:
-            self._piece_show_interpolated = True
-        elif has_raw:
-            self._piece_show_interpolated = False
-
-        self._show_piece3d_window()
+        self._sync_piece3d_view()
+        action = getattr(self.ui, "actionAfficher_solide_3d", None)
+        if action is not None and action.isChecked():
+            self._show_piece3d_view(sync_action=False)
 
     def _toggle_piece_volume(self) -> None:
         """Bascule entre volume brut et volume interpolé si les deux sont disponibles."""
         if self._piece3d_view is None:
             return
 
-        has_interp = (
-            self._piece_volume_interpolated is not None and self._piece_volume_interpolated.size > 0
-        ) or (
-            self._piece_volume_legacy_interpolated is not None
-            and self._piece_volume_legacy_interpolated.size > 0
-        )
-        has_raw = (self._piece_volume_raw is not None and self._piece_volume_raw.size > 0) or (
-            self._piece_volume_legacy_raw is not None and self._piece_volume_legacy_raw.size > 0
-        )
-        if not (has_interp and has_raw):
+        if not (self._has_piece3d_interpolated() and self._has_piece3d_raw()):
             return
 
         self._piece_show_interpolated = not self._piece_show_interpolated

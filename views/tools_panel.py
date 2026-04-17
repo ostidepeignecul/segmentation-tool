@@ -49,6 +49,7 @@ class ToolsPanel(QFrame):
     nde_opacity_changed = pyqtSignal(float)
     nde_contrast_changed = pyqtSignal(float)
     endview_colormap_changed = pyqtSignal(str)
+    corrosion_interpolation_algo_changed = pyqtSignal(str)
     corrosion_interpolation_requested = pyqtSignal(str)
 
     _TOOL_MODE_BY_TEXT = {
@@ -255,6 +256,10 @@ class ToolsPanel(QFrame):
             self._paint_size_slider.valueChanged.connect(self.paint_size_changed.emit)
 
         self._prepare_corrosion_interp_combo()
+        if self._corrosion_interp_combo is not None:
+            self._corrosion_interp_combo.currentIndexChanged.connect(
+                self._on_corrosion_algo_combo_changed
+            )
         if self._corrosion_calc_button is not None:
             self._corrosion_calc_button.clicked.connect(self._on_corrosion_calc_clicked)
 
@@ -312,15 +317,7 @@ class ToolsPanel(QFrame):
                 self._corrosion_interp_combo.setItemData(idx, algo)
 
     def _on_corrosion_calc_clicked(self) -> None:
-        if self._corrosion_interp_combo is None:
-            return
-        data = self._corrosion_interp_combo.currentData()
-        if data is not None:
-            algo = str(data)
-        else:
-            text = self._corrosion_interp_combo.currentText().strip().lower()
-            algo = self._INTERP_ALGO_BY_TEXT.get(text, text)
-        self.corrosion_interpolation_requested.emit(algo)
+        self.corrosion_interpolation_requested.emit(self.current_corrosion_algo())
 
     def current_corrosion_algo(self) -> str:
         if self._corrosion_interp_combo is None:
@@ -330,6 +327,26 @@ class ToolsPanel(QFrame):
             return str(data)
         text = self._corrosion_interp_combo.currentText().strip().lower()
         return self._INTERP_ALGO_BY_TEXT.get(text, "brut")
+
+    def set_corrosion_algo(self, algo: str) -> None:
+        if self._corrosion_interp_combo is None:
+            return
+        normalized = str(algo).strip().lower() or "brut"
+        target_index = self._corrosion_interp_combo.findData(normalized)
+        if target_index < 0:
+            for idx in range(self._corrosion_interp_combo.count()):
+                text = self._corrosion_interp_combo.itemText(idx).strip().lower()
+                if self._INTERP_ALGO_BY_TEXT.get(text) == normalized:
+                    target_index = idx
+                    break
+        if target_index < 0:
+            return
+        self._corrosion_interp_combo.blockSignals(True)
+        self._corrosion_interp_combo.setCurrentIndex(target_index)
+        self._corrosion_interp_combo.blockSignals(False)
+
+    def _on_corrosion_algo_combo_changed(self, _index: int) -> None:
+        self.corrosion_interpolation_algo_changed.emit(self.current_corrosion_algo())
 
     def _configure_percentage_controls(
         self,

@@ -8,7 +8,7 @@ from typing import Optional
 import PyQt6Ads as ads
 from PyQt6.QtCore import QByteArray, QSettings, QTimer
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMainWindow, QStackedLayout, QWidget
+from PyQt6.QtWidgets import QMainWindow, QPushButton, QStackedLayout, QVBoxLayout, QWidget
 
 from ui_ascan import Ui_DockWidget as Ui_AScanDockWidget
 from ui_cscan import Ui_DockWidget as Ui_CScanDockWidget
@@ -22,6 +22,7 @@ from views.ascan_view_corrosion import AScanViewCorrosion
 from views.cscan_view import CScanView
 from views.cscan_view_corrosion import CscanViewCorrosion
 from views.endview_view_corrosion import EndviewViewCorrosion
+from views.piece3d_view import Piece3DView
 from views.tools_panel import ToolsPanel
 from views.volume_view import VolumeView
 
@@ -81,6 +82,10 @@ class DockLayoutController:
         self.ascan_stack: Optional[QStackedLayout] = None
         self.annotation_stack: Optional[QStackedLayout] = None
         self.secondary_annotation_stack: Optional[QStackedLayout] = None
+        self.volume_stack: Optional[QStackedLayout] = None
+        self.piece3d_page: Optional[QWidget] = None
+        self.piece3d_view: Optional[Piece3DView] = None
+        self.piece3d_toggle_button: Optional[QPushButton] = None
         self._dock_toggle_actions: dict[int, QAction] = {}
         self._default_layout_state: Optional[QByteArray] = None
 
@@ -292,6 +297,12 @@ class DockLayoutController:
         ) = self._build_secondary_annotation_stack()
         self.cscan_stack, self.cscan_view_corrosion = self._build_cscan_stack()
         self.ascan_stack, self.ascan_view_corrosion = self._build_ascan_stack()
+        (
+            self.volume_stack,
+            self.piece3d_page,
+            self.piece3d_view,
+            self.piece3d_toggle_button,
+        ) = self._build_volume_stack()
 
     def _build_annotation_stack(self) -> tuple[Optional[QStackedLayout], Optional[EndviewViewCorrosion]]:
         parent_widget = self.annotation_view.parentWidget()
@@ -365,6 +376,38 @@ class DockLayoutController:
         stack.setCurrentWidget(self.ascan_view)
         return stack, corrosion_view
 
+    def _build_volume_stack(
+        self,
+    ) -> tuple[
+        Optional[QStackedLayout],
+        Optional[QWidget],
+        Optional[Piece3DView],
+        Optional[QPushButton],
+    ]:
+        parent_widget = self.volume_view.parentWidget()
+        parent_layout = parent_widget.layout() if parent_widget is not None else None
+        if parent_widget is None or parent_layout is None:
+            return None, None, None, None
+
+        container = QWidget(parent=parent_widget)
+        stack = QStackedLayout(container)
+        stack.setContentsMargins(0, 0, 0, 0)
+        parent_layout.replaceWidget(self.volume_view, container)
+        self.volume_view.setParent(container)
+        stack.addWidget(self.volume_view)
+
+        piece_page = QWidget(parent=container)
+        piece_layout = QVBoxLayout(piece_page)
+        piece_layout.setContentsMargins(0, 0, 0, 0)
+        piece_layout.setSpacing(0)
+        piece_view = Piece3DView(parent=piece_page)
+        toggle_button = QPushButton("Afficher version brute", parent=piece_page)
+        piece_layout.addWidget(piece_view)
+        piece_layout.addWidget(toggle_button)
+        stack.addWidget(piece_page)
+        stack.setCurrentWidget(self.volume_view)
+        return stack, piece_page, piece_view, toggle_button
+
     def _on_dock_view_toggled(self, dock: ads.CDockWidget, visible: bool) -> None:
         """Keep menu action state in sync with dock visibility."""
         self._sync_dock_toggle_action(dock, visible)
@@ -383,6 +426,7 @@ class DockLayoutController:
 
     def _on_volume_top_level_changed(self, _floating: bool) -> None:
         """Rebuild VolumeView GL scene after dock/undock transitions."""
-        if self.volume_view is None:
-            return
-        self.volume_view.notify_dock_topology_changed()
+        if self.volume_view is not None:
+            self.volume_view.notify_dock_topology_changed()
+        if self.piece3d_view is not None:
+            self.piece3d_view.notify_dock_topology_changed()

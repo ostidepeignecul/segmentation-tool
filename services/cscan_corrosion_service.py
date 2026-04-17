@@ -251,23 +251,18 @@ class CScanCorrosionService(CScanService):
         - ``"brut"`` — return a copy of *raw_result* without interpolation.
         - ``"1d_dual_axis"`` — existing dual-axis linear interpolation.
         """
-        if algo == "brut":
-            # Rebuild from raw peaks without any interpolation
-            peak_a = raw_result.raw_peak_index_map_a.copy()
-            peak_b = raw_result.raw_peak_index_map_b.copy()
-        elif algo == "1d_dual_axis":
-            peak_a = self.interpolate_peak_map_1d_dual_axis(
-                raw_result.raw_peak_index_map_a.copy(),
-                height=mask_height,
-                support_map=raw_result.ascan_support_map,
-            )
-            peak_b = self.interpolate_peak_map_1d_dual_axis(
-                raw_result.raw_peak_index_map_b.copy(),
-                height=mask_height,
-                support_map=raw_result.ascan_support_map,
-            )
-        else:
-            raise ValueError(f"Algorithme d'interpolation inconnu : {algo!r}")
+        peak_a = self.interpolate_peak_map_with_algo(
+            raw_result.raw_peak_index_map_a,
+            algo=algo,
+            height=mask_height,
+            support_map=raw_result.ascan_support_map,
+        )
+        peak_b = self.interpolate_peak_map_with_algo(
+            raw_result.raw_peak_index_map_b,
+            algo=algo,
+            height=mask_height,
+            support_map=raw_result.ascan_support_map,
+        )
 
         distance_map = self._build_distance_map_from_peak_maps(
             peak_map_a=peak_a,
@@ -531,6 +526,39 @@ class CScanCorrosionService(CScanService):
                 if (x - start) <= max_gap:
                     row[start:x] = True
         return fillable
+
+    @staticmethod
+    def normalize_interpolation_algo(algo: Optional[str]) -> str:
+        value = str(algo or "").strip().casefold()
+        return value or "brut"
+
+    def interpolate_peak_map_with_algo(
+        self,
+        peak_map: np.ndarray,
+        *,
+        algo: str,
+        height: Optional[int] = None,
+        support_map: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        normalized = self.normalize_interpolation_algo(algo)
+        data = np.asarray(peak_map, dtype=np.int32)
+
+        if normalized == "brut":
+            result = np.array(data, dtype=np.int32, copy=True)
+            if height is not None and result.size > 0:
+                valid = result >= 0
+                if np.any(valid):
+                    result[valid] = np.clip(result[valid], 0, int(height) - 1)
+            return result
+
+        if normalized == "1d_dual_axis":
+            return self.interpolate_peak_map_1d_dual_axis(
+                data,
+                height=height,
+                support_map=support_map,
+            )
+
+        raise ValueError(f"Algorithme d'interpolation inconnu : {algo!r}")
 
     def interpolate_peak_map_1d(
         self,

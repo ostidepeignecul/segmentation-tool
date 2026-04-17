@@ -28,6 +28,7 @@ class Piece3DView(VolumeView):
         self._recenter_on_slice_change = True
         self._canvas.bgcolor = "#0b0b0b"
         self._slider.hide()
+        self._secondary_slider.hide()
         self._iso_threshold: float = 0.5
         self._shading_profile = "standard"
         self._shading_lut_boost: bool = False
@@ -187,6 +188,8 @@ class Piece3DView(VolumeView):
     def _refresh_piece_volume(self) -> None:
         volume = self._resolve_current_piece_volume()
         if volume is None:
+            self.set_volume(None)
+            self._status.setText("Piece 3D non chargee")
             return
         self._iso_threshold = 0.5
         self.set_volume(volume)

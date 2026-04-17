@@ -192,8 +192,10 @@ class CorrosionProfileController:
         """Commit temporary corrosion profile edits (triggered by Apply ROI)."""
         if not self.ensure_context():
             return False
+        algo = getattr(self.view_state_model, "corrosion_interpolation_algo", "brut")
         payload = self.corrosion_profile_edit_service.commit(
             cscan_corrosion_service=self.cscan_corrosion_service,
+            algo=algo,
             rebuild_projection=True,
         )
         if payload is None:
