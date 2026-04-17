@@ -73,6 +73,15 @@ class ToolsPanel(QFrame):
     _INTERP_ALGO_BY_TEXT = {
         "brut": "brut",
         "1d dual-axis": "1d_dual_axis",
+        "1d pchip dual-axis": "1d_pchip_dual_axis",
+        "2d linear nd": "2d_linear_nd",
+        "2d clough-tocher": "2d_clough_tocher",
+        "2d clough tocher": "2d_clough_tocher",
+        "1d makima dual-axis": "1d_makima_dual_axis",
+        "2d rbf thin-plate": "2d_rbf_thin_plate",
+        "2d rbf thin plate": "2d_rbf_thin_plate",
+        "2d gaussian-fill": "2d_gaussian_fill",
+        "2d gaussian fill": "2d_gaussian_fill",
     }
 
     def __init__(self, parent=None) -> None:

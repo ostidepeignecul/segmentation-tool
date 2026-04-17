@@ -193,11 +193,15 @@ class CorrosionProfileController:
         if not self.ensure_context():
             return False
         algo = getattr(self.view_state_model, "corrosion_interpolation_algo", "brut")
-        payload = self.corrosion_profile_edit_service.commit(
-            cscan_corrosion_service=self.cscan_corrosion_service,
-            algo=algo,
-            rebuild_projection=True,
-        )
+        try:
+            payload = self.corrosion_profile_edit_service.commit(
+                cscan_corrosion_service=self.cscan_corrosion_service,
+                algo=algo,
+                rebuild_projection=True,
+            )
+        except ValueError as exc:
+            self._status_message(f"Interpolation impossible ({algo}) : {exc}", timeout_ms=5000)
+            return False
         if payload is None:
             return False
 

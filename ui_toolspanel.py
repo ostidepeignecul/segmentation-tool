@@ -285,6 +285,12 @@ class Ui_DockWidget(object):
         self.comboBox_4.setObjectName("comboBox_4")
         self.comboBox_4.addItem("")
         self.comboBox_4.addItem("")
+        self.comboBox_4.addItem("")
+        self.comboBox_4.addItem("")
+        self.comboBox_4.addItem("")
+        self.comboBox_4.addItem("")
+        self.comboBox_4.addItem("")
+        self.comboBox_4.addItem("")
         self.verticalLayout_6.addWidget(self.comboBox_4)
         self.pushButton = QtWidgets.QPushButton(parent=self.frame_12)
         self.pushButton.setObjectName("pushButton")
@@ -359,15 +365,11 @@ class Ui_DockWidget(object):
         self.label_13.setText(_translate("DockWidget", "Corrosion"))
         self.comboBox_4.setItemText(0, _translate("DockWidget", "brut"))
         self.comboBox_4.setItemText(1, _translate("DockWidget", "1D dual-axis"))
+        self.comboBox_4.setItemText(2, _translate("DockWidget", "1D PCHIP dual-axis"))
+        self.comboBox_4.setItemText(3, _translate("DockWidget", "2D linear ND"))
+        self.comboBox_4.setItemText(4, _translate("DockWidget", "2D Clough-Tocher"))
+        self.comboBox_4.setItemText(5, _translate("DockWidget", "1D Makima dual-axis"))
+        self.comboBox_4.setItemText(6, _translate("DockWidget", "2D RBF thin-plate"))
+        self.comboBox_4.setItemText(7, _translate("DockWidget", "2D Gaussian-fill"))
         self.pushButton.setText(_translate("DockWidget", "Calculer"))
 from views.tools_panel import ToolsPanel
-
-
-if __name__ == "__main__":
-    import sys
-    app = QtWidgets.QApplication(sys.argv)
-    DockWidget = QtWidgets.QDockWidget()
-    ui = Ui_DockWidget()
-    ui.setupUi(DockWidget)
-    DockWidget.show()
-    sys.exit(app.exec())

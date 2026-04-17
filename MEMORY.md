@@ -4034,3 +4034,22 @@ L utilisateur voulait conserver le comportement actuel du commit du profil corro
 2. Stocker l algo courant dans `ViewStateModel` et le synchroniser depuis `ToolsPanel`, afin de rester dans un flux MVC sans lecture directe de widgets depuis les services.
 3. Integrer `Piece3DView` dans le dock `Volume` via un `QStackedLayout`, plutot que de remplacer l instance `volume_view` ou de maintenir un `QDialog` flottant, pour rester coherent avec l architecture corrosion existante.
 4. Conserver l affichage de la piece 3D comme action manuelle via `Afficher solide 3d`, tout en mettant a jour les donnees en cache apres les calculs corrosion sans changement visuel implicite.
+
+### 2026-04-17 - Nouveaux algorithmes d interpolation corrosion et garde-fous 2D
+**Tags :** `#branch:annotation`, `#controllers/corrosion_profile_controller.py`, `#services/cscan_corrosion_service.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/tools_panel.py`, `#corrosion`, `#interpolation`, `#scipy`, `#ui`, `#mvc`
+
+**Actions effectuees :**
+- Etend `CScanCorrosionService` avec les dispatchs `1d_pchip_dual_axis`, `1d_makima_dual_axis`, `2d_linear_nd`, `2d_clough_tocher`, `2d_rbf_thin_plate` et `2d_gaussian_fill`, plus des helpers communs pour le clipping, l interpolation 1D et la preparation des donnees 2D.
+- Ajoute les constantes `RBF_MAX_POINTS`, `RBF_NEIGHBORS` et `GAUSSIAN_FILL_SIGMA` pour borner le cout du thin-plate spline et parametrer le remplissage nearest + lissage gaussien.
+- Met a jour `views/tools_panel.py`, `toolspanel.ui` et `ui_toolspanel.py` pour exposer les nouvelles options du combo corrosion et leurs mappings textuels.
+- Protege `CorrosionProfileController.commit_pending_edits()` pour convertir une erreur d interpolation 2D en message utilisateur plutot qu en exception non geree.
+
+**Contexte :**
+L utilisateur voulait comparer plusieurs algorithmes d interpolation supplementaires dans le flux corrosion au-dela du `1d_dual_axis` existant, avec une priorite sur les variantes 1D shape-preserving puis des options 2D plus lisses ou diagnostiques. Les nouveaux algos devaient rester compatibles avec le pipeline d interpolation a la demande et avec le commit de profil corrosion deja aligne sur l algo selectionne dans l UI.
+
+**Decisions techniques :**
+1. Reutiliser `interpolate_peak_map_with_algo(...)` comme point de dispatch unique pour le recalcul a la demande et le commit de profil, afin de garder un seul contrat d interpolation dans le service corrosion.
+2. Conserver la regle actuelle "ne remplir que les trous `-1` autorises par le `support_map`" et ne jamais modifier les points deja mesures, pour comparer les algos sans changer la semantique metier du pipeline.
+3. Encadrer `RBFInterpolator(kernel="thin_plate_spline")` par un sous-echantillonnage (`RBF_MAX_POINTS`) et un voisinage limite (`RBF_NEIGHBORS`) pour eviter un cout memoire et CPU excessif sur des peak maps denses.
+4. Implementer `2d_gaussian_fill` comme `griddata(..., method="nearest")` suivi de `gaussian_filter`, en le positionnant comme algo de comparaison visuelle plutot que comme reconstruction physique stricte.
+5. Intercepter les `ValueError` dans `CorrosionProfileController` pour remonter une erreur utilisateur propre quand une interpolation 2D est impossible sur une geometrie de points degeneree.

@@ -529,6 +529,36 @@
                   <string>1D dual-axis</string>
                  </property>
                 </item>
+                <item>
+                 <property name="text">
+                  <string>1D PCHIP dual-axis</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>2D linear ND</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>2D Clough-Tocher</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>1D Makima dual-axis</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>2D RBF thin-plate</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>2D Gaussian-fill</string>
+                 </property>
+                </item>
                </widget>
               </item>
               <item>

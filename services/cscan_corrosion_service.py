@@ -10,6 +10,16 @@ from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+from scipy.ndimage import gaussian_filter
+from scipy.interpolate import (
+    Akima1DInterpolator,
+    CloughTocher2DInterpolator,
+    LinearNDInterpolator,
+    PchipInterpolator,
+    RBFInterpolator,
+    griddata,
+)
+from scipy.spatial import QhullError
 
 from config.constants import MASK_COLORS_BGRA
 from models.annotation_model import AnnotationModel
@@ -51,6 +61,11 @@ class CScanCorrosionService(CScanService):
     MAX_INTERPOLATION_GAP_PX = 0
     # Robust upper bound for corrosion heatmaps to avoid one aberrant peak flattening the whole map.
     HEATMAP_UPPER_PERCENTILE = 99.0
+    # Keep thin-plate interpolation bounded on dense maps.
+    RBF_MAX_POINTS = 2000
+    RBF_NEIGHBORS = 128
+    # Diagnostic smoothing after nearest-neighbor fill.
+    GAUSSIAN_FILL_SIGMA = 1.0
 
     def __init__(self) -> None:
         super().__init__()
@@ -250,6 +265,12 @@ class CScanCorrosionService(CScanService):
         ``algo`` can be:
         - ``"brut"`` — return a copy of *raw_result* without interpolation.
         - ``"1d_dual_axis"`` — existing dual-axis linear interpolation.
+        - ``"1d_pchip_dual_axis"`` — shape-preserving cubic interpolation on both axes.
+        - ``"1d_makima_dual_axis"`` — MAKIMA interpolation on both axes.
+        - ``"2d_linear_nd"`` — 2D simplicial linear interpolation over valid (Z, X) points.
+        - ``"2d_clough_tocher"`` — 2D Clough-Tocher interpolation over valid (Z, X) points.
+        - ``"2d_rbf_thin_plate"`` — 2D thin-plate spline interpolation on valid (Z, X) points.
+        - ``"2d_gaussian_fill"`` — nearest-neighbor fill followed by Gaussian smoothing.
         """
         peak_a = self.interpolate_peak_map_with_algo(
             raw_result.raw_peak_index_map_a,
@@ -532,6 +553,16 @@ class CScanCorrosionService(CScanService):
         value = str(algo or "").strip().casefold()
         return value or "brut"
 
+    @staticmethod
+    def _clip_peak_indices_in_place(data: np.ndarray, *, height: Optional[int]) -> None:
+        valid = data >= 0
+        if not np.any(valid):
+            return
+
+        data[valid] = np.maximum(data[valid], 0)
+        if height is not None:
+            data[valid] = np.clip(data[valid], 0, int(height) - 1)
+
     def interpolate_peak_map_with_algo(
         self,
         peak_map: np.ndarray,
@@ -545,10 +576,7 @@ class CScanCorrosionService(CScanService):
 
         if normalized == "brut":
             result = np.array(data, dtype=np.int32, copy=True)
-            if height is not None and result.size > 0:
-                valid = result >= 0
-                if np.any(valid):
-                    result[valid] = np.clip(result[valid], 0, int(height) - 1)
+            self._clip_peak_indices_in_place(result, height=height)
             return result
 
         if normalized == "1d_dual_axis":
@@ -556,9 +584,132 @@ class CScanCorrosionService(CScanService):
                 data,
                 height=height,
                 support_map=support_map,
+                method="linear",
+            )
+
+        if normalized == "1d_pchip_dual_axis":
+            return self.interpolate_peak_map_1d_dual_axis(
+                data,
+                height=height,
+                support_map=support_map,
+                method="pchip",
+            )
+
+        if normalized == "1d_makima_dual_axis":
+            return self.interpolate_peak_map_1d_dual_axis(
+                data,
+                height=height,
+                support_map=support_map,
+                method="makima",
+            )
+
+        if normalized == "2d_linear_nd":
+            return self.interpolate_peak_map_2d_nd(
+                data,
+                height=height,
+                fillable_mask=self.build_fillable_support_mask(support_map),
+                method="linear_nd",
+            )
+
+        if normalized == "2d_clough_tocher":
+            return self.interpolate_peak_map_2d_nd(
+                data,
+                height=height,
+                fillable_mask=self.build_fillable_support_mask(support_map),
+                method="clough_tocher",
+            )
+
+        if normalized == "2d_rbf_thin_plate":
+            return self.interpolate_peak_map_2d_rbf(
+                data,
+                height=height,
+                fillable_mask=self.build_fillable_support_mask(support_map),
+            )
+
+        if normalized == "2d_gaussian_fill":
+            return self.interpolate_peak_map_2d_gaussian_fill(
+                data,
+                height=height,
+                fillable_mask=self.build_fillable_support_mask(support_map),
             )
 
         raise ValueError(f"Algorithme d'interpolation inconnu : {algo!r}")
+
+    @classmethod
+    def _subsample_interpolation_points(
+        cls,
+        points: np.ndarray,
+        values: np.ndarray,
+        *,
+        max_points: Optional[int] = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        limit = cls.RBF_MAX_POINTS if max_points is None else int(max_points)
+        if limit <= 0 or points.shape[0] <= limit:
+            return points, values
+
+        indices = np.linspace(0, points.shape[0] - 1, num=limit, dtype=np.int64)
+        unique_indices = np.unique(indices)
+        return points[unique_indices], values[unique_indices]
+
+    def _prepare_2d_interpolation_data(
+        self,
+        peak_map: np.ndarray,
+        *,
+        height: Optional[int] = None,
+        fillable_mask: Optional[np.ndarray] = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        data = np.asarray(peak_map, dtype=np.int32)
+        if data.ndim != 2:
+            raise ValueError(f"Peak map attendu 2D (Z,W), recu shape {data.shape}")
+
+        interpolated = np.array(data, dtype=np.int32, copy=True)
+        if interpolated.size == 0:
+            return interpolated, np.empty((0, 2), dtype=np.int64), np.empty((0, 2), dtype=np.int64), np.empty((0,), dtype=np.float64), np.empty((0, 2), dtype=np.float64)
+
+        fillable: Optional[np.ndarray] = None
+        if fillable_mask is not None:
+            fillable = np.asarray(fillable_mask, dtype=bool)
+            if fillable.shape != interpolated.shape:
+                raise ValueError(
+                    f"Fillable mask attendu en shape {interpolated.shape}, recu {fillable.shape}"
+                )
+
+        missing = interpolated < 0
+        if fillable is not None:
+            missing &= fillable
+        candidate_coords = np.argwhere(missing)
+
+        valid = interpolated >= 0
+        points = np.argwhere(valid)
+        values = interpolated[valid].astype(np.float64)
+        points_f = points.astype(np.float64)
+        self._clip_peak_indices_in_place(interpolated, height=height)
+        return interpolated, candidate_coords, points, values, points_f
+
+    @staticmethod
+    def _evaluate_1d_interpolation(
+        sample_idx: np.ndarray,
+        valid_idx: np.ndarray,
+        valid_values: np.ndarray,
+        *,
+        method: str,
+    ) -> np.ndarray:
+        sample = np.asarray(sample_idx, dtype=np.float64)
+        x = np.asarray(valid_idx, dtype=np.float64)
+        y = np.asarray(valid_values, dtype=np.float64)
+
+        if method == "linear" or x.size <= 2:
+            return np.interp(sample, x, y)
+
+        if method == "pchip":
+            interpolator = PchipInterpolator(x, y, extrapolate=False)
+            return np.asarray(interpolator(sample), dtype=np.float64)
+
+        if method == "makima":
+            interpolator = Akima1DInterpolator(x, y, method="makima", extrapolate=False)
+            return np.asarray(interpolator(sample), dtype=np.float64)
+
+        raise ValueError(f"Methode 1D inconnue : {method!r}")
 
     def interpolate_peak_map_1d(
         self,
@@ -566,6 +717,7 @@ class CScanCorrosionService(CScanService):
         *,
         height: Optional[int] = None,
         fillable_mask: Optional[np.ndarray] = None,
+        method: str = "linear",
     ) -> np.ndarray:
         """Fill missing Y gaps (-1) along X only where fillable_mask allows interpolation."""
         data = np.asarray(peak_map, dtype=np.int32)
@@ -576,7 +728,6 @@ class CScanCorrosionService(CScanService):
         if interpolated.size == 0:
             return interpolated
 
-        max_y = int(height) - 1 if height is not None else None
         fillable: Optional[np.ndarray] = None
         if fillable_mask is not None:
             fillable = np.asarray(fillable_mask, dtype=bool)
@@ -590,8 +741,7 @@ class CScanCorrosionService(CScanService):
             valid = row >= 0
             valid_idx = np.flatnonzero(valid)
             if valid_idx.size < 2:
-                if max_y is not None and np.any(valid):
-                    row[valid] = np.clip(row[valid], 0, max_y)
+                self._clip_peak_indices_in_place(row, height=height)
                 continue
 
             first = int(valid_idx[0])
@@ -599,23 +749,31 @@ class CScanCorrosionService(CScanService):
             if last <= first:
                 continue
 
-            segment = np.rint(
-                np.interp(
-                    np.arange(first, last + 1, dtype=np.float32),
-                    valid_idx.astype(np.float32),
-                    row[valid].astype(np.float32),
-                )
-            ).astype(np.int32)
+            segment_values = self._evaluate_1d_interpolation(
+                np.arange(first, last + 1, dtype=np.float64),
+                valid_idx,
+                row[valid],
+                method=method,
+            )
+            finite_segment = np.isfinite(segment_values)
+            segment = np.zeros(segment_values.shape, dtype=np.int32)
+            if np.any(finite_segment):
+                rounded = np.rint(segment_values[finite_segment]).astype(np.int32)
+                rounded = np.maximum(rounded, 0)
+                if height is not None:
+                    rounded = np.clip(rounded, 0, int(height) - 1)
+                segment[finite_segment] = rounded
+
             segment_row = row[first : last + 1]
             missing = segment_row < 0
             if fillable is not None:
                 missing &= fillable[z, first : last + 1]
+            missing &= finite_segment
             if np.any(missing):
                 segment_row[missing] = segment[missing]
                 row[first : last + 1] = segment_row
 
-            if max_y is not None:
-                row[row >= 0] = np.clip(row[row >= 0], 0, max_y)
+            self._clip_peak_indices_in_place(row, height=height)
 
         return interpolated
 
@@ -625,6 +783,7 @@ class CScanCorrosionService(CScanService):
         *,
         height: Optional[int] = None,
         support_map: Optional[np.ndarray] = None,
+        method: str = "linear",
     ) -> np.ndarray:
         """Apply support-aware interpolation on the primary axis, then on the secondary axis."""
         fillable_mask = self.build_fillable_support_mask(support_map)
@@ -632,6 +791,7 @@ class CScanCorrosionService(CScanService):
             peak_map,
             height=height,
             fillable_mask=fillable_mask,
+            method=method,
         )
         if primary.ndim != 2 or primary.size == 0:
             return primary
@@ -640,8 +800,197 @@ class CScanCorrosionService(CScanService):
             np.ascontiguousarray(primary.T),
             height=height,
             fillable_mask=None if fillable_mask is None else np.ascontiguousarray(fillable_mask.T),
+            method=method,
         )
         return np.ascontiguousarray(secondary.T)
+
+    def interpolate_peak_map_2d_nd(
+        self,
+        peak_map: np.ndarray,
+        *,
+        height: Optional[int] = None,
+        fillable_mask: Optional[np.ndarray] = None,
+        method: str,
+    ) -> np.ndarray:
+        """Fill missing Y values using a 2D interpolator over valid (Z, X) samples."""
+        interpolated, candidate_coords, points, values, points_f = self._prepare_2d_interpolation_data(
+            peak_map,
+            height=height,
+            fillable_mask=fillable_mask,
+        )
+        if interpolated.size == 0 or candidate_coords.size == 0:
+            return interpolated
+        algo_label = "2d_linear_nd" if method == "linear_nd" else "2d_clough_tocher"
+        if points.shape[0] < 3:
+            raise ValueError(
+                f"{algo_label} requiert au moins 3 points valides pour combler les trous."
+            )
+        if np.unique(points[:, 0]).size < 2 or np.unique(points[:, 1]).size < 2:
+            raise ValueError(
+                f"{algo_label} requiert des points valides repartis sur les axes Z et X."
+            )
+
+        candidates_f = candidate_coords.astype(np.float64)
+        try:
+            if method == "linear_nd":
+                interpolator = LinearNDInterpolator(points_f, values, fill_value=np.nan)
+            elif method == "clough_tocher":
+                interpolator = CloughTocher2DInterpolator(points_f, values, fill_value=np.nan)
+            else:
+                raise ValueError(f"Methode 2D inconnue : {method!r}")
+            interpolated_values = np.asarray(interpolator(candidates_f), dtype=np.float64).reshape(-1)
+        except QhullError as exc:
+            raise ValueError(
+                f"{algo_label} impossible sur cette geometrie de points: {exc}"
+            ) from exc
+
+        finite = np.isfinite(interpolated_values)
+        if not np.any(finite):
+            self._clip_peak_indices_in_place(interpolated, height=height)
+            return interpolated
+
+        rounded = np.rint(interpolated_values[finite]).astype(np.int32)
+        rounded = np.maximum(rounded, 0)
+        if height is not None:
+            rounded = np.clip(rounded, 0, int(height) - 1)
+
+        targets = candidate_coords[finite]
+        interpolated[targets[:, 0], targets[:, 1]] = rounded
+        self._clip_peak_indices_in_place(interpolated, height=height)
+        return interpolated
+
+    def interpolate_peak_map_2d_rbf(
+        self,
+        peak_map: np.ndarray,
+        *,
+        height: Optional[int] = None,
+        fillable_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Fill missing Y values using a thin-plate spline RBF interpolator."""
+        (
+            interpolated,
+            candidate_coords,
+            points,
+            values,
+            points_f,
+        ) = self._prepare_2d_interpolation_data(
+            peak_map,
+            height=height,
+            fillable_mask=fillable_mask,
+        )
+        if interpolated.size == 0 or candidate_coords.size == 0:
+            return interpolated
+
+        if points.shape[0] < 3:
+            raise ValueError(
+                "2d_rbf_thin_plate requiert au moins 3 points valides pour combler les trous."
+            )
+        if np.unique(points[:, 0]).size < 2 or np.unique(points[:, 1]).size < 2:
+            raise ValueError(
+                "2d_rbf_thin_plate requiert des points valides repartis sur les axes Z et X."
+            )
+
+        sample_points_f, sample_values = self._subsample_interpolation_points(points_f, values)
+        neighbors = None
+        if int(self.RBF_NEIGHBORS) > 0 and sample_points_f.shape[0] > int(self.RBF_NEIGHBORS):
+            neighbors = int(self.RBF_NEIGHBORS)
+
+        candidates_f = candidate_coords.astype(np.float64)
+        try:
+            interpolator = RBFInterpolator(
+                sample_points_f,
+                sample_values,
+                neighbors=neighbors,
+                smoothing=0.0,
+                kernel="thin_plate_spline",
+                degree=1,
+            )
+            interpolated_values = np.asarray(interpolator(candidates_f), dtype=np.float64).reshape(-1)
+        except Exception as exc:
+            raise ValueError(f"2d_rbf_thin_plate impossible sur cette geometrie: {exc}") from exc
+
+        finite = np.isfinite(interpolated_values)
+        if not np.any(finite):
+            return interpolated
+
+        rounded = np.rint(interpolated_values[finite]).astype(np.int32)
+        rounded = np.maximum(rounded, 0)
+        if height is not None:
+            rounded = np.clip(rounded, 0, int(height) - 1)
+
+        targets = candidate_coords[finite]
+        interpolated[targets[:, 0], targets[:, 1]] = rounded
+        self._clip_peak_indices_in_place(interpolated, height=height)
+        return interpolated
+
+    def interpolate_peak_map_2d_gaussian_fill(
+        self,
+        peak_map: np.ndarray,
+        *,
+        height: Optional[int] = None,
+        fillable_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Fill missing Y values with nearest-neighbor interpolation, then smooth them."""
+        (
+            interpolated,
+            candidate_coords,
+            _points,
+            values,
+            points_f,
+        ) = self._prepare_2d_interpolation_data(
+            peak_map,
+            height=height,
+            fillable_mask=fillable_mask,
+        )
+        if interpolated.size == 0 or candidate_coords.size == 0:
+            return interpolated
+
+        if points_f.shape[0] == 0:
+            raise ValueError("2d_gaussian_fill requiert au moins 1 point valide.")
+
+        all_missing_coords = np.argwhere(interpolated < 0)
+        if all_missing_coords.size == 0:
+            return interpolated
+
+        nearest_values = np.asarray(
+            griddata(
+                points_f,
+                values,
+                all_missing_coords.astype(np.float64),
+                method="nearest",
+            ),
+            dtype=np.float64,
+        ).reshape(-1)
+        finite_nearest = np.isfinite(nearest_values)
+        if not np.any(finite_nearest):
+            return interpolated
+
+        working = interpolated.astype(np.float64, copy=True)
+        nearest_targets = all_missing_coords[finite_nearest]
+        working[nearest_targets[:, 0], nearest_targets[:, 1]] = nearest_values[finite_nearest]
+        smoothed = gaussian_filter(
+            working,
+            sigma=float(self.GAUSSIAN_FILL_SIGMA),
+            mode="nearest",
+        )
+
+        smoothed_values = np.asarray(
+            smoothed[candidate_coords[:, 0], candidate_coords[:, 1]],
+            dtype=np.float64,
+        )
+        finite = np.isfinite(smoothed_values)
+        if not np.any(finite):
+            return interpolated
+
+        rounded = np.rint(smoothed_values[finite]).astype(np.int32)
+        rounded = np.maximum(rounded, 0)
+        if height is not None:
+            rounded = np.clip(rounded, 0, int(height) - 1)
+
+        targets = candidate_coords[finite]
+        interpolated[targets[:, 0], targets[:, 1]] = rounded
+        self._clip_peak_indices_in_place(interpolated, height=height)
+        return interpolated
 
     def build_distance_map_from_peak_maps(
         self,
