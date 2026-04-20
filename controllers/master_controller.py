@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config.constants import DEFAULT_ACTIVE_LABEL_ID, PERSISTENT_LABEL_IDS
+from config.constants import DEFAULT_ACTIVE_LABEL_ID, PERSISTENT_LABEL_IDS, CORROSION_STAGE_BASE, CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED, normalize_interpolation_algo
 from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
@@ -52,7 +52,11 @@ from services.nde_signal_processing_service import (
     NdeSignalProcessingOptions,
     NdeSignalProcessingService,
 )
-from services.cscan_corrosion_service import CScanCorrosionService, CorrosionWorkflowService
+from services.cscan_corrosion_service import (
+    CScanCorrosionService,
+    CorrosionWorkflowResult,
+    CorrosionWorkflowService,
+)
 from services.corrosion_profile_edit_service import CorrosionProfileEditService
 from services.corrosion_label_service import CorrosionLabelService
 from services.mask_modification_service import MaskModificationService
@@ -129,7 +133,6 @@ class MasterController:
         self._omniscan_lut: Optional[np.ndarray] = None
         self._pre_corrosion_session_state = None
         self._pre_corrosion_session_id: Optional[str] = None
-        self._raw_corrosion_workflow_result = None
         self._annotation_axis_mode: str = "Auto"
         self._annotation_axis_name: str = "UCoordinate"
         self._secondary_axis_name: str = "VCoordinate"
@@ -287,7 +290,7 @@ class MasterController:
             set_position_label=self._set_annotation_position_label,
             status_message=self.status_message,
             apply_roi_fallback=self._apply_roi_non_corrosion,
-            on_session_changed=self._mark_active_session_dirty,
+            on_session_changed=self._on_corrosion_session_changed,
         )
 
         self._connect_actions()
@@ -326,9 +329,11 @@ class MasterController:
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
         self.ui.actionParam_tres_2.triggered.connect(self.annotation_controller.open_overlay_settings)
         if hasattr(self.ui, "actionParam_tres_3"):
-            self.ui.actionParam_tres_3.setText("Parametres corrosion")
             self.ui.actionParam_tres_3.triggered.connect(self._on_open_corrosion_settings)
-        self.ui.actionCorrosion_analyse.triggered.connect(self._on_run_corrosion_analysis)
+        if hasattr(self.ui, "actionCorrosion_analyse"):
+            self.ui.actionCorrosion_analyse.triggered.connect(self._on_run_corrosion_analysis)
+        if hasattr(self.ui, "actionInterpolate"):
+            self.ui.actionInterpolate.triggered.connect(self._on_corrosion_interpolation_requested_from_menu)
         if hasattr(self.ui, "actionnnunet"):
             self.ui.actionnnunet.triggered.connect(self._on_run_nnunet)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
@@ -417,8 +422,6 @@ class MasterController:
             label_color_container=self._tools_ui.frame_6,
             nde_opacity_label=getattr(self._tools_ui, "label_10", None),
             nde_contrast_label=getattr(self._tools_ui, "label_12", None),
-            corrosion_interp_combo=getattr(self._tools_ui, "comboBox_4", None),
-            corrosion_calc_button=getattr(self._tools_ui, "pushButton", None),
         )
 
         if self.view_state_model.threshold is not None:
@@ -446,6 +449,8 @@ class MasterController:
         self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
         self._sync_apply_volume_range_view()
         self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
+        self._sync_corrosion_label_choices()
+        self._sync_corrosion_workflow_controls()
         self.tools_panel.set_annotation_action(
             getattr(self.view_state_model, "annotation_action", "draw")
         )
@@ -491,11 +496,16 @@ class MasterController:
         self.tools_panel.label_selected.connect(
             self.mask_modification_controller.on_active_label_changed
         )
-        self.tools_panel.corrosion_interpolation_algo_changed.connect(
-            self._on_corrosion_algo_changed
+        self.corrosion_settings_view.label_a_changed.connect(self._on_corrosion_label_a_changed)
+        self.corrosion_settings_view.peak_mode_a_changed.connect(
+            self._on_corrosion_peak_selection_mode_a_changed
         )
-        self.tools_panel.corrosion_interpolation_requested.connect(
-            self._on_corrosion_interpolation_requested
+        self.corrosion_settings_view.label_b_changed.connect(self._on_corrosion_label_b_changed)
+        self.corrosion_settings_view.peak_mode_b_changed.connect(
+            self._on_corrosion_peak_selection_mode_b_changed
+        )
+        self.corrosion_settings_view.interpolation_algo_changed.connect(
+            self._on_corrosion_algo_changed
         )
 
         self.annotation_view.slice_changed.connect(self._on_slice_changed)
@@ -610,9 +620,6 @@ class MasterController:
         self.nde_settings_view.clean_outliers_contour_smoothing_changed.connect(
             self._on_clean_outliers_contour_smoothing_changed
         )
-        self.corrosion_settings_view.label_a_changed.connect(self._on_corrosion_label_a_changed)
-        self.corrosion_settings_view.label_b_changed.connect(self._on_corrosion_label_b_changed)
-
     def _register_shortcuts(self) -> None:
         """Global keyboard shortcuts (active anywhere in the window)."""
         parent = self.main_window
@@ -1237,8 +1244,20 @@ class MasterController:
         self.corrosion_settings_view.raise_()
         self.corrosion_settings_view.activateWindow()
 
+    def _on_corrosion_interpolation_requested_from_menu(self) -> None:
+        algo = getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")
+        self._on_corrosion_interpolation_requested(algo)
+
     def _on_run_corrosion_analysis(self) -> None:
         """Capture active session state before launching corrosion analysis."""
+        if not self.view_state_model.can_run_corrosion_analysis():
+            self.status_message(
+                "Analyze est disponible uniquement depuis une session de base.",
+                3000,
+            )
+            self._sync_corrosion_workflow_controls()
+            return
+
         self.corrosion_profile_edit_service.reset()
         self.mask_modification_controller.reset(restore_overlay=True)
         active_id = self.session_manager._active_id  # noqa: SLF001
@@ -1350,7 +1369,25 @@ class MasterController:
 
     def _on_corrosion_algo_changed(self, algo: str) -> None:
         normalized = self.view_state_model.set_corrosion_interpolation_algo(algo)
-        self.tools_panel.set_corrosion_algo(normalized)
+        self.corrosion_settings_view.set_interpolation_algo(normalized)
+
+    def _on_corrosion_peak_selection_mode_a_changed(self, mode: str) -> None:
+        normalized = self.view_state_model.set_corrosion_peak_selection_mode_a(mode)
+        self.corrosion_settings_view.set_peak_selection_modes(
+            current_a=normalized,
+            current_b=self.view_state_model.get_corrosion_peak_selection_mode_b(),
+        )
+
+    def _on_corrosion_peak_selection_mode_b_changed(self, mode: str) -> None:
+        normalized = self.view_state_model.set_corrosion_peak_selection_mode_b(mode)
+        self.corrosion_settings_view.set_peak_selection_modes(
+            current_a=self.view_state_model.get_corrosion_peak_selection_mode_a(),
+            current_b=normalized,
+        )
+
+    def _on_corrosion_session_changed(self) -> None:
+        self._mark_active_session_dirty()
+        self._restore_piece3d_state_from_view_state(sync_action=False)
 
     def _on_apply_volume_range_changed(self, start: int, end: int) -> None:
         """Handle apply-to-volume range updates from settings."""
@@ -1889,6 +1926,14 @@ class MasterController:
             current_a=label_a,
             current_b=label_b,
         )
+        self.corrosion_settings_view.set_peak_selection_modes(
+            current_a=self.view_state_model.get_corrosion_peak_selection_mode_a(),
+            current_b=self.view_state_model.get_corrosion_peak_selection_mode_b(),
+        )
+        self.corrosion_settings_view.set_interpolation_algo(
+            getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")
+        )
+        self.corrosion_settings_view.set_workflow_state(self._current_corrosion_session_stage())
 
     def _get_corrosion_labels(self) -> list[int]:
         palette = self.annotation_model.get_label_palette()
@@ -2286,6 +2331,220 @@ class MasterController:
             fallback=fallback,
         )
 
+    def _current_corrosion_session_stage(self) -> str:
+        return self.view_state_model.get_corrosion_session_stage()
+
+    def _sync_corrosion_workflow_controls(self) -> None:
+        stage = self._current_corrosion_session_stage()
+        analyze_enabled = stage == CORROSION_STAGE_BASE
+        interpolate_enabled = stage == CORROSION_STAGE_RAW
+
+        analyze_tip = ""
+        interpolate_tip = ""
+        if stage == CORROSION_STAGE_RAW:
+            analyze_tip = "La session brute est deja analysee."
+        elif stage == CORROSION_STAGE_INTERPOLATED:
+            analyze_tip = "La session interpolee est finalisee."
+            interpolate_tip = "La session interpolee ne peut pas etre re-interpolee."
+        else:
+            interpolate_tip = "Lance d'abord Analyze pour creer une session brute."
+
+        analyze_action = getattr(self.ui, "actionCorrosion_analyse", None)
+        if analyze_action is not None:
+            analyze_action.setEnabled(analyze_enabled)
+            analyze_action.setToolTip(analyze_tip)
+            analyze_action.setStatusTip(analyze_tip)
+
+        interpolate_action = getattr(self.ui, "actionInterpolate", None)
+        if interpolate_action is not None:
+            interpolate_action.setEnabled(interpolate_enabled)
+            interpolate_action.setToolTip(interpolate_tip)
+            interpolate_action.setStatusTip(interpolate_tip)
+
+        self.corrosion_settings_view.set_workflow_state(stage)
+
+    @classmethod
+    def _base_corrosion_session_name(cls, session_name: Optional[str]) -> str:
+        base_name = cls._normalize_session_name(session_name)
+        lowered = base_name.casefold()
+        for marker in (
+            " corrosion brute",
+            " corrosion raw",
+            " corrosion interpolee",
+        ):
+            marker_pos = lowered.find(marker)
+            if marker_pos >= 0:
+                base_name = base_name[:marker_pos].rstrip()
+                break
+        return base_name or "New session"
+
+    def _build_corrosion_raw_session_name(self, session_name: Optional[str]) -> str:
+        base_name = self._base_corrosion_session_name(session_name)
+        return f"{base_name} corrosion brute"
+
+    def _build_corrosion_interpolated_session_name(
+        self,
+        session_name: Optional[str],
+        algo: str,
+    ) -> str:
+        base_name = self._base_corrosion_session_name(session_name)
+        algo_label = normalize_interpolation_algo(algo)
+        return f"{base_name} corrosion interpolee {algo_label}"
+
+    def _snapshot_active_session_in_manager(self) -> tuple[Optional[str], Optional[str]]:
+        active_id = self.session_manager.get_active_session_id()
+        if active_id is None or active_id not in self.session_manager._sessions:  # noqa: SLF001
+            return active_id, None
+
+        active_name = self.session_manager._sessions[active_id].name  # noqa: SLF001
+        self.session_manager._sessions[active_id] = self.session_manager._snapshot(  # noqa: SLF001
+            name=active_name,
+            annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
+            roi_model=self.roi_model,
+            view_state_model=self.view_state_model,
+        )
+        return active_id, active_name
+
+    def _build_raw_corrosion_workflow_result_from_active_session(
+        self,
+    ) -> Optional[CorrosionWorkflowResult]:
+        if self._current_corrosion_session_stage() != "raw":
+            return None
+
+        raw_peak_a = self.view_state_model.corrosion_raw_peak_index_map_a
+        raw_peak_b = self.view_state_model.corrosion_raw_peak_index_map_b
+        support_map = self.view_state_model.corrosion_ascan_support_map
+        label_ids = self.view_state_model.corrosion_overlay_label_ids
+        if (
+            raw_peak_a is None
+            or raw_peak_b is None
+            or support_map is None
+            or label_ids is None
+        ):
+            return None
+
+        mask_height: Optional[int] = None
+        overlay_volume = self.view_state_model.corrosion_overlay_volume
+        if overlay_volume is not None and getattr(overlay_volume, "ndim", 0) == 3:
+            mask_height = int(overlay_volume.shape[1])
+        elif (
+            self.annotation_model.mask_volume is not None
+            and getattr(self.annotation_model.mask_volume, "ndim", 0) == 3
+        ):
+            mask_height = int(self.annotation_model.mask_volume.shape[1])
+        if mask_height is None:
+            return None
+
+        projection = None
+        value_range = None
+        projection_payload = self.view_state_model.corrosion_projection
+        if projection_payload is not None:
+            try:
+                projection, value_range = projection_payload
+            except Exception:
+                projection = None
+                value_range = None
+
+        return CorrosionWorkflowResult(
+            ok=True,
+            message="Analyse corrosion terminee (donnees brutes)",
+            projection=projection,
+            value_range=value_range,
+            raw_distance_map=self.view_state_model.corrosion_raw_distance_map,
+            peak_index_map_a=self.view_state_model.corrosion_peak_index_map_a,
+            peak_index_map_b=self.view_state_model.corrosion_peak_index_map_b,
+            raw_peak_index_map_a=raw_peak_a,
+            raw_peak_index_map_b=raw_peak_b,
+            ascan_support_map=support_map,
+            overlay_volume=overlay_volume,
+            overlay_label_ids=label_ids,
+            overlay_palette=self.view_state_model.corrosion_overlay_palette,
+            mask_height=mask_height,
+            piece_volume_raw=getattr(self.view_state_model, "corrosion_piece_volume_raw", None),
+            piece_volume_legacy_raw=getattr(
+                self.view_state_model,
+                "corrosion_piece_volume_legacy_raw",
+                None,
+            ),
+            piece_anchor=getattr(self.view_state_model, "corrosion_piece_anchor", None),
+        )
+
+    def _apply_corrosion_session_result(
+        self,
+        result: CorrosionWorkflowResult,
+        *,
+        stage: str,
+    ) -> None:
+        self.corrosion_profile_edit_service.reset()
+        self.mask_modification_controller.reset()
+
+        if result.projection is not None and result.value_range is not None:
+            self.view_state_model.activate_corrosion(
+                result.projection,
+                result.value_range,
+            )
+        else:
+            self.view_state_model.corrosion_active = bool(result.overlay_volume is not None)
+            self.view_state_model.corrosion_projection = None
+
+        self.view_state_model.corrosion_interpolated_projection = None
+        if (
+            stage == "interpolated"
+            and result.interpolated_projection is not None
+            and result.interpolated_value_range is not None
+        ):
+            self.view_state_model.corrosion_interpolated_projection = (
+                result.interpolated_projection,
+                result.interpolated_value_range,
+            )
+
+        self.view_state_model.corrosion_overlay_volume = result.overlay_volume
+        self.view_state_model.corrosion_overlay_palette = result.overlay_palette
+        self.view_state_model.corrosion_overlay_label_ids = result.overlay_label_ids
+        self.view_state_model.corrosion_peak_index_map_a = result.peak_index_map_a
+        self.view_state_model.corrosion_peak_index_map_b = result.peak_index_map_b
+        self.view_state_model.corrosion_raw_peak_index_map_a = result.raw_peak_index_map_a
+        self.view_state_model.corrosion_raw_peak_index_map_b = result.raw_peak_index_map_b
+        self.view_state_model.corrosion_raw_distance_map = result.raw_distance_map
+        self.view_state_model.corrosion_ascan_support_map = result.ascan_support_map
+        self.view_state_model.corrosion_piece_volume_raw = self._copy_piece_volume(
+            result.piece_volume_raw
+        )
+        self.view_state_model.corrosion_piece_volume_interpolated = self._copy_piece_volume(
+            result.piece_volume_interpolated
+        )
+        self.view_state_model.corrosion_piece_volume_legacy_raw = self._copy_piece_volume(
+            result.piece_volume_legacy_raw
+        )
+        self.view_state_model.corrosion_piece_volume_legacy_interpolated = self._copy_piece_volume(
+            result.piece_volume_legacy_interpolated
+        )
+        self.view_state_model.corrosion_piece_anchor = self._copy_piece_anchor(
+            result.piece_anchor
+        )
+        self.view_state_model.corrosion_piece_show_interpolated = bool(
+            stage == "interpolated"
+            and (
+                result.piece_volume_interpolated is not None
+                or result.piece_volume_legacy_interpolated is not None
+            )
+        )
+        self.view_state_model.set_corrosion_session_stage(stage)
+        self.view_state_model.corrosion_active = True
+
+        if result.overlay_volume is not None:
+            self.annotation_model.set_mask_volume(result.overlay_volume)
+            palette = result.overlay_palette or {}
+            self.annotation_model.label_palette = dict(palette)
+            self.annotation_model.label_visibility = {lbl: True for lbl in palette.keys()}
+            self.annotation_model.ensure_persistent_labels()
+
+        self.temp_mask_model.clear()
+        if result.overlay_volume is not None:
+            self.temp_mask_model.initialize(result.overlay_volume.shape)
+        self.roi_model.clear()
+
     def _require_nde_path(self) -> str:
         """Return the current NDE path or fail if none is available."""
         nde_path = self._nde_path
@@ -2417,7 +2676,7 @@ class MasterController:
 
     def _after_session_switch(self) -> None:
         """Synchronise l'état du modèle actif vers les vues."""
-        self._reset_piece3d_state(sync_action=True)
+        self._restore_piece3d_state_from_view_state(sync_action=True)
         self.annotation_controller.clear_apply_history()
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
@@ -2459,9 +2718,8 @@ class MasterController:
         self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
         self.cscan_controller.set_colormap(self.view_state_model.cscan_colormap, None)
         self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
-        self.tools_panel.set_corrosion_algo(
-            getattr(self.view_state_model, "corrosion_interpolation_algo", "brut")
-        )
+        self._sync_corrosion_label_choices()
+        self._sync_corrosion_workflow_controls()
         self.nde_settings_view.set_colormaps(
             endview=self.view_state_model.endview_colormap,
             cscan=self.view_state_model.cscan_colormap,
@@ -2508,18 +2766,9 @@ class MasterController:
         self.mask_modification_controller.reset()
 
         # Stocker le résultat brut pour réutilisation lors de l'interpolation
-        self._raw_corrosion_workflow_result = result
+        self._apply_corrosion_session_result(result, stage="raw")
 
         # Met à jour l'état courant avec les données brutes
-        self.view_state_model.corrosion_interpolated_projection = None
-        self.view_state_model.corrosion_overlay_volume = result.overlay_volume
-        self.view_state_model.corrosion_overlay_palette = result.overlay_palette
-        self.view_state_model.corrosion_overlay_label_ids = result.overlay_label_ids
-        self.view_state_model.corrosion_peak_index_map_a = result.peak_index_map_a
-        self.view_state_model.corrosion_peak_index_map_b = result.peak_index_map_b
-        self.view_state_model.corrosion_raw_peak_index_map_a = result.raw_peak_index_map_a
-        self.view_state_model.corrosion_raw_peak_index_map_b = result.raw_peak_index_map_b
-        self.view_state_model.corrosion_ascan_support_map = result.ascan_support_map
 
         origin_id = self._pre_corrosion_session_id
         origin_state = self._pre_corrosion_session_state
@@ -2534,36 +2783,15 @@ class MasterController:
                 self.session_manager._sessions[origin_id] = origin_state  # noqa: SLF001
 
         # Prépare la session avec les données brutes (pas d'interpolation)
-        raw_view_state = self.session_manager.clone_view_state_model(
-            self.view_state_model
-        )
-
-        # Remplace les masques de la session active par l'overlay brut
-        if result.overlay_volume is not None:
-            self.annotation_model.set_mask_volume(result.overlay_volume)
-            palette = result.overlay_palette or {}
-            self.annotation_model.label_palette = dict(palette)
-            vis = {lbl: True for lbl in palette.keys()}
-            self.annotation_model.label_visibility = vis
-            self.annotation_model.ensure_persistent_labels()
-
-        # Nettoie les masques/temp et ROIs
-        self.temp_mask_model.clear()
-        if result.overlay_volume is not None:
-            self.temp_mask_model.initialize(result.overlay_volume.shape)
-        self.roi_model.clear()
-
-        self.view_state_model.corrosion_active = True
-
         origin_name = getattr(origin_state, "name", None)
-        name = f"{self._normalize_session_name(origin_name)} corrosion"
+        name = self._build_corrosion_raw_session_name(origin_name)
 
         new_session_id = self.session_manager.create_from_models(
             name=name,
             annotation_model=self.annotation_model,
             temp_mask_model=self.temp_mask_model,
             roi_model=self.roi_model,
-            view_state_model=raw_view_state,
+            view_state_model=self.view_state_model,
             set_active=True,
             save_active=False,
         )
@@ -2593,11 +2821,30 @@ class MasterController:
     def _on_corrosion_interpolation_requested(self, algo: str) -> None:
         """Applique l'algorithme d'interpolation choisi sur les données brutes."""
         algo = self.view_state_model.set_corrosion_interpolation_algo(algo)
-        self.tools_panel.set_corrosion_algo(algo)
-        raw = self._raw_corrosion_workflow_result
+        self.corrosion_settings_view.set_interpolation_algo(algo)
+        if not self.view_state_model.can_run_corrosion_interpolation():
+            self.status_message(
+                "Interpolate est disponible uniquement depuis une session corrosion brute.",
+                3000,
+            )
+            self._sync_corrosion_workflow_controls()
+            return
+
+        if self.corrosion_profile_edit_service.has_pending_edits():
+            if not self.corrosion_profile_controller.commit_pending_edits():
+                self.status_message(
+                    "Impossible d'appliquer les modifications corrosion en cours.",
+                    5000,
+                )
+                return
+
+        raw = self._build_raw_corrosion_workflow_result_from_active_session()
         if raw is None or not raw.ok:
             self.status_message("Aucune analyse corrosion brute disponible.", 3000)
+            self._sync_corrosion_workflow_controls()
             return
+
+        _raw_session_id, raw_session_name = self._snapshot_active_session_in_manager()
 
         nde_model = self.nde_model if hasattr(self, "nde_model") else None
         self.status_message(f"Interpolation ({algo}) en cours...", 2000)
@@ -2613,38 +2860,25 @@ class MasterController:
             return
 
         # Met à jour le view_state avec les données interpolées
-        if interp_result.projection is not None and interp_result.value_range is not None:
-            self.view_state_model.activate_corrosion(
-                interp_result.projection, interp_result.value_range
-            )
-        if interp_result.interpolated_projection is not None and interp_result.interpolated_value_range is not None:
-            self.view_state_model.corrosion_interpolated_projection = (
-                interp_result.interpolated_projection,
-                interp_result.interpolated_value_range,
-            )
+        self._apply_corrosion_session_result(interp_result, stage="interpolated")
 
-        self.view_state_model.corrosion_overlay_volume = interp_result.overlay_volume
-        self.view_state_model.corrosion_peak_index_map_a = interp_result.peak_index_map_a
-        self.view_state_model.corrosion_peak_index_map_b = interp_result.peak_index_map_b
+        new_session_id = self.session_manager.create_from_models(
+            name=self._build_corrosion_interpolated_session_name(raw_session_name, algo),
+            annotation_model=self.annotation_model,
+            temp_mask_model=self.temp_mask_model,
+            roi_model=self.roi_model,
+            view_state_model=self.view_state_model,
+            set_active=True,
+            save_active=False,
+        )
+        self.session_workspace_controller.register_unsaved_session(new_session_id, dirty=True)
+
 
         # Remplace les masques par l'overlay interpolé
-        if interp_result.overlay_volume is not None:
-            self.annotation_model.set_mask_volume(interp_result.overlay_volume)
-            palette = interp_result.overlay_palette or {}
-            self.annotation_model.label_palette = dict(palette)
-            vis = {lbl: True for lbl in palette.keys()}
-            self.annotation_model.label_visibility = vis
-            self.annotation_model.ensure_persistent_labels()
-
-        self.temp_mask_model.clear()
-        if interp_result.overlay_volume is not None:
-            self.temp_mask_model.initialize(interp_result.overlay_volume.shape)
-        self.roi_model.clear()
 
         # Rafraîchit toutes les vues
-        self._refresh_views()
+        self._after_session_switch()
         self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
-        self.corrosion_profile_controller.sync_anchors()
 
         # 3D piece
         has_distance = (
@@ -2712,13 +2946,77 @@ class MasterController:
     def _has_piece3d_data(self) -> bool:
         return self._has_piece3d_interpolated() or self._has_piece3d_raw()
 
+    @staticmethod
+    def _copy_piece_volume(volume: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if volume is None:
+            return None
+        return np.array(volume, dtype=np.float32, copy=True)
+
+    @staticmethod
+    def _copy_piece_anchor(
+        anchor: Optional[tuple[float, float, float]],
+    ) -> Optional[tuple[float, float, float]]:
+        if anchor is None:
+            return None
+        try:
+            x, y, z = anchor
+        except Exception:
+            return None
+        return (float(x), float(y), float(z))
+
+    def _persist_piece3d_state_to_view_state(self) -> None:
+        self.view_state_model.corrosion_piece_volume_raw = self._piece_volume_raw
+        self.view_state_model.corrosion_piece_volume_interpolated = (
+            self._piece_volume_interpolated
+        )
+        self.view_state_model.corrosion_piece_volume_legacy_raw = self._piece_volume_legacy_raw
+        self.view_state_model.corrosion_piece_volume_legacy_interpolated = (
+            self._piece_volume_legacy_interpolated
+        )
+        self.view_state_model.corrosion_piece_anchor = self._copy_piece_anchor(
+            self._piece_anchor
+        )
+        self.view_state_model.corrosion_piece_show_interpolated = bool(
+            self._piece_show_interpolated
+        )
+
+    def _restore_piece3d_state_from_view_state(self, *, sync_action: bool) -> None:
+        self._piece_volume_raw = self._copy_piece_volume(
+            getattr(self.view_state_model, "corrosion_piece_volume_raw", None)
+        )
+        self._piece_volume_interpolated = self._copy_piece_volume(
+            getattr(self.view_state_model, "corrosion_piece_volume_interpolated", None)
+        )
+        self._piece_volume_legacy_raw = self._copy_piece_volume(
+            getattr(self.view_state_model, "corrosion_piece_volume_legacy_raw", None)
+        )
+        self._piece_volume_legacy_interpolated = self._copy_piece_volume(
+            getattr(self.view_state_model, "corrosion_piece_volume_legacy_interpolated", None)
+        )
+        self._piece_anchor = self._copy_piece_anchor(
+            getattr(self.view_state_model, "corrosion_piece_anchor", None)
+        )
+        self._piece_show_interpolated = bool(
+            getattr(self.view_state_model, "corrosion_piece_show_interpolated", True)
+        )
+        self._sync_piece3d_view()
+
+        action = getattr(self.ui, "actionAfficher_solide_3d", None)
+        if action is not None and action.isChecked() and self._has_piece3d_data():
+            self._show_piece3d_view(sync_action=sync_action)
+            return
+        self._show_standard_volume_view(sync_action=sync_action)
+
     def _sync_piece3d_view(self) -> None:
         if self._piece3d_view is None:
             return
-        if self._has_piece3d_interpolated():
-            self._piece_show_interpolated = True
-        elif self._has_piece3d_raw():
+        if self._piece_show_interpolated and not self._has_piece3d_interpolated():
             self._piece_show_interpolated = False
+        elif not self._piece_show_interpolated and not self._has_piece3d_raw():
+            self._piece_show_interpolated = True
+        self.view_state_model.corrosion_piece_show_interpolated = bool(
+            self._piece_show_interpolated
+        )
 
         self._piece3d_view.set_piece_volume_sources(
             distance_raw=self._piece_volume_raw,
@@ -2754,6 +3052,7 @@ class MasterController:
         self._piece_volume_legacy_interpolated = None
         self._piece_anchor = None
         self._piece_show_interpolated = True
+        self.view_state_model.clear_corrosion_piece_state()
         self._sync_piece3d_view()
         self._show_standard_volume_view(sync_action=sync_action)
 
@@ -2766,18 +3065,14 @@ class MasterController:
         legacy_interpolated_volume: Optional[np.ndarray],
     ) -> None:
         """Cache et rafraîchit les données de la pièce 3D corrosion."""
-        self._piece_volume_raw = raw_volume.astype(np.float32) if raw_volume is not None else None
-        self._piece_volume_interpolated = (
-            interpolated_volume.astype(np.float32) if interpolated_volume is not None else None
+        self._piece_volume_raw = self._copy_piece_volume(raw_volume)
+        self._piece_volume_interpolated = self._copy_piece_volume(interpolated_volume)
+        self._piece_volume_legacy_raw = self._copy_piece_volume(legacy_raw_volume)
+        self._piece_volume_legacy_interpolated = self._copy_piece_volume(
+            legacy_interpolated_volume
         )
-        self._piece_volume_legacy_raw = (
-            legacy_raw_volume.astype(np.float32) if legacy_raw_volume is not None else None
-        )
-        self._piece_volume_legacy_interpolated = (
-            legacy_interpolated_volume.astype(np.float32)
-            if legacy_interpolated_volume is not None
-            else None
-        )
+        self._piece_show_interpolated = self._has_piece3d_interpolated()
+        self._persist_piece3d_state_to_view_state()
         self._sync_piece3d_view()
         action = getattr(self.ui, "actionAfficher_solide_3d", None)
         if action is not None and action.isChecked():
@@ -2792,6 +3087,7 @@ class MasterController:
             return
 
         self._piece_show_interpolated = not self._piece_show_interpolated
+        self._persist_piece3d_state_to_view_state()
         self._piece3d_view.set_piece_show_interpolated(self._piece_show_interpolated)
         self._piece3d_view.set_anchor_point(self._piece_anchor)
         self._update_piece_toggle_label()

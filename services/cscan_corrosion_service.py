@@ -21,7 +21,7 @@ from scipy.interpolate import (
 )
 from scipy.spatial import QhullError
 
-from config.constants import MASK_COLORS_BGRA
+from config.constants import MASK_COLORS_BGRA, normalize_interpolation_algo
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from services.cscan_service import CScanService
@@ -143,6 +143,8 @@ class CScanCorrosionService(CScanService):
         output_directory: str,
         class_A_id: int,
         class_B_id: int,
+        peak_selection_mode_a: str = "max_peak",
+        peak_selection_mode_b: Optional[str] = None,
         label_palette: Optional[Dict[int, Tuple[int, int, int, int]]] = None,
         use_mm: bool = False,
     ) -> CorrosionAnalysisResult:
@@ -163,6 +165,8 @@ class CScanCorrosionService(CScanService):
             masks=mask_stack,
             class_A=class_A_id,
             class_B=class_B_id,
+            peak_selection_mode_a=peak_selection_mode_a,
+            peak_selection_mode_b=peak_selection_mode_b,
             support_map=ascan_support_map,
             use_mm=use_mm,
             resolution_ultrasound=resolution_ultrasound_mm,
@@ -263,7 +267,6 @@ class CScanCorrosionService(CScanService):
         """Apply an interpolation algorithm on the raw peak maps and return a new result.
 
         ``algo`` can be:
-        - ``"brut"`` — return a copy of *raw_result* without interpolation.
         - ``"1d_dual_axis"`` — existing dual-axis linear interpolation.
         - ``"1d_pchip_dual_axis"`` — shape-preserving cubic interpolation on both axes.
         - ``"1d_makima_dual_axis"`` — MAKIMA interpolation on both axes.
@@ -549,11 +552,6 @@ class CScanCorrosionService(CScanService):
         return fillable
 
     @staticmethod
-    def normalize_interpolation_algo(algo: Optional[str]) -> str:
-        value = str(algo or "").strip().casefold()
-        return value or "brut"
-
-    @staticmethod
     def _clip_peak_indices_in_place(data: np.ndarray, *, height: Optional[int]) -> None:
         valid = data >= 0
         if not np.any(valid):
@@ -571,13 +569,8 @@ class CScanCorrosionService(CScanService):
         height: Optional[int] = None,
         support_map: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        normalized = self.normalize_interpolation_algo(algo)
+        normalized = normalize_interpolation_algo(algo)
         data = np.asarray(peak_map, dtype=np.int32)
-
-        if normalized == "brut":
-            result = np.array(data, dtype=np.int32, copy=True)
-            self._clip_peak_indices_in_place(result, height=height)
-            return result
 
         if normalized == "1d_dual_axis":
             return self.interpolate_peak_map_1d_dual_axis(
@@ -1074,6 +1067,34 @@ class CScanCorrosionService(CScanService):
             resolution_ultrasound_mm=resolution_ultrasound_mm,
         )
 
+    def build_piece_volume_from_distance_map(
+        self,
+        distance_map: np.ndarray,
+    ) -> np.ndarray:
+        """Public wrapper for the corrosion prism 3D geometry."""
+        return self._build_prismatic_piece_from_distance_map(distance_map)
+
+    def build_legacy_piece_volume(
+        self,
+        *,
+        mask_stack: np.ndarray,
+        class_A_id: int,
+        class_B_id: int,
+    ) -> np.ndarray:
+        """Public wrapper for the legacy BW/FW 3D geometry."""
+        return self._build_solid_volume(
+            mask_stack=mask_stack,
+            class_A_id=class_A_id,
+            class_B_id=class_B_id,
+        )
+
+    def compute_piece_anchor(
+        self,
+        *candidates: Optional[np.ndarray],
+    ) -> Optional[Tuple[float, float, float]]:
+        """Public wrapper for the preferred camera anchor computation."""
+        return self._compute_piece_anchor(*candidates)
+
     def _build_interpolated_distance_map(
         self,
         *,
@@ -1427,6 +1448,8 @@ class CorrosionWorkflowService:
         *,
         label_a: Optional[int] = None,
         label_b: Optional[int] = None,
+        peak_selection_mode_a: str = "max_peak",
+        peak_selection_mode_b: Optional[str] = None,
     ) -> CorrosionWorkflowResult:
         """
         - Valide la présence du volume NDE et des masques
@@ -1528,6 +1551,8 @@ class CorrosionWorkflowService:
                 output_directory=output_directory,
                 class_A_id=class_A_id,
                 class_B_id=class_B_id,
+                peak_selection_mode_a=peak_selection_mode_a,
+                peak_selection_mode_b=peak_selection_mode_b,
                 label_palette=palette_source,
                 use_mm=False,
             )
@@ -1653,7 +1678,7 @@ class CorrosionWorkflowService:
                     value_range=interp_result.interpolated_value_range,
                 )
 
-            algo_label = algo if algo != "brut" else "brut"
+            algo_label = normalize_interpolation_algo(algo)
             return CorrosionWorkflowResult(
                 ok=True,
                 message=f"Interpolation ({algo_label}) terminée",

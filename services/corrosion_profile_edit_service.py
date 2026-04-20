@@ -268,7 +268,7 @@ class CorrosionProfileEditService:
         self,
         *,
         cscan_corrosion_service: CScanCorrosionService,
-        algo: str = "brut",
+        algo: str = "1d_dual_axis",
         rebuild_projection: bool = True,
     ) -> Optional[CorrosionCommitPayload]:
         if (

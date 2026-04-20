@@ -49,9 +49,6 @@ class ToolsPanel(QFrame):
     nde_opacity_changed = pyqtSignal(float)
     nde_contrast_changed = pyqtSignal(float)
     endview_colormap_changed = pyqtSignal(str)
-    corrosion_interpolation_algo_changed = pyqtSignal(str)
-    corrosion_interpolation_requested = pyqtSignal(str)
-
     _TOOL_MODE_BY_TEXT = {
         "free hand": "free_hand",
         "box": "box",
@@ -70,20 +67,6 @@ class ToolsPanel(QFrame):
         "gray": "Gris",
         "gris": "Gris",
     }
-    _INTERP_ALGO_BY_TEXT = {
-        "brut": "brut",
-        "1d dual-axis": "1d_dual_axis",
-        "1d pchip dual-axis": "1d_pchip_dual_axis",
-        "2d linear nd": "2d_linear_nd",
-        "2d clough-tocher": "2d_clough_tocher",
-        "2d clough tocher": "2d_clough_tocher",
-        "1d makima dual-axis": "1d_makima_dual_axis",
-        "2d rbf thin-plate": "2d_rbf_thin_plate",
-        "2d rbf thin plate": "2d_rbf_thin_plate",
-        "2d gaussian-fill": "2d_gaussian_fill",
-        "2d gaussian fill": "2d_gaussian_fill",
-    }
-
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
@@ -122,8 +105,6 @@ class ToolsPanel(QFrame):
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
         self._apply_roi_button: Optional[QPushButton] = None
-        self._corrosion_interp_combo: Optional[QComboBox] = None
-        self._corrosion_calc_button: Optional[QPushButton] = None
         self._label_text_container: Optional[QWidget] = None
         self._label_color_container: Optional[QWidget] = None
         self._label_text_layout: Optional[QVBoxLayout] = None
@@ -170,8 +151,6 @@ class ToolsPanel(QFrame):
         label_color_container: QWidget,
         nde_opacity_label: Optional[QLabel] = None,
         nde_contrast_label: Optional[QLabel] = None,
-        corrosion_interp_combo: Optional[QComboBox] = None,
-        corrosion_calc_button: Optional[QPushButton] = None,
     ) -> None:
         """Receive Designer-created widgets and wire them to the exposed signals."""
         if self._wired:
@@ -203,8 +182,6 @@ class ToolsPanel(QFrame):
         self._roi_delete_button = roi_delete_button
         self._selection_cancel_button = selection_cancel_button
         self._apply_roi_button = apply_roi_button
-        self._corrosion_interp_combo = corrosion_interp_combo
-        self._corrosion_calc_button = corrosion_calc_button
         self._label_text_container = label_text_container
         self._label_color_container = label_color_container
         self._ensure_label_layouts()
@@ -264,14 +241,6 @@ class ToolsPanel(QFrame):
             self._paint_size_slider.setValue(8)
             self._paint_size_slider.valueChanged.connect(self.paint_size_changed.emit)
 
-        self._prepare_corrosion_interp_combo()
-        if self._corrosion_interp_combo is not None:
-            self._corrosion_interp_combo.currentIndexChanged.connect(
-                self._on_corrosion_algo_combo_changed
-            )
-        if self._corrosion_calc_button is not None:
-            self._corrosion_calc_button.clicked.connect(self._on_corrosion_calc_clicked)
-
         self._wired = True
         self.set_nde_opacity_available(False)
 
@@ -315,47 +284,6 @@ class ToolsPanel(QFrame):
             normalized = self._normalize_colormap_name(text)
             self._colormap_combo.setItemData(idx, normalized)
             self._colormap_combo.setItemText(idx, normalized)
-
-    def _prepare_corrosion_interp_combo(self) -> None:
-        if self._corrosion_interp_combo is None:
-            return
-        for idx in range(self._corrosion_interp_combo.count()):
-            text = self._corrosion_interp_combo.itemText(idx).strip().lower()
-            algo = self._INTERP_ALGO_BY_TEXT.get(text)
-            if algo is not None:
-                self._corrosion_interp_combo.setItemData(idx, algo)
-
-    def _on_corrosion_calc_clicked(self) -> None:
-        self.corrosion_interpolation_requested.emit(self.current_corrosion_algo())
-
-    def current_corrosion_algo(self) -> str:
-        if self._corrosion_interp_combo is None:
-            return "brut"
-        data = self._corrosion_interp_combo.currentData()
-        if data is not None:
-            return str(data)
-        text = self._corrosion_interp_combo.currentText().strip().lower()
-        return self._INTERP_ALGO_BY_TEXT.get(text, "brut")
-
-    def set_corrosion_algo(self, algo: str) -> None:
-        if self._corrosion_interp_combo is None:
-            return
-        normalized = str(algo).strip().lower() or "brut"
-        target_index = self._corrosion_interp_combo.findData(normalized)
-        if target_index < 0:
-            for idx in range(self._corrosion_interp_combo.count()):
-                text = self._corrosion_interp_combo.itemText(idx).strip().lower()
-                if self._INTERP_ALGO_BY_TEXT.get(text) == normalized:
-                    target_index = idx
-                    break
-        if target_index < 0:
-            return
-        self._corrosion_interp_combo.blockSignals(True)
-        self._corrosion_interp_combo.setCurrentIndex(target_index)
-        self._corrosion_interp_combo.blockSignals(False)
-
-    def _on_corrosion_algo_combo_changed(self, _index: int) -> None:
-        self.corrosion_interpolation_algo_changed.emit(self.current_corrosion_algo())
 
     def _configure_percentage_controls(
         self,

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Optional
+
 # Palette de couleurs par defaut pour les labels d'annotation.
 
 BACKGROUND_LABEL_ID = 0
@@ -78,3 +82,40 @@ def format_label_text(label_id: int) -> str:
             return f"BW echo {user_index} ({label})"
         return f"Label {label}"
     return f"{display_name} ({label})"
+
+
+# Corrosion workflow stages
+CORROSION_STAGE_BASE = "base"
+CORROSION_STAGE_RAW = "raw"
+CORROSION_STAGE_INTERPOLATED = "interpolated"
+
+
+def normalize_corrosion_peak_selection_mode(mode: Optional[str]) -> str:
+    """Normalize the corrosion peak disambiguation mode to a stable internal key."""
+    value = str(mode or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "optimiste": "optimistic",
+        "optimistic": "optimistic",
+        "pessimiste": "pessimistic",
+        "pessimistic": "pessimistic",
+        "max_peak": "max_peak",
+        "maxpeak": "max_peak",
+        "peak_max": "max_peak",
+    }
+    return aliases.get(value, "max_peak")
+
+
+def normalize_interpolation_algo(algo: Optional[str]) -> str:
+    """Normalize the interpolation algorithm name to a stable internal key."""
+    value = str(algo or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "1d_dual_axis": "1d_dual_axis",
+        "1d_pchip_dual_axis": "1d_pchip_dual_axis",
+        "2d_linear_nd": "2d_linear_nd",
+        "2d_clough_tocher": "2d_clough_tocher",
+        "1d_makima_dual_axis": "1d_makima_dual_axis",
+        "2d_rbf_thin_plate": "2d_rbf_thin_plate",
+        "2d_gaussian_fill": "2d_gaussian_fill",
+        "brut": "1d_dual_axis",
+    }
+    return aliases.get(value, "1d_dual_axis")

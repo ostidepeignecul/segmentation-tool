@@ -413,7 +413,17 @@ class AnnotationSessionManager:
         view_state["corrosion_overlay_label_ids"] = None
         view_state["corrosion_peak_index_map_a"] = None
         view_state["corrosion_peak_index_map_b"] = None
+        view_state["corrosion_raw_peak_index_map_a"] = None
+        view_state["corrosion_raw_peak_index_map_b"] = None
+        view_state["corrosion_raw_distance_map"] = None
         view_state["corrosion_ascan_support_map"] = None
+        view_state["corrosion_session_stage"] = "base"
+        view_state["corrosion_piece_volume_raw"] = None
+        view_state["corrosion_piece_volume_interpolated"] = None
+        view_state["corrosion_piece_volume_legacy_raw"] = None
+        view_state["corrosion_piece_volume_legacy_interpolated"] = None
+        view_state["corrosion_piece_anchor"] = None
+        view_state["corrosion_piece_show_interpolated"] = True
 
         return AnnotationSessionState(
             name=self._normalize_session_name(name),

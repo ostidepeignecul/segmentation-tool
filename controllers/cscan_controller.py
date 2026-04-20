@@ -209,12 +209,16 @@ class CScanController:
         self.status_callback("Analyse corrosion en cours...", 2000)
         label_a = getattr(self.view_state_model, "corrosion_label_a", None)
         label_b = getattr(self.view_state_model, "corrosion_label_b", None)
+        peak_selection_mode_a = self.view_state_model.get_corrosion_peak_selection_mode_a()
+        peak_selection_mode_b = self.view_state_model.get_corrosion_peak_selection_mode_b()
         result = self.corrosion_workflow.run(
             nde_model=nde_model,
             annotation_model=self.annotation_model,
             volume=volume,
             label_a=label_a,
             label_b=label_b,
+            peak_selection_mode_a=peak_selection_mode_a,
+            peak_selection_mode_b=peak_selection_mode_b,
         )
         self.last_corrosion_result = result
 

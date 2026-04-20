@@ -484,94 +484,7 @@
              </layout>
             </widget>
            </item>
-           <item row="0" column="1">
-            <widget class="QFrame" name="frame_12">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="frameShape">
-              <enum>QFrame::Shape::StyledPanel</enum>
-             </property>
-             <property name="frameShadow">
-              <enum>QFrame::Shadow::Raised</enum>
-             </property>
-             <layout class="QVBoxLayout" name="verticalLayout_6">
-              <property name="sizeConstraint">
-               <enum>QLayout::SizeConstraint::SetMinimumSize</enum>
-              </property>
-              <item>
-               <widget class="QLabel" name="label_13">
-                <property name="font">
-                 <font>
-                  <pointsize>11</pointsize>
-                  <italic>false</italic>
-                  <bold>true</bold>
-                  <underline>false</underline>
-                 </font>
-                </property>
-                <property name="text">
-                 <string>Corrosion</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QComboBox" name="comboBox_4">
-                <item>
-                 <property name="text">
-                  <string>brut</string>
-                 </property>
-                </item>
-                <item>
-                 <property name="text">
-                  <string>1D dual-axis</string>
-                 </property>
-                </item>
-                <item>
-                 <property name="text">
-                  <string>1D PCHIP dual-axis</string>
-                 </property>
-                </item>
-                <item>
-                 <property name="text">
-                  <string>2D linear ND</string>
-                 </property>
-                </item>
-                <item>
-                 <property name="text">
-                  <string>2D Clough-Tocher</string>
-                 </property>
-                </item>
-                <item>
-                 <property name="text">
-                  <string>1D Makima dual-axis</string>
-                 </property>
-                </item>
-                <item>
-                 <property name="text">
-                  <string>2D RBF thin-plate</string>
-                 </property>
-                </item>
-                <item>
-                 <property name="text">
-                  <string>2D Gaussian-fill</string>
-                 </property>
-                </item>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="pushButton">
-                <property name="text">
-                 <string>Calculer</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item row="0" column="0" rowspan="5">
+           <item row="1" column="0" rowspan="4">
             <widget class="QScrollArea" name="scrollArea">
              <property name="widgetResizable">
               <bool>true</bool>
@@ -582,7 +495,7 @@
                 <x>0</x>
                 <y>0</y>
                 <width>322</width>
-                <height>422</height>
+                <height>407</height>
                </rect>
               </property>
               <layout class="QHBoxLayout" name="horizontalLayout">

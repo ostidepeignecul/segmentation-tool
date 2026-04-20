@@ -192,7 +192,10 @@ class CorrosionProfileController:
         """Commit temporary corrosion profile edits (triggered by Apply ROI)."""
         if not self.ensure_context():
             return False
-        algo = getattr(self.view_state_model, "corrosion_interpolation_algo", "brut")
+        stage = self.view_state_model.get_corrosion_session_stage()
+        algo = getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")
+        if stage == "raw":
+            algo = "1d_dual_axis"
         try:
             payload = self.corrosion_profile_edit_service.commit(
                 cscan_corrosion_service=self.cscan_corrosion_service,
@@ -207,14 +210,63 @@ class CorrosionProfileController:
 
         self.view_state_model.corrosion_peak_index_map_a = payload.peak_map_a
         self.view_state_model.corrosion_peak_index_map_b = payload.peak_map_b
+        if stage == "raw":
+            self.view_state_model.corrosion_raw_peak_index_map_a = payload.peak_map_a
+            self.view_state_model.corrosion_raw_peak_index_map_b = payload.peak_map_b
         self.view_state_model.corrosion_overlay_volume = payload.overlay_volume
         if payload.projection is not None and payload.value_range is not None:
             self.view_state_model.corrosion_projection = (payload.projection, payload.value_range)
-            self.view_state_model.corrosion_interpolated_projection = (
-                payload.projection,
-                payload.value_range,
-            )
             self.view_state_model.corrosion_active = True
+            if stage == "raw":
+                self.view_state_model.corrosion_raw_distance_map = payload.projection
+            if stage == "interpolated":
+                self.view_state_model.corrosion_interpolated_projection = (
+                    payload.projection,
+                    payload.value_range,
+                )
+            else:
+                self.view_state_model.corrosion_interpolated_projection = None
+            self.view_state_model.set_corrosion_session_stage(stage)
+
+            label_ids = self.view_state_model.corrosion_overlay_label_ids
+            if label_ids is not None:
+                class_a_id, class_b_id = (int(label_ids[0]), int(label_ids[1]))
+                piece_volume = self.cscan_corrosion_service.build_piece_volume_from_distance_map(
+                    payload.projection
+                )
+                legacy_piece_volume = self.cscan_corrosion_service.build_legacy_piece_volume(
+                    mask_stack=payload.overlay_volume,
+                    class_A_id=class_a_id,
+                    class_B_id=class_b_id,
+                )
+                if stage == "raw":
+                    self.view_state_model.corrosion_piece_volume_raw = piece_volume
+                    self.view_state_model.corrosion_piece_volume_interpolated = None
+                    self.view_state_model.corrosion_piece_volume_legacy_raw = legacy_piece_volume
+                    self.view_state_model.corrosion_piece_volume_legacy_interpolated = None
+                    self.view_state_model.corrosion_piece_show_interpolated = False
+                    self.view_state_model.corrosion_piece_anchor = (
+                        self.cscan_corrosion_service.compute_piece_anchor(
+                            piece_volume,
+                            legacy_piece_volume,
+                        )
+                    )
+                else:
+                    raw_piece = self.view_state_model.corrosion_piece_volume_raw
+                    legacy_raw_piece = self.view_state_model.corrosion_piece_volume_legacy_raw
+                    self.view_state_model.corrosion_piece_volume_interpolated = piece_volume
+                    self.view_state_model.corrosion_piece_volume_legacy_interpolated = (
+                        legacy_piece_volume
+                    )
+                    self.view_state_model.corrosion_piece_show_interpolated = True
+                    self.view_state_model.corrosion_piece_anchor = (
+                        self.cscan_corrosion_service.compute_piece_anchor(
+                            piece_volume,
+                            raw_piece,
+                            legacy_piece_volume,
+                            legacy_raw_piece,
+                        )
+                    )
 
         self.annotation_model.set_mask_volume(payload.overlay_volume)
         self.annotation_controller.clear_apply_history()

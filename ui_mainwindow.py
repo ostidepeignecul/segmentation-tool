@@ -97,6 +97,8 @@ class Ui_MainWindow(object):
         self.actionToggle_outline_only.setObjectName("actionToggle_outline_only")
         self.actionToggle_overlay_ascan = QtGui.QAction(parent=MainWindow)
         self.actionToggle_overlay_ascan.setObjectName("actionToggle_overlay_ascan")
+        self.actionInterpolate = QtGui.QAction(parent=MainWindow)
+        self.actionInterpolate.setObjectName("actionInterpolate")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionOuvrir_une_session)
@@ -114,8 +116,9 @@ class Ui_MainWindow(object):
         self.menuOverlay.addAction(self.actionExporter_npz)
         self.menuOverlay.addAction(self.actionRemap_classes)
         self.menuAnalyse.addAction(self.actionCorrosion_analyse)
-        self.menuAnalyse.addAction(self.actionAfficher_solide_3d)
+        self.menuAnalyse.addAction(self.actionInterpolate)
         self.menuAnalyse.addAction(self.actionParam_tres_3)
+        self.menuAnalyse.addAction(self.actionAfficher_solide_3d)
         self.menuInference.addAction(self.actionnnunet)
         self.menuAffichage.addAction(self.actionToggle_C_Scan)
         self.menuAffichage.addAction(self.actionToggle_A_Scan)
@@ -156,7 +159,7 @@ class Ui_MainWindow(object):
         self.actionSauvegarder.setText(_translate("MainWindow", "Enregistrer"))
         self.actionParam_tres.setText(_translate("MainWindow", "Paramètres"))
         self.actionQuitter.setText(_translate("MainWindow", "Quitter"))
-        self.actionCorrosion_analyse.setText(_translate("MainWindow", "Corrosion analyse"))
+        self.actionCorrosion_analyse.setText(_translate("MainWindow", "Analyze"))
         self.actionParam_tres_2.setText(_translate("MainWindow", "Paramètres overlay"))
         self.actionExporter_npz.setText(_translate("MainWindow", "Exporter .npz"))
         self.actionnnunet.setText(_translate("MainWindow", "nnunet"))
@@ -181,6 +184,7 @@ class Ui_MainWindow(object):
         self.actionRemap_classes.setText(_translate("MainWindow", "Remap classes"))
         self.actionToggle_outline_only.setText(_translate("MainWindow", "Toggle outline only"))
         self.actionToggle_overlay_ascan.setText(_translate("MainWindow", "Toggle overlay ascan"))
+        self.actionInterpolate.setText(_translate("MainWindow", "Interpolate"))
 
 
 if __name__ == "__main__":

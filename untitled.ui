@@ -56,8 +56,9 @@
      <string>Analyse</string>
     </property>
     <addaction name="actionCorrosion_analyse"/>
-    <addaction name="actionAfficher_solide_3d"/>
+    <addaction name="actionInterpolate"/>
     <addaction name="actionParam_tres_3"/>
+    <addaction name="actionAfficher_solide_3d"/>
    </widget>
    <widget class="QMenu" name="menuInference">
     <property name="title">
@@ -125,7 +126,7 @@
   </action>
   <action name="actionCorrosion_analyse">
    <property name="text">
-    <string>Corrosion analyse</string>
+    <string>Analyze</string>
    </property>
   </action>
   <action name="actionParam_tres_2">
@@ -246,6 +247,11 @@
   <action name="actionToggle_overlay_ascan">
    <property name="text">
     <string>Toggle overlay ascan</string>
+   </property>
+  </action>
+  <action name="actionInterpolate">
+   <property name="text">
+    <string>Interpolate</string>
    </property>
   </action>
  </widget>

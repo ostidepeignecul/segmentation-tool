@@ -1,6 +1,6 @@
 from typing import Optional, Tuple, Any, Iterable
 
-from config.constants import DEFAULT_ACTIVE_LABEL_ID
+from config.constants import DEFAULT_ACTIVE_LABEL_ID, normalize_corrosion_peak_selection_mode, normalize_interpolation_algo, CORROSION_STAGE_BASE, CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED
 
 
 class ViewStateModel:
@@ -80,10 +80,21 @@ class ViewStateModel:
         self.corrosion_peak_index_map_b: Optional[Any] = None
         self.corrosion_raw_peak_index_map_a: Optional[Any] = None
         self.corrosion_raw_peak_index_map_b: Optional[Any] = None
+        self.corrosion_raw_distance_map: Optional[Any] = None
         self.corrosion_ascan_support_map: Optional[Any] = None
-        self.corrosion_interpolation_algo: str = "brut"
+        self.corrosion_interpolation_algo: str = "1d_dual_axis"
+        self.corrosion_peak_selection_mode: str = "max_peak"
+        self.corrosion_peak_selection_mode_a: str = "max_peak"
+        self.corrosion_peak_selection_mode_b: str = "max_peak"
         self.corrosion_label_a: Optional[int] = None
         self.corrosion_label_b: Optional[int] = None
+        self.corrosion_session_stage: str = "base"
+        self.corrosion_piece_volume_raw: Optional[Any] = None
+        self.corrosion_piece_volume_interpolated: Optional[Any] = None
+        self.corrosion_piece_volume_legacy_raw: Optional[Any] = None
+        self.corrosion_piece_volume_legacy_interpolated: Optional[Any] = None
+        self.corrosion_piece_anchor: Optional[Tuple[float, float, float]] = None
+        self.corrosion_piece_show_interpolated: bool = True
 
     # ------------------------------------------------------------------ #
     # Slice control
@@ -436,15 +447,106 @@ class ViewStateModel:
     def set_cscan_colormap(self, name: str) -> None:
         self.cscan_colormap = str(name)
 
-    @staticmethod
-    def normalize_corrosion_interpolation_algo(algo: Optional[str]) -> str:
-        value = str(algo or "").strip().casefold()
-        return value or "brut"
-
     def set_corrosion_interpolation_algo(self, algo: Optional[str]) -> str:
-        normalized = self.normalize_corrosion_interpolation_algo(algo)
+        normalized = normalize_interpolation_algo(algo)
         self.corrosion_interpolation_algo = normalized
         return normalized
+
+    def set_corrosion_peak_selection_mode(self, mode: Optional[str]) -> str:
+        normalized = normalize_corrosion_peak_selection_mode(mode)
+        self.corrosion_peak_selection_mode = normalized
+        self.corrosion_peak_selection_mode_a = normalized
+        self.corrosion_peak_selection_mode_b = normalized
+        return normalized
+
+    def get_corrosion_peak_selection_mode_a(self) -> str:
+        raw_value = getattr(self, "corrosion_peak_selection_mode_a", None)
+        if str(raw_value or "").strip():
+            return normalize_corrosion_peak_selection_mode(raw_value)
+        return normalize_corrosion_peak_selection_mode(
+            getattr(self, "corrosion_peak_selection_mode", "max_peak")
+        )
+
+    def get_corrosion_peak_selection_mode_b(self) -> str:
+        raw_value = getattr(self, "corrosion_peak_selection_mode_b", None)
+        if str(raw_value or "").strip():
+            return normalize_corrosion_peak_selection_mode(raw_value)
+        return normalize_corrosion_peak_selection_mode(
+            getattr(self, "corrosion_peak_selection_mode", "max_peak")
+        )
+
+    def set_corrosion_peak_selection_mode_a(self, mode: Optional[str]) -> str:
+        normalized = normalize_corrosion_peak_selection_mode(mode)
+        self.corrosion_peak_selection_mode_a = normalized
+        other = self.get_corrosion_peak_selection_mode_b()
+        self.corrosion_peak_selection_mode = normalized if normalized == other else "mixed"
+        return normalized
+
+    def set_corrosion_peak_selection_mode_b(self, mode: Optional[str]) -> str:
+        normalized = normalize_corrosion_peak_selection_mode(mode)
+        self.corrosion_peak_selection_mode_b = normalized
+        other = self.get_corrosion_peak_selection_mode_a()
+        self.corrosion_peak_selection_mode = normalized if normalized == other else "mixed"
+        return normalized
+
+    def set_corrosion_peak_selection_mode_pair(
+        self,
+        mode_a: Optional[str],
+        mode_b: Optional[str],
+    ) -> tuple[str, str]:
+        normalized_a = normalize_corrosion_peak_selection_mode(mode_a)
+        normalized_b = normalize_corrosion_peak_selection_mode(mode_b)
+        self.corrosion_peak_selection_mode_a = normalized_a
+        self.corrosion_peak_selection_mode_b = normalized_b
+        self.corrosion_peak_selection_mode = (
+            normalized_a if normalized_a == normalized_b else "mixed"
+        )
+        return normalized_a, normalized_b
+
+    @staticmethod
+    def normalize_corrosion_session_stage(stage: Optional[str]) -> str:
+        value = str(stage or "").strip().casefold().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "base": "base",
+            "raw": "raw",
+            "brut": "raw",
+            "interpolated": "interpolated",
+            "interpolee": "interpolated",
+            "interpole": "interpolated",
+        }
+        return aliases.get(value, "base")
+
+    def get_corrosion_session_stage(self) -> str:
+        normalized = self.normalize_corrosion_session_stage(
+            getattr(self, "corrosion_session_stage", CORROSION_STAGE_BASE)
+        )
+        if normalized == CORROSION_STAGE_BASE and self.corrosion_active:
+            if self.corrosion_interpolated_projection is not None:
+                return CORROSION_STAGE_INTERPOLATED
+            if (
+                self.corrosion_raw_peak_index_map_a is not None
+                and self.corrosion_raw_peak_index_map_b is not None
+            ):
+                return CORROSION_STAGE_RAW
+        return normalized
+
+    def set_corrosion_session_stage(self, stage: Optional[str]) -> str:
+        normalized = self.normalize_corrosion_session_stage(stage)
+        self.corrosion_session_stage = normalized
+        return normalized
+
+    def can_run_corrosion_analysis(self) -> bool:
+        return self.get_corrosion_session_stage() == CORROSION_STAGE_BASE
+
+    def can_run_corrosion_interpolation(self) -> bool:
+        return (
+            self.get_corrosion_session_stage() == CORROSION_STAGE_RAW
+            and self.corrosion_active
+            and self.corrosion_raw_peak_index_map_a is not None
+            and self.corrosion_raw_peak_index_map_b is not None
+            and self.corrosion_ascan_support_map is not None
+            and self.corrosion_overlay_label_ids is not None
+        )
 
     # ------------------------------------------------------------------ #
     # Metadata
@@ -474,7 +576,18 @@ class ViewStateModel:
         self.corrosion_peak_index_map_b = None
         self.corrosion_raw_peak_index_map_a = None
         self.corrosion_raw_peak_index_map_b = None
+        self.corrosion_raw_distance_map = None
         self.corrosion_ascan_support_map = None
+        self.corrosion_session_stage = "base"
+        self.clear_corrosion_piece_state()
+
+    def clear_corrosion_piece_state(self) -> None:
+        self.corrosion_piece_volume_raw = None
+        self.corrosion_piece_volume_interpolated = None
+        self.corrosion_piece_volume_legacy_raw = None
+        self.corrosion_piece_volume_legacy_interpolated = None
+        self.corrosion_piece_anchor = None
+        self.corrosion_piece_show_interpolated = True
 
     def set_corrosion_label_a(self, label_id: Optional[int]) -> None:
         if label_id is None:

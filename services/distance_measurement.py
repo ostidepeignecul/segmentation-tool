@@ -11,7 +11,7 @@ import math
 import cv2
 import time
 
-from services.peak_plateau import peak_indices_from_masked_max
+from services.peak_plateau import peak_indices_from_masked_pair
 
 
 class DistanceMeasurementService:
@@ -36,6 +36,8 @@ class DistanceMeasurementService:
         masks: np.ndarray,
         class_A: int,
         class_B: int,
+        peak_selection_mode_a: str = "max_peak",
+        peak_selection_mode_b: Optional[str] = None,
         support_map: Optional[np.ndarray] = None,
         use_mm: bool = False,
         resolution_ultrasound: float = 1.0,
@@ -51,6 +53,8 @@ class DistanceMeasurementService:
             masks=masks,
             class_A=class_A,
             class_B=class_B,
+            peak_selection_mode_a=peak_selection_mode_a,
+            peak_selection_mode_b=peak_selection_mode_b,
             support_map=support_map,
             use_mm=use_mm,
             resolution_ultrasound=resolution_ultrasound,
@@ -64,6 +68,8 @@ class DistanceMeasurementService:
         masks: np.ndarray,
         class_A: int,
         class_B: int,
+        peak_selection_mode_a: str = "max_peak",
+        peak_selection_mode_b: Optional[str] = None,
         support_map: Optional[np.ndarray] = None,
         use_mm: bool = False,
         resolution_ultrasound: float = 1.0,
@@ -81,6 +87,9 @@ class DistanceMeasurementService:
 
         if vol.ndim != 3:
             raise ValueError(f"Volume attendu 3D, recu {vol.ndim}D")
+
+        if peak_selection_mode_b is None:
+            peak_selection_mode_b = peak_selection_mode_a
 
         z, h, w = vol.shape
         support: Optional[np.ndarray] = None
@@ -106,9 +115,16 @@ class DistanceMeasurementService:
             if not has_class_a and not has_class_b:
                 continue
 
-            # En cas de plateau sature, on retient le milieu discret du sommet.
-            max_y_A = peak_indices_from_masked_max(slice_vol, slice_mask, class_A)
-            max_y_B = peak_indices_from_masked_max(slice_vol, slice_mask, class_B)
+            # Les modes optimiste/pessimiste ne changent que les colonnes avec
+            # plusieurs bandes disconnectees pour un label.
+            max_y_A, max_y_B = peak_indices_from_masked_pair(
+                slice_vol,
+                slice_mask,
+                class_A,
+                class_B,
+                selection_mode_a=peak_selection_mode_a,
+                selection_mode_b=peak_selection_mode_b,
+            )
 
             if support is not None:
                 support_row = support[zi]
