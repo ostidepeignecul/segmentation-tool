@@ -4077,3 +4077,24 @@ Le flux corrosion avait accumule plusieurs ambiguities : le calcul brut et l int
 3. Sortir toute la configuration corrosion du `ToolsPanel` et la centraliser dans le menu `Analyse` et la fenetre `CorrosionSettingsView`, afin de supprimer le doublon menu/panneau et de nettoyer le code mort genere par l ancienne UI.
 4. Conserver l interpolation comme une transformation derivee d une session brute existante, en creant une nouvelle session plutot qu en ecrasant la session source, pour permettre la comparaison et preserver un historique exploitable.
 5. Sauvegarder les sources du solide 3D corrosion et leur ancre dans l etat de session plutot que dans un cache volatil du controller, car la restauration a la volee depuis la seule projection 2D ne couvrait pas correctement tous les cas de bascule et d edition.
+
+### 2026-04-21 - Outil Prune d annotation et parametres dedies
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_service.py`, `#views/annotation_view.py`, `#views/nde_settings_view.py`, `#views/tools_panel.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#prune`, `#annotation`, `#ui`, `#session`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute le mode outil `Prune` dans le `ToolsPanel` Designer/codegen et le mappe dans `views/tools_panel.py` pour qu il soit selectionnable comme outil d annotation.
+- Etend `views/annotation_view.py` et `controllers/annotation_controller.py` pour reutiliser le rectangle existant, construire une preview temp sur la slice ou sur une plage `Apply volume`, puis appliquer le prune sur le label actif.
+- Ajoute dans `services/annotation_service.py` la logique `prune_disconnected_label_bands()` qui detecte, colonne par colonne dans la box, les bandes disconnectees d un label et supprime les runs non desires.
+- Reutilise la logique de selection `max_peak` / `optimistic` / `pessimistic` avec reference eventuelle a un label compagnon, tout en calculant la reference sur la slice effective complete plutot que de la tronquer a la box.
+- Cree dans `views/nde_settings_view.py` et `models/view_state_model.py` des parametres d annotation dedies a `Prune` (`label A`, `label B`, `mode`) separes des reglages d analyse corrosion.
+- Synchronise ces nouveaux parametres dans `controllers/master_controller.py`, y compris la normalisation du couple de labels, la restauration apres switch de session et la resynchronisation lors d ajout/suppression de labels.
+
+**Contexte :**
+Le besoin etait d ajouter un outil d annotation permettant d effacer selectivement une bande parasite quand un meme label apparait en plusieurs bandes disconnectees dans une box. En parallele, les choix de labels et de mode utilises par `Prune` ne devaient plus dependre des parametres d analyse corrosion, afin de separer clairement le workflow d annotation du workflow corrosion.
+
+**Decisions techniques :**
+1. Garder `Prune` comme un outil de rectangle autonome dans le pipeline d annotation existant, afin de reutiliser la preview temp, `Apply` et `Apply volume` sans introduire un nouveau flux UI.
+2. Centraliser la logique de suppression selective dans `AnnotationService` plutot que dans la vue ou le controller, pour rester conforme a l architecture MVC et rendre l algorithme testable.
+3. Introduire `prune_label_a`, `prune_label_b` et `prune_peak_selection_mode` dans `ViewStateModel` au lieu de reutiliser `corrosion_label_a/b`, afin d isoler l annotation des reglages metier corrosion.
+4. Normaliser le couple de labels prune avec `CorrosionLabelService.normalize_pair(...)`, pour partager les memes regles de validation de couple sans dupliquer la logique dans le controller.
+5. Conserver un fallback FW/BW seulement quand aucun couple prune explicite n est configure, pour preserver le comportement historique tout en donnant priorite aux nouveaux parametres d annotation.

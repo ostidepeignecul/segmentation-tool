@@ -400,7 +400,7 @@ class AnnotationView(EndviewView):
                         handled = self._handle_freehand_press(event)
                         if handled:
                             return True
-                    if self._tool_mode == "box":
+                    if self._tool_mode in ("box", "prune"):
                         handled = self._handle_box_press(event)
                         if handled:
                             return True
@@ -414,7 +414,7 @@ class AnnotationView(EndviewView):
                         self._handle_line_move(event)
                     if self._tool_mode in ("free_hand", "peak"):
                         self._handle_freehand_move(event)
-                    if self._tool_mode == "box":
+                    if self._tool_mode in ("box", "prune"):
                         self._handle_box_move(event)
                 if event.type() == QMouseEvent.Type.MouseButtonRelease:
                     if self._restriction_dragging:
@@ -424,7 +424,7 @@ class AnnotationView(EndviewView):
                         handled = self._handle_paint_release(event)
                         if handled:
                             return True
-                    if self._tool_mode == "box":
+                    if self._tool_mode in ("box", "prune"):
                         handled = self._handle_box_release(event)
                         if handled:
                             return True

@@ -602,6 +602,11 @@ class MasterController:
         self.nde_settings_view.roi_peak_vertical_max_changed.connect(
             self._on_roi_peak_vertical_max_changed
         )
+        self.nde_settings_view.prune_label_a_changed.connect(self._on_prune_label_a_changed)
+        self.nde_settings_view.prune_label_b_changed.connect(self._on_prune_label_b_changed)
+        self.nde_settings_view.prune_peak_selection_mode_changed.connect(
+            self._on_prune_peak_selection_mode_changed
+        )
         self.nde_settings_view.closing_mask_tolerance_changed.connect(
             self._on_closing_mask_tolerance_changed
         )
@@ -1215,6 +1220,10 @@ class MasterController:
         self.nde_settings_view.set_roi_peak_vertical_max_length(
             self.view_state_model.roi_peak_vertical_max_length
         )
+        self._sync_prune_label_choices()
+        self.nde_settings_view.set_prune_peak_selection_mode(
+            getattr(self.view_state_model, "prune_peak_selection_mode", "max_peak")
+        )
         self.nde_settings_view.set_closing_mask_tolerance(
             getattr(self.view_state_model, "closing_mask_tolerance", 0)
         )
@@ -1476,6 +1485,27 @@ class MasterController:
             self.nde_settings_view.set_roi_peak_vertical_min_length(
                 self.view_state_model.roi_peak_vertical_min_length
             )
+
+    def _on_prune_peak_selection_mode_changed(self, mode: str) -> None:
+        """Handle prune peak-selection mode from annotation settings."""
+        normalized = self.view_state_model.set_prune_peak_selection_mode(mode)
+        self.nde_settings_view.set_prune_peak_selection_mode(normalized)
+
+    def _on_prune_label_a_changed(self, value: Optional[int]) -> None:
+        try:
+            label_a = int(value) if value is not None else None
+        except Exception:
+            label_a = None
+        self.view_state_model.set_prune_label_a(label_a)
+        self._sync_prune_label_choices()
+
+    def _on_prune_label_b_changed(self, value: Optional[int]) -> None:
+        try:
+            label_b = int(value) if value is not None else None
+        except Exception:
+            label_b = None
+        self.view_state_model.set_prune_label_b(label_b)
+        self._sync_prune_label_choices()
 
     def _on_closing_mask_toggled(self, enabled: bool) -> None:
         """Handle closing-mask toggle from the tools panel."""
@@ -1841,6 +1871,7 @@ class MasterController:
         self.tools_panel.set_labels(entries, current=current)
         self.mask_modification_controller.on_active_label_changed(-1 if current is None else int(current))
         self._sync_overwrite_rule_editor()
+        self._sync_prune_label_choices()
         self._sync_corrosion_label_choices()
 
     def _default_overwrite_source_label(self) -> Optional[int]:
@@ -1934,6 +1965,23 @@ class MasterController:
             getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")
         )
         self.corrosion_settings_view.set_workflow_state(self._current_corrosion_session_stage())
+
+    def _sync_prune_label_choices(self) -> None:
+        """Sync prune companion-label choices with current labels and defaults."""
+        labels = self._get_corrosion_labels()
+        current_a = getattr(self.view_state_model, "prune_label_a", None)
+        current_b = getattr(self.view_state_model, "prune_label_b", None)
+        label_a, label_b = CorrosionLabelService.normalize_pair(
+            labels,
+            label_a=current_a,
+            label_b=current_b,
+        )
+        self.view_state_model.set_prune_label_pair(label_a, label_b)
+        self.nde_settings_view.set_prune_label_choices(
+            labels,
+            current_a=label_a,
+            current_b=label_b,
+        )
 
     def _get_corrosion_labels(self) -> list[int]:
         palette = self.annotation_model.get_label_palette()
@@ -2718,6 +2766,7 @@ class MasterController:
         self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
         self.cscan_controller.set_colormap(self.view_state_model.cscan_colormap, None)
         self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
+        self._sync_prune_label_choices()
         self._sync_corrosion_label_choices()
         self._sync_corrosion_workflow_controls()
         self.nde_settings_view.set_colormaps(
@@ -2741,6 +2790,9 @@ class MasterController:
         )
         self.nde_settings_view.set_clean_outliers_contour_smoothing(
             getattr(self.view_state_model, "clean_outliers_contour_smoothing", 0)
+        )
+        self.nde_settings_view.set_prune_peak_selection_mode(
+            getattr(self.view_state_model, "prune_peak_selection_mode", "max_peak")
         )
 
         self._apply_annotation_action(getattr(self.view_state_model, "annotation_action", "draw"))

@@ -10,7 +10,12 @@ import numpy as np
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QDialog
 
-from config.constants import MASK_COLORS_BGRA, PERSISTENT_LABEL_IDS
+from config.constants import (
+    BACKWALL_LABEL_ID,
+    FRONTWALL_LABEL_ID,
+    MASK_COLORS_BGRA,
+    PERSISTENT_LABEL_IDS,
+)
 from models.annotation_model import AnnotationModel
 from models.applied_annotation_history_model import AppliedAnnotationHistoryModel
 from models.roi_model import RoiModel
@@ -1013,6 +1018,9 @@ class AnnotationController:
 
     def on_annotation_box_drawn(self, box: Any) -> bool:
         """Handle box draw completion (stub)."""
+        if self.view_state_model.tool_mode == "prune":
+            return self._handle_prune_box_drawn(box)
+
         mask_volume = self.annotation_model.get_mask_volume()
         if mask_volume is None:
             mask_volume = self.temp_mask_model.get_mask_volume()
@@ -1115,6 +1123,170 @@ class AnnotationController:
             )
         self.refresh_roi_overlay_for_slice(slice_idx)
         return True
+
+    def _handle_prune_box_drawn(self, box: Any) -> bool:
+        """Handle prune rectangle completion by building a temp preview."""
+        active_label = self.view_state_model.active_label
+        try:
+            label = int(active_label) if active_label is not None else -1
+        except Exception:
+            label = -1
+        if label <= 0:
+            return False
+
+        mask_volume = self.annotation_model.get_mask_volume()
+        if mask_volume is None:
+            mask_volume = self.temp_mask_model.get_mask_volume()
+        if mask_volume is None or mask_volume.ndim != 3:
+            return False
+
+        try:
+            slice_idx = int(self.view_state_model.current_slice)
+            depth = int(mask_volume.shape[0])
+            h, w = int(mask_volume.shape[1]), int(mask_volume.shape[2])
+        except Exception:
+            return False
+
+        box_tuple = self._normalize_rect_input(box)
+        if box_tuple is None:
+            return False
+        restriction_rect = self.view_state_model.restriction_rect
+        if restriction_rect is not None:
+            box_tuple = self._intersect_rects(box_tuple, restriction_rect)
+            if box_tuple is None:
+                return False
+
+        selection_mode = getattr(self.view_state_model, "prune_peak_selection_mode", "max_peak")
+        reference_label = self._resolve_prune_reference_label(label)
+
+        if self.view_state_model.apply_volume:
+            start_idx, end_idx = self._resolve_apply_volume_range(depth)
+            changed = False
+            for target_slice in range(int(start_idx), int(end_idx) + 1):
+                if self._apply_prune_preview_to_slice(
+                    slice_idx=int(target_slice),
+                    shape=(h, w),
+                    box=box_tuple,
+                    label=label,
+                    selection_mode=selection_mode,
+                    reference_label=reference_label,
+                ):
+                    changed = True
+            if changed:
+                self.refresh_roi_overlay_for_slice(slice_idx)
+            return changed
+
+        changed = self._apply_prune_preview_to_slice(
+            slice_idx=slice_idx,
+            shape=(h, w),
+            box=box_tuple,
+            label=label,
+            selection_mode=selection_mode,
+            reference_label=reference_label,
+        )
+        if changed:
+            self.refresh_roi_overlay_for_slice(slice_idx)
+        return changed
+
+    def _apply_prune_preview_to_slice(
+        self,
+        *,
+        slice_idx: int,
+        shape: tuple[int, int],
+        box: tuple[int, int, int, int],
+        label: int,
+        selection_mode: str,
+        reference_label: Optional[int],
+    ) -> bool:
+        base_slice = self._annotation_base_slice(slice_idx, shape)
+        effective_slice = self._build_effective_mask_slice(slice_idx, shape, include_temp=True)
+        if effective_slice is None:
+            return False
+
+        pruned_slice = self.annotation_service.prune_disconnected_label_bands(
+            slice_mask=effective_slice,
+            box=box,
+            label=label,
+            slice_data=self._slice_data(slice_idx),
+            selection_mode=selection_mode,
+            reference_label=reference_label,
+        )
+        if pruned_slice is None:
+            return False
+
+        return self._store_effective_preview_slice(
+            slice_idx=slice_idx,
+            base_slice=base_slice,
+            effective_slice=pruned_slice,
+        )
+
+    def _store_effective_preview_slice(
+        self,
+        *,
+        slice_idx: int,
+        base_slice: np.ndarray,
+        effective_slice: np.ndarray,
+    ) -> bool:
+        if base_slice.shape != effective_slice.shape:
+            return False
+
+        depth, mask_shape = self._resolve_volume_dimensions()
+        if depth is None or mask_shape is None:
+            return False
+        if tuple(mask_shape) != tuple(base_slice.shape):
+            return False
+
+        temp_volume = self.temp_mask_model.get_mask_volume()
+        expected_shape = (int(depth), int(mask_shape[0]), int(mask_shape[1]))
+        if temp_volume is None or temp_volume.shape != expected_shape:
+            self.temp_mask_model.initialize(expected_shape)
+
+        for label_id, color in self.annotation_model.get_label_palette().items():
+            self.temp_mask_model.ensure_label(int(label_id), tuple(int(c) for c in color), visible=True)
+
+        coverage = np.asarray(effective_slice != base_slice, dtype=bool)
+        return self.temp_mask_model.set_slice_data(
+            int(slice_idx),
+            np.asarray(effective_slice, dtype=np.uint8),
+            coverage,
+        )
+
+    def _annotation_base_slice(
+        self,
+        slice_idx: int,
+        shape: tuple[int, int],
+    ) -> np.ndarray:
+        mask_volume = self.annotation_model.get_mask_volume()
+        if mask_volume is not None:
+            try:
+                annotation_slice = np.asarray(mask_volume[int(slice_idx)], dtype=np.uint8)
+            except Exception:
+                annotation_slice = None
+            if annotation_slice is not None and annotation_slice.shape == tuple(shape):
+                return np.array(annotation_slice, copy=True)
+        return np.zeros(tuple(shape), dtype=np.uint8)
+
+    def _resolve_prune_reference_label(self, active_label: int) -> Optional[int]:
+        """Resolve the companion label used by optimistic/pessimistic prune."""
+        source = int(active_label)
+        label_a = getattr(self.view_state_model, "prune_label_a", None)
+        label_b = getattr(self.view_state_model, "prune_label_b", None)
+        try:
+            if label_a is not None and source == int(label_a):
+                return None if label_b is None else int(label_b)
+            if label_b is not None and source == int(label_b):
+                return None if label_a is None else int(label_a)
+        except Exception:
+            pass
+
+        if label_a is not None or label_b is not None:
+            return None
+
+        if source == int(FRONTWALL_LABEL_ID):
+            return int(BACKWALL_LABEL_ID)
+        if source == int(BACKWALL_LABEL_ID):
+            return int(FRONTWALL_LABEL_ID)
+        return None
 
     def _handle_paint_click(self, pos: tuple[Any, Any]) -> bool:
         """Paint the effective annotation label into the temp mask (requires Apply)."""

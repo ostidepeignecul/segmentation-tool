@@ -57,6 +57,7 @@ class ToolsPanel(QFrame):
         "paint": "paint",
         "mod": "mod",
         "peak": "peak",
+        "prune": "prune",
     }
     _ANNOTATION_ACTION_BY_TEXT = {
         "draw": "draw",
