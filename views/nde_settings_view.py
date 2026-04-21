@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config.constants import format_label_text
+from config.constants import format_label_text, normalize_corrosion_peak_selection_mode
 
 
 class NdeSettingsView(QDialog):
@@ -32,6 +32,9 @@ class NdeSettingsView(QDialog):
     roi_peak_ignore_position_changed = pyqtSignal(bool)
     roi_peak_vertical_min_changed = pyqtSignal(int)
     roi_peak_vertical_max_changed = pyqtSignal(int)
+    prune_label_a_changed = pyqtSignal(object)
+    prune_label_b_changed = pyqtSignal(object)
+    prune_peak_selection_mode_changed = pyqtSignal(str)
     closing_mask_tolerance_changed = pyqtSignal(int)
     closing_mask_merge_distance_changed = pyqtSignal(int)
     clean_outliers_tolerance_changed = pyqtSignal(int)
@@ -100,6 +103,16 @@ class NdeSettingsView(QDialog):
         self._roi_peak_vertical_max.setValue(0)
         self._roi_peak_vertical_max.setSpecialValueText("Illimite")
         form.addRow(QLabel("ROI Peak - max vertical"), self._roi_peak_vertical_max)
+
+        self._prune_label_a_combo = QComboBox(self)
+        self._prune_label_b_combo = QComboBox(self)
+        form.addRow(QLabel("Prune - label A"), self._prune_label_a_combo)
+        form.addRow(QLabel("Prune - label B"), self._prune_label_b_combo)
+
+        self._prune_peak_mode_combo = QComboBox(self)
+        self._prune_peak_mode_combo.addItems(["Max peak", "Optimiste", "Pessimiste"])
+        self._prepare_peak_mode_combo(self._prune_peak_mode_combo)
+        form.addRow(QLabel("Prune - mode"), self._prune_peak_mode_combo)
 
         self._closing_mask_tolerance = QSpinBox(self)
         self._closing_mask_tolerance.setMinimum(0)
@@ -294,6 +307,41 @@ class NdeSettingsView(QDialog):
         self._roi_peak_vertical_max.setValue(max_len)
         self._roi_peak_vertical_max.blockSignals(False)
 
+    def set_prune_label_choices(
+        self,
+        labels: Iterable[int],
+        *,
+        current_a: Optional[int],
+        current_b: Optional[int],
+    ) -> None:
+        """Populate prune companion-label selectors without emitting signals."""
+        self._prune_label_a_combo.blockSignals(True)
+        self._prune_label_b_combo.blockSignals(True)
+        self._prune_label_a_combo.clear()
+        self._prune_label_b_combo.clear()
+        self._prune_label_a_combo.addItem("Aucun", None)
+        self._prune_label_b_combo.addItem("Aucun", None)
+        for label_id in labels:
+            lbl = int(label_id)
+            self._prune_label_a_combo.addItem(format_label_text(lbl), lbl)
+            self._prune_label_b_combo.addItem(format_label_text(lbl), lbl)
+        self._set_current_data(self._prune_label_a_combo, current_a)
+        self._set_current_data(self._prune_label_b_combo, current_b)
+        self._prune_label_a_combo.blockSignals(False)
+        self._prune_label_b_combo.blockSignals(False)
+
+    def set_prune_peak_selection_mode(self, mode: str) -> None:
+        """Update prune peak-selection mode without emitting signals."""
+        normalized = normalize_corrosion_peak_selection_mode(mode)
+        target_index = self._prune_peak_mode_combo.findData(normalized)
+        if target_index < 0 and self._prune_peak_mode_combo.count() > 0:
+            target_index = 0
+        if target_index < 0:
+            return
+        self._prune_peak_mode_combo.blockSignals(True)
+        self._prune_peak_mode_combo.setCurrentIndex(target_index)
+        self._prune_peak_mode_combo.blockSignals(False)
+
     def set_closing_mask_tolerance(self, value: int) -> None:
         """Update closing-mask hole tolerance without emitting signals."""
         try:
@@ -390,6 +438,11 @@ class NdeSettingsView(QDialog):
         )
         self._roi_peak_vertical_min.valueChanged.connect(self._on_roi_peak_vertical_min_changed)
         self._roi_peak_vertical_max.valueChanged.connect(self._on_roi_peak_vertical_max_changed)
+        self._prune_label_a_combo.currentIndexChanged.connect(self._on_prune_label_a_changed)
+        self._prune_label_b_combo.currentIndexChanged.connect(self._on_prune_label_b_changed)
+        self._prune_peak_mode_combo.currentIndexChanged.connect(
+            self._on_prune_peak_selection_mode_changed
+        )
         self._closing_mask_tolerance.valueChanged.connect(self._on_closing_mask_tolerance_changed)
         self._closing_mask_merge_distance.valueChanged.connect(
             self._on_closing_mask_merge_distance_changed
@@ -491,6 +544,17 @@ class NdeSettingsView(QDialog):
             self.roi_peak_vertical_min_changed.emit(min_len)
         self.roi_peak_vertical_max_changed.emit(max_len)
 
+    def _on_prune_label_a_changed(self, _index: int) -> None:
+        self.prune_label_a_changed.emit(self._prune_label_a_combo.currentData())
+
+    def _on_prune_label_b_changed(self, _index: int) -> None:
+        self.prune_label_b_changed.emit(self._prune_label_b_combo.currentData())
+
+    def _on_prune_peak_selection_mode_changed(self, _index: int) -> None:
+        self.prune_peak_selection_mode_changed.emit(
+            normalize_corrosion_peak_selection_mode(self._prune_peak_mode_combo.currentData())
+        )
+
     def _on_closing_mask_tolerance_changed(self, value: int) -> None:
         self.closing_mask_tolerance_changed.emit(max(0, int(value)))
 
@@ -568,3 +632,11 @@ class NdeSettingsView(QDialog):
             except Exception:
                 continue
         combo.setCurrentIndex(0)
+
+    @staticmethod
+    def _prepare_peak_mode_combo(combo: QComboBox) -> None:
+        for idx in range(combo.count()):
+            combo.setItemData(
+                idx,
+                normalize_corrosion_peak_selection_mode(combo.itemText(idx)),
+            )

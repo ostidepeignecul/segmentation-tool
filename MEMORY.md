@@ -4077,3 +4077,45 @@ Le flux corrosion avait accumule plusieurs ambiguities : le calcul brut et l int
 3. Sortir toute la configuration corrosion du `ToolsPanel` et la centraliser dans le menu `Analyse` et la fenetre `CorrosionSettingsView`, afin de supprimer le doublon menu/panneau et de nettoyer le code mort genere par l ancienne UI.
 4. Conserver l interpolation comme une transformation derivee d une session brute existante, en creant une nouvelle session plutot qu en ecrasant la session source, pour permettre la comparaison et preserver un historique exploitable.
 5. Sauvegarder les sources du solide 3D corrosion et leur ancre dans l etat de session plutot que dans un cache volatil du controller, car la restauration a la volee depuis la seule projection 2D ne couvrait pas correctement tous les cas de bascule et d edition.
+
+### 2026-04-21 - Outil Prune d annotation et parametres dedies
+**Tags :** `#branch:annotation`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_service.py`, `#views/annotation_view.py`, `#views/nde_settings_view.py`, `#views/tools_panel.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#prune`, `#annotation`, `#ui`, `#session`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute le mode outil `Prune` dans le `ToolsPanel` Designer/codegen et le mappe dans `views/tools_panel.py` pour qu il soit selectionnable comme outil d annotation.
+- Etend `views/annotation_view.py` et `controllers/annotation_controller.py` pour reutiliser le rectangle existant, construire une preview temp sur la slice ou sur une plage `Apply volume`, puis appliquer le prune sur le label actif.
+- Ajoute dans `services/annotation_service.py` la logique `prune_disconnected_label_bands()` qui detecte, colonne par colonne dans la box, les bandes disconnectees d un label et supprime les runs non desires.
+- Reutilise la logique de selection `max_peak` / `optimistic` / `pessimistic` avec reference eventuelle a un label compagnon, tout en calculant la reference sur la slice effective complete plutot que de la tronquer a la box.
+- Cree dans `views/nde_settings_view.py` et `models/view_state_model.py` des parametres d annotation dedies a `Prune` (`label A`, `label B`, `mode`) separes des reglages d analyse corrosion.
+- Synchronise ces nouveaux parametres dans `controllers/master_controller.py`, y compris la normalisation du couple de labels, la restauration apres switch de session et la resynchronisation lors d ajout/suppression de labels.
+
+**Contexte :**
+Le besoin etait d ajouter un outil d annotation permettant d effacer selectivement une bande parasite quand un meme label apparait en plusieurs bandes disconnectees dans une box. En parallele, les choix de labels et de mode utilises par `Prune` ne devaient plus dependre des parametres d analyse corrosion, afin de separer clairement le workflow d annotation du workflow corrosion.
+
+**Decisions techniques :**
+1. Garder `Prune` comme un outil de rectangle autonome dans le pipeline d annotation existant, afin de reutiliser la preview temp, `Apply` et `Apply volume` sans introduire un nouveau flux UI.
+2. Centraliser la logique de suppression selective dans `AnnotationService` plutot que dans la vue ou le controller, pour rester conforme a l architecture MVC et rendre l algorithme testable.
+3. Introduire `prune_label_a`, `prune_label_b` et `prune_peak_selection_mode` dans `ViewStateModel` au lieu de reutiliser `corrosion_label_a/b`, afin d isoler l annotation des reglages metier corrosion.
+4. Normaliser le couple de labels prune avec `CorrosionLabelService.normalize_pair(...)`, pour partager les memes regles de validation de couple sans dupliquer la logique dans le controller.
+5. Conserver un fallback FW/BW seulement quand aucun couple prune explicite n est configure, pour preserver le comportement historique tout en donnant priorite aux nouveaux parametres d annotation.
+
+### 2026-04-21 - Toggle plans volume et persistance du solide 3D corrosion
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_session_manager.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#views/volume_view.py`, `#piece3d`, `#volume`, `#colormap`, `#session`, `#ui`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute l action menu `Toggle plans volume` dans `ui_mainwindow.py` et `untitled.ui`, puis la connecte dans `MasterController` comme un toggle d affichage standard.
+- Introduit `show_volume_planes` dans `ViewStateModel` et applique cet etat a `VolumeView` pour afficher ou masquer uniquement les plans mobiles et leurs contours, sans cacher les sliders UI.
+- Ajoute dans `VolumeView` la synchronisation `_apply_volume_plane_visibility()` afin de reappliquer la visibilite des plans apres chaque reconstruction de scene 3D.
+- Centralise dans `MasterController` la reapplication des colormaps sauvegardees avec `_apply_saved_colormaps()`, en resolvant la LUT au lieu de repasser `None`, pour eviter le fallback gris apres changement de session.
+- Fait afficher automatiquement la vue du solide 3D corrosion apres creation des sessions `raw` et `interpolated`, quand des volumes piece sont disponibles.
+- Introduit `corrosion_piece_view_enabled` dans `ViewStateModel` et `AnnotationSessionManager`, puis l utilise dans `MasterController` pour memoriser par session si la vue solide 3D etait laissee ouverte.
+
+**Contexte :**
+Le workflow corrosion gardait deux incoherences visibles dans l UI. D une part, le changement de session reappliquait les colormaps sans LUT resolue, ce qui faisait retomber Endview, Volume et C-scan en gris. D autre part, revenir sur une session de base sans solide 3D decochait implicitement l action `Afficher solide 3d`, si bien qu un retour sur une session `raw` ou `interpolated` ne restaurait plus l ouverture de la vue 3D dans l etat laisse par l utilisateur. En parallele, l utilisateur voulait pouvoir masquer les plans mobiles de la vue volume depuis le menu `Affichage`, sans toucher aux sliders de navigation.
+
+**Decisions techniques :**
+1. Stocker `show_volume_planes` dans `ViewStateModel` plutot que dans `VolumeView`, afin que le toggle du menu `Affichage` suive les changements de session comme le reste des etats UI.
+2. Limiter `Toggle plans volume` aux plans mobiles et a leurs contours dans `VolumeView`, sans masquer les sliders, pour respecter le comportement demande et garder les controles de navigation toujours visibles.
+3. Centraliser la restauration des colormaps dans `_apply_saved_colormaps()` au niveau de `MasterController`, afin de recalculer explicitement les LUT OmniScan/Gris avant de pousser l etat dans les vues et d eliminer le fallback implicite sur `None`.
+4. Memoriser l ouverture de la vue solide 3D avec `corrosion_piece_view_enabled` dans l etat de session, afin de ne plus confondre "session sans donnees 3D" et "utilisateur a volontairement ferme la vue".
+5. Continuer d ouvrir automatiquement la vue solide 3D apres `Analyze` et `Interpolate`, mais persister cette ouverture dans la session nouvellement creee pour que les allers-retours `base -> raw/interpolated` restaurent le meme etat visuel.

@@ -9,11 +9,12 @@ import cv2
 import numpy as np
 from skimage.morphology import flood
 
-from config.constants import MASK_COLORS_BGRA
+from config.constants import MASK_COLORS_BGRA, normalize_corrosion_peak_selection_mode
 from models.annotation_model import AnnotationModel
 from models.roi_model import RoiModel
 from models.temp_mask_model import TempMaskModel
 from services.mask_modification_service import MaskModificationService
+from services.peak_plateau import peak_indices_from_masked_max, pick_plateau_peak_index
 
 
 class AnnotationService:
@@ -2072,6 +2073,190 @@ class AnnotationService:
         mask_inside = (norm[inside] >= thr).astype(np.uint8)
         mask[inside] = mask_inside
         return mask
+
+    @staticmethod
+    def _contiguous_true_runs(mask_column: np.ndarray) -> list[tuple[int, int]]:
+        """Return inclusive runs for a boolean 1D column."""
+        true_indices = np.flatnonzero(np.asarray(mask_column, dtype=bool))
+        if true_indices.size == 0:
+            return []
+        gap_positions = np.flatnonzero(np.diff(true_indices) > 1)
+        starts = np.concatenate((true_indices[:1], true_indices[gap_positions + 1]))
+        ends = np.concatenate((true_indices[gap_positions], true_indices[-1:]))
+        return [(int(start), int(end)) for start, end in zip(starts, ends)]
+
+    @staticmethod
+    def _pick_run_from_peak(
+        runs: list[tuple[int, int]],
+        peak_index: int,
+    ) -> Optional[int]:
+        target = int(peak_index)
+        for idx, (start, end) in enumerate(runs):
+            if int(start) <= target <= int(end):
+                return int(idx)
+        return None
+
+    @staticmethod
+    def _pick_peak_index_in_run(
+        values_column: np.ndarray,
+        start: int,
+        end: int,
+    ) -> Optional[int]:
+        candidates = np.arange(int(start), int(end) + 1, dtype=np.int32)
+        if candidates.size == 0:
+            return None
+        return pick_plateau_peak_index(candidates, values_column[candidates])
+
+    @classmethod
+    def _pick_run_from_reference(
+        cls,
+        runs: list[tuple[int, int]],
+        values_column: np.ndarray,
+        *,
+        reference_peak: int,
+        selection_mode: str,
+    ) -> Optional[int]:
+        normalized_mode = normalize_corrosion_peak_selection_mode(selection_mode)
+        if normalized_mode == "max_peak":
+            return None
+
+        ref = float(reference_peak)
+        best_idx: Optional[int] = None
+        best_key: Optional[tuple[float, ...]] = None
+        for idx, (start, end) in enumerate(runs):
+            centroid = (float(start) + float(end)) / 2.0
+            centroid_distance = abs(centroid - ref)
+            peak_idx = cls._pick_peak_index_in_run(values_column, start, end)
+            if peak_idx is None:
+                peak_idx = int(start)
+            peak_distance = abs(float(peak_idx) - ref)
+            local_max = float(np.max(values_column[int(start) : int(end) + 1]))
+
+            if normalized_mode == "pessimistic":
+                key = (centroid_distance, peak_distance, -local_max, float(start))
+            else:
+                key = (-centroid_distance, -peak_distance, -local_max, float(start))
+
+            if best_key is None or key < best_key:
+                best_key = key
+                best_idx = int(idx)
+        return best_idx
+
+    @staticmethod
+    def _pick_strongest_run(
+        runs: list[tuple[int, int]],
+        values_column: Optional[np.ndarray],
+    ) -> int:
+        if not runs:
+            return 0
+        if values_column is None:
+            return 0
+
+        values = np.asarray(values_column, dtype=np.float32).reshape(-1)
+        best_idx = 0
+        best_key: Optional[tuple[float, int]] = None
+        for idx, (start, end) in enumerate(runs):
+            segment = values[int(start) : int(end) + 1]
+            finite_segment = segment[np.isfinite(segment)]
+            local_max = float(np.max(finite_segment)) if finite_segment.size > 0 else float("-inf")
+            key = (-local_max, int(start))
+            if best_key is None or key < best_key:
+                best_key = key
+                best_idx = int(idx)
+        return best_idx
+
+    def prune_disconnected_label_bands(
+        self,
+        *,
+        slice_mask: np.ndarray,
+        box: Any,
+        label: int,
+        slice_data: Optional[np.ndarray],
+        selection_mode: str,
+        reference_label: Optional[int] = None,
+    ) -> Optional[np.ndarray]:
+        """
+        Keep the desired disconnected band for one label inside a box and clear the others.
+
+        The selected band uses the same peak disambiguation logic as corrosion modes when a
+        reference label is available. Without a reference peak, it falls back to the local
+        max-peak band.
+        """
+        try:
+            working_mask = np.asarray(slice_mask, dtype=np.uint8)
+        except Exception:
+            return None
+        if working_mask.ndim != 2 or working_mask.size == 0:
+            return None
+
+        box_tuple = self._normalize_box_input(box)
+        if box_tuple is None:
+            return None
+        box_mask = self.build_box_mask(working_mask.shape, box_tuple)
+        if box_mask is None or not np.any(box_mask):
+            return None
+        box_mask_bool = box_mask.astype(bool)
+
+        label_id = int(label)
+        label_mask_in_box = np.logical_and(working_mask == label_id, box_mask_bool)
+        if not np.any(label_mask_in_box):
+            return None
+
+        normalized_selection_mode = normalize_corrosion_peak_selection_mode(selection_mode)
+        _, width = working_mask.shape
+        values_2d: Optional[np.ndarray] = None
+        reference_peaks: Optional[np.ndarray] = None
+        if slice_data is not None:
+            normalized_values = self._normalize_slice_to_float32(slice_data)
+            if normalized_values is not None and normalized_values.shape == working_mask.shape:
+                values_2d = normalized_values
+                if (
+                    normalized_selection_mode != "max_peak"
+                    and reference_label is not None
+                    and int(reference_label) != label_id
+                ):
+                    reference_peaks = peak_indices_from_masked_max(
+                        normalized_values,
+                        working_mask,
+                        int(reference_label),
+                    )
+
+        result = np.array(working_mask, copy=True)
+        changed = False
+        for x in range(width):
+            if not np.any(label_mask_in_box[:, x]):
+                continue
+            runs = self._contiguous_true_runs(label_mask_in_box[:, x])
+            if len(runs) < 2:
+                continue
+
+            keep_idx = None
+            if values_2d is not None and reference_peaks is not None:
+                reference_peak = int(reference_peaks[x])
+                if reference_peak >= 0:
+                    keep_idx = self._pick_run_from_reference(
+                        runs,
+                        values_2d[:, x],
+                        reference_peak=reference_peak,
+                        selection_mode=normalized_selection_mode,
+                    )
+            if keep_idx is None:
+                column_values = None if values_2d is None else values_2d[:, x]
+                keep_idx = self._pick_strongest_run(runs, column_values)
+
+            for idx, (start, end) in enumerate(runs):
+                if idx == keep_idx:
+                    continue
+                column_segment = result[int(start) : int(end) + 1, int(x)]
+                band_mask = column_segment == label_id
+                if np.any(band_mask):
+                    column_segment[band_mask] = 0
+                    result[int(start) : int(end) + 1, int(x)] = column_segment
+                    changed = True
+
+        if not changed:
+            return None
+        return result
 
     # ------------------------------------------------------------------ #
     # Rectangle end-to-end

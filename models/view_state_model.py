@@ -23,6 +23,7 @@ class ViewStateModel:
         self.show_overlay_ascan: bool = True
         self.show_outline_only: bool = False
         self.show_volume_view_overlay: bool = True
+        self.show_volume_planes: bool = True
         self.show_volume: bool = True
         self.show_cross: bool = True
 
@@ -34,6 +35,9 @@ class ViewStateModel:
         self.roi_peak_ignore_position: bool = False
         self.roi_peak_vertical_min_length: int = 1
         self.roi_peak_vertical_max_length: int = 0
+        self.prune_label_a: Optional[int] = None
+        self.prune_label_b: Optional[int] = None
+        self.prune_peak_selection_mode: str = "max_peak"
         self.apply_volume: bool = False
         self.roi_persistence: bool = False
         self.closing_mask_enabled: bool = False
@@ -95,6 +99,7 @@ class ViewStateModel:
         self.corrosion_piece_volume_legacy_interpolated: Optional[Any] = None
         self.corrosion_piece_anchor: Optional[Tuple[float, float, float]] = None
         self.corrosion_piece_show_interpolated: bool = True
+        self.corrosion_piece_view_enabled: bool = False
 
     # ------------------------------------------------------------------ #
     # Slice control
@@ -204,6 +209,32 @@ class ViewStateModel:
         if max_len < 0:
             max_len = 0
         self.roi_peak_vertical_max_length = max_len
+
+    def set_prune_peak_selection_mode(self, mode: Optional[str]) -> str:
+        """Set the prune tool peak-selection mode independently from corrosion analysis."""
+        normalized = normalize_corrosion_peak_selection_mode(mode)
+        self.prune_peak_selection_mode = normalized
+        return normalized
+
+    def set_prune_label_a(self, label_id: Optional[int]) -> None:
+        if label_id is None:
+            self.prune_label_a = None
+        else:
+            self.prune_label_a = int(label_id)
+
+    def set_prune_label_b(self, label_id: Optional[int]) -> None:
+        if label_id is None:
+            self.prune_label_b = None
+        else:
+            self.prune_label_b = int(label_id)
+
+    def set_prune_label_pair(
+        self,
+        label_a: Optional[int],
+        label_b: Optional[int],
+    ) -> None:
+        self.set_prune_label_a(label_a)
+        self.set_prune_label_b(label_b)
 
     def set_apply_volume(self, enabled: bool) -> None:
         self.apply_volume = bool(enabled)
@@ -411,6 +442,9 @@ class ViewStateModel:
     def set_show_volume_view_overlay(self, visible: bool) -> None:
         self.show_volume_view_overlay = bool(visible)
 
+    def set_show_volume_planes(self, visible: bool) -> None:
+        self.show_volume_planes = bool(visible)
+
     def set_overlay_alpha(self, value: float) -> None:
         """Set global overlay opacity (0.0 - 1.0)."""
         try:
@@ -588,6 +622,7 @@ class ViewStateModel:
         self.corrosion_piece_volume_legacy_interpolated = None
         self.corrosion_piece_anchor = None
         self.corrosion_piece_show_interpolated = True
+        self.corrosion_piece_view_enabled = False
 
     def set_corrosion_label_a(self, label_id: Optional[int]) -> None:
         if label_id is None:
