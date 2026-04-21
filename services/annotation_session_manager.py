@@ -424,6 +424,7 @@ class AnnotationSessionManager:
         view_state["corrosion_piece_volume_legacy_interpolated"] = None
         view_state["corrosion_piece_anchor"] = None
         view_state["corrosion_piece_show_interpolated"] = True
+        view_state["corrosion_piece_view_enabled"] = False
 
         return AnnotationSessionState(
             name=self._normalize_session_name(name),

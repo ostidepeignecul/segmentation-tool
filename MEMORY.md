@@ -4098,3 +4098,24 @@ Le besoin etait d ajouter un outil d annotation permettant d effacer selectiveme
 3. Introduire `prune_label_a`, `prune_label_b` et `prune_peak_selection_mode` dans `ViewStateModel` au lieu de reutiliser `corrosion_label_a/b`, afin d isoler l annotation des reglages metier corrosion.
 4. Normaliser le couple de labels prune avec `CorrosionLabelService.normalize_pair(...)`, pour partager les memes regles de validation de couple sans dupliquer la logique dans le controller.
 5. Conserver un fallback FW/BW seulement quand aucun couple prune explicite n est configure, pour preserver le comportement historique tout en donnant priorite aux nouveaux parametres d annotation.
+
+### 2026-04-21 - Toggle plans volume et persistance du solide 3D corrosion
+**Tags :** `#branch:annotation`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_session_manager.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#views/volume_view.py`, `#piece3d`, `#volume`, `#colormap`, `#session`, `#ui`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute l action menu `Toggle plans volume` dans `ui_mainwindow.py` et `untitled.ui`, puis la connecte dans `MasterController` comme un toggle d affichage standard.
+- Introduit `show_volume_planes` dans `ViewStateModel` et applique cet etat a `VolumeView` pour afficher ou masquer uniquement les plans mobiles et leurs contours, sans cacher les sliders UI.
+- Ajoute dans `VolumeView` la synchronisation `_apply_volume_plane_visibility()` afin de reappliquer la visibilite des plans apres chaque reconstruction de scene 3D.
+- Centralise dans `MasterController` la reapplication des colormaps sauvegardees avec `_apply_saved_colormaps()`, en resolvant la LUT au lieu de repasser `None`, pour eviter le fallback gris apres changement de session.
+- Fait afficher automatiquement la vue du solide 3D corrosion apres creation des sessions `raw` et `interpolated`, quand des volumes piece sont disponibles.
+- Introduit `corrosion_piece_view_enabled` dans `ViewStateModel` et `AnnotationSessionManager`, puis l utilise dans `MasterController` pour memoriser par session si la vue solide 3D etait laissee ouverte.
+
+**Contexte :**
+Le workflow corrosion gardait deux incoherences visibles dans l UI. D une part, le changement de session reappliquait les colormaps sans LUT resolue, ce qui faisait retomber Endview, Volume et C-scan en gris. D autre part, revenir sur une session de base sans solide 3D decochait implicitement l action `Afficher solide 3d`, si bien qu un retour sur une session `raw` ou `interpolated` ne restaurait plus l ouverture de la vue 3D dans l etat laisse par l utilisateur. En parallele, l utilisateur voulait pouvoir masquer les plans mobiles de la vue volume depuis le menu `Affichage`, sans toucher aux sliders de navigation.
+
+**Decisions techniques :**
+1. Stocker `show_volume_planes` dans `ViewStateModel` plutot que dans `VolumeView`, afin que le toggle du menu `Affichage` suive les changements de session comme le reste des etats UI.
+2. Limiter `Toggle plans volume` aux plans mobiles et a leurs contours dans `VolumeView`, sans masquer les sliders, pour respecter le comportement demande et garder les controles de navigation toujours visibles.
+3. Centraliser la restauration des colormaps dans `_apply_saved_colormaps()` au niveau de `MasterController`, afin de recalculer explicitement les LUT OmniScan/Gris avant de pousser l etat dans les vues et d eliminer le fallback implicite sur `None`.
+4. Memoriser l ouverture de la vue solide 3D avec `corrosion_piece_view_enabled` dans l etat de session, afin de ne plus confondre "session sans donnees 3D" et "utilisateur a volontairement ferme la vue".
+5. Continuer d ouvrir automatiquement la vue solide 3D apres `Analyze` et `Interpolate`, mais persister cette ouverture dans la session nouvellement creee pour que les allers-retours `base -> raw/interpolated` restaurent le meme etat visuel.

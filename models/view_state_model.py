@@ -23,6 +23,7 @@ class ViewStateModel:
         self.show_overlay_ascan: bool = True
         self.show_outline_only: bool = False
         self.show_volume_view_overlay: bool = True
+        self.show_volume_planes: bool = True
         self.show_volume: bool = True
         self.show_cross: bool = True
 
@@ -98,6 +99,7 @@ class ViewStateModel:
         self.corrosion_piece_volume_legacy_interpolated: Optional[Any] = None
         self.corrosion_piece_anchor: Optional[Tuple[float, float, float]] = None
         self.corrosion_piece_show_interpolated: bool = True
+        self.corrosion_piece_view_enabled: bool = False
 
     # ------------------------------------------------------------------ #
     # Slice control
@@ -440,6 +442,9 @@ class ViewStateModel:
     def set_show_volume_view_overlay(self, visible: bool) -> None:
         self.show_volume_view_overlay = bool(visible)
 
+    def set_show_volume_planes(self, visible: bool) -> None:
+        self.show_volume_planes = bool(visible)
+
     def set_overlay_alpha(self, value: float) -> None:
         """Set global overlay opacity (0.0 - 1.0)."""
         try:
@@ -617,6 +622,7 @@ class ViewStateModel:
         self.corrosion_piece_volume_legacy_interpolated = None
         self.corrosion_piece_anchor = None
         self.corrosion_piece_show_interpolated = True
+        self.corrosion_piece_view_enabled = False
 
     def set_corrosion_label_a(self, label_id: Optional[int]) -> None:
         if label_id is None:

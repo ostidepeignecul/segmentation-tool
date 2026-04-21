@@ -190,12 +190,6 @@ class MasterController:
 
         self.annotation_service = AnnotationService()
 
-        # Apply default colormaps
-        self.endview_controller.set_colormap(self.view_state_model.endview_colormap, None)
-        self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
-        if self.cscan_view is not None:
-            self.cscan_view.set_colormap(self.view_state_model.cscan_colormap, None)
-
         # Annotation controller (overlays)
         self.annotation_controller = AnnotationController(
             annotation_model=self.annotation_model,
@@ -292,6 +286,10 @@ class MasterController:
             apply_roi_fallback=self._apply_roi_non_corrosion,
             on_session_changed=self._on_corrosion_session_changed,
         )
+        self._apply_saved_colormaps()
+        self.volume_view.set_volume_planes_visible(
+            getattr(self.view_state_model, "show_volume_planes", True)
+        )
 
         self._connect_actions()
         self._connect_signals()
@@ -378,6 +376,9 @@ class MasterController:
         if hasattr(self.ui, "actionToggle_outline_only"):
             self.ui.actionToggle_outline_only.setCheckable(True)
             self.ui.actionToggle_outline_only.toggled.connect(self._on_outline_only_toggled)
+        if hasattr(self.ui, "actionToggle_plans_volume"):
+            self.ui.actionToggle_plans_volume.setCheckable(True)
+            self.ui.actionToggle_plans_volume.toggled.connect(self._on_volume_planes_toggled)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionR_initialisation_docks"):
@@ -1716,6 +1717,12 @@ class MasterController:
         self.annotation_controller.set_outline_only(enabled)
         self._set_action_checked(getattr(self.ui, "actionToggle_outline_only", None), enabled)
 
+    def _on_volume_planes_toggled(self, enabled: bool) -> None:
+        """Handle the visibility of moving slicing planes in the 3D volume view."""
+        self.view_state_model.set_show_volume_planes(enabled)
+        self._set_action_checked(getattr(self.ui, "actionToggle_plans_volume", None), enabled)
+        self.volume_view.set_volume_planes_visible(enabled)
+
     def _on_annotation_freehand_completed(self, points: Any) -> None:
         """Create the ROI preview, then optionally apply it immediately."""
         preview_created = self.annotation_controller.on_annotation_freehand_completed(points)
@@ -2040,6 +2047,28 @@ class MasterController:
             getattr(self.ui, "actionToggle_outline_only", None),
             getattr(self.view_state_model, "show_outline_only", False),
         )
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_plans_volume", None),
+            getattr(self.view_state_model, "show_volume_planes", True),
+        )
+
+    def _apply_saved_colormaps(self) -> None:
+        """Reapply persisted colormap names with their resolved LUTs."""
+        endview_name = self._normalize_colormap_name(
+            getattr(self.view_state_model, "endview_colormap", "Gris")
+        )
+        cscan_name = self._normalize_colormap_name(
+            getattr(self.view_state_model, "cscan_colormap", "Gris")
+        )
+        endview_lut = self._get_colormap_lut(endview_name)
+        cscan_lut = self._get_colormap_lut(cscan_name)
+        self.view_state_model.set_endview_colormap(endview_name)
+        self.view_state_model.set_cscan_colormap(cscan_name)
+        self.endview_controller.set_colormap(endview_name, endview_lut)
+        self.volume_view.set_base_colormap(endview_name, endview_lut)
+        self.cscan_controller.set_colormap(cscan_name, cscan_lut)
+        self.tools_panel.set_endview_colormap(endview_name)
+        self.nde_settings_view.set_colormaps(endview=endview_name, cscan=cscan_name)
 
     def _sync_coordinate_view_labels(self) -> None:
         """Push primary/secondary axis names into the endview-local controls."""
@@ -2762,17 +2791,13 @@ class MasterController:
         )
 
         # Colormaps
-        self.endview_controller.set_colormap(self.view_state_model.endview_colormap, None)
-        self.volume_view.set_base_colormap(self.view_state_model.endview_colormap, None)
-        self.cscan_controller.set_colormap(self.view_state_model.cscan_colormap, None)
-        self.tools_panel.set_endview_colormap(self.view_state_model.endview_colormap)
+        self._apply_saved_colormaps()
+        self.volume_view.set_volume_planes_visible(
+            getattr(self.view_state_model, "show_volume_planes", True)
+        )
         self._sync_prune_label_choices()
         self._sync_corrosion_label_choices()
         self._sync_corrosion_workflow_controls()
-        self.nde_settings_view.set_colormaps(
-            endview=self.view_state_model.endview_colormap,
-            cscan=self.view_state_model.cscan_colormap,
-        )
         self.nde_settings_view.set_closing_mask_tolerance(
             getattr(self.view_state_model, "closing_mask_tolerance", 0)
         )
@@ -2869,6 +2894,8 @@ class MasterController:
                 legacy_raw_volume=result.piece_volume_legacy_raw,
                 legacy_interpolated_volume=None,
             )
+            self.view_state_model.corrosion_piece_view_enabled = True
+            self._show_piece3d_view(sync_action=True)
 
     def _on_corrosion_interpolation_requested(self, algo: str) -> None:
         """Applique l'algorithme d'interpolation choisi sur les données brutes."""
@@ -2952,6 +2979,8 @@ class MasterController:
                 legacy_raw_volume=interp_result.piece_volume_legacy_raw,
                 legacy_interpolated_volume=interp_result.piece_volume_legacy_interpolated,
             )
+            self.view_state_model.corrosion_piece_view_enabled = True
+            self._show_piece3d_view(sync_action=True)
 
         self.status_message(interp_result.message, 3000)
 
@@ -2962,6 +2991,7 @@ class MasterController:
 
     def _on_piece3d_toggled(self, checked: bool) -> None:
         """Show/hide the embedded piece3D view inside the Volume dock."""
+        self.view_state_model.corrosion_piece_view_enabled = bool(checked)
         if checked:
             if not self._has_piece3d_data():
                 self.status_message("Aucun solide 3D corrosion disponible.", 3000)
@@ -3051,10 +3081,12 @@ class MasterController:
         self._piece_show_interpolated = bool(
             getattr(self.view_state_model, "corrosion_piece_show_interpolated", True)
         )
+        restore_piece3d_view = bool(
+            getattr(self.view_state_model, "corrosion_piece_view_enabled", False)
+        )
         self._sync_piece3d_view()
 
-        action = getattr(self.ui, "actionAfficher_solide_3d", None)
-        if action is not None and action.isChecked() and self._has_piece3d_data():
+        if restore_piece3d_view and self._has_piece3d_data():
             self._show_piece3d_view(sync_action=sync_action)
             return
         self._show_standard_volume_view(sync_action=sync_action)

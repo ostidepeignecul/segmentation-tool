@@ -136,6 +136,7 @@ class VolumeView(QFrame):
         self._recenter_on_slice_change: bool = False
         self._default_camera_fov: float = 45.0
         self._force_square_enabled: bool = False
+        self._show_volume_planes: bool = True
         # VisPy canvas and scene
         self._canvas = scene.SceneCanvas(keys="interactive", bgcolor="black", show=False)
         self._view = self._canvas.central_widget.add_view()
@@ -290,6 +291,11 @@ class VolumeView(QFrame):
             self._volume_visual.cmap = self._base_colormap
         # self._slice_image uses direct RGBA, so no colormap needed.
         pass
+
+    def set_volume_planes_visible(self, visible: bool) -> None:
+        """Show or hide the moving slice planes and their outlines."""
+        self._show_volume_planes = bool(visible)
+        self._apply_volume_plane_visibility()
 
     def set_nde_opacity(self, opacity: float) -> None:
         """Set global NDE volume opacity (0.0 - 1.0)."""
@@ -650,6 +656,7 @@ class VolumeView(QFrame):
         self._add_secondary_slice_plane()
         self._add_secondary_slice_line()
         self._add_overlay_volume()
+        self._apply_volume_plane_visibility()
 
     def update_volume(self) -> None:
         """Emit a signal requesting the controller to refresh the volume."""
@@ -892,6 +899,20 @@ class VolumeView(QFrame):
     def _add_overlay_volume(self) -> None:
         """Add the overlay as a translucent 3D volume."""
         self._apply_overlay_volume_now()
+
+    def _apply_volume_plane_visibility(self) -> None:
+        """Keep the moving slicing guides in sync with the current display toggle."""
+        visible = bool(self._show_volume_planes)
+        if self._slice_highlight_visual is not None:
+            self._slice_highlight_visual.visible = visible
+        if self._slice_image is not None:
+            self._slice_image.visible = visible
+        if self._primary_slice_line is not None:
+            self._primary_slice_line.visible = visible
+        if self._secondary_slice_plane is not None:
+            self._secondary_slice_plane.visible = visible
+        if self._secondary_slice_line is not None:
+            self._secondary_slice_line.visible = visible
 
     def _get_slice_data(self, index: int) -> Optional[np.ndarray]:
         """Return the normalised 2D slice at ``index`` along the first axis."""
