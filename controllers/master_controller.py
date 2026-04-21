@@ -133,6 +133,7 @@ class MasterController:
         self._omniscan_lut: Optional[np.ndarray] = None
         self._pre_corrosion_session_state = None
         self._pre_corrosion_session_id: Optional[str] = None
+        self._auto_corrosion_after_nnunet: bool = False
         self._annotation_axis_mode: str = "Auto"
         self._annotation_axis_name: str = "UCoordinate"
         self._secondary_axis_name: str = "VCoordinate"
@@ -752,11 +753,9 @@ class MasterController:
                 f"nnUNet terminé, NPZ affiché : {payload.output_path}",
                 timeout_ms=5000,
             )
-            QMessageBox.information(
-                self.main_window,
-                "nnUNet",
-                f"Résultat enregistré et affiché :\n{payload.output_path}",
-            )
+            if self.view_state_model.can_run_corrosion_analysis():
+                self._auto_corrosion_after_nnunet = True
+                self._on_run_corrosion_analysis()
         except Exception as exc:
             self._handle_nnunet_error(exc)
 
@@ -2800,8 +2799,15 @@ class MasterController:
         self._pre_corrosion_session_state = None
         self._pre_corrosion_session_id = None
 
+        auto_interp = self._auto_corrosion_after_nnunet
+        self._auto_corrosion_after_nnunet = False
+
         self._after_session_switch()
         self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
+
+        if auto_interp:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._on_corrosion_interpolation_requested_from_menu)
 
         has_distance = (
             result.piece_volume_raw is not None and result.piece_volume_raw.size > 0
@@ -3074,9 +3080,7 @@ class MasterController:
         self._piece_show_interpolated = self._has_piece3d_interpolated()
         self._persist_piece3d_state_to_view_state()
         self._sync_piece3d_view()
-        action = getattr(self.ui, "actionAfficher_solide_3d", None)
-        if action is not None and action.isChecked():
-            self._show_piece3d_view(sync_action=False)
+        self._show_piece3d_view(sync_action=True)
 
     def _toggle_piece_volume(self) -> None:
         """Bascule entre volume brut et volume interpolé si les deux sont disponibles."""

@@ -85,7 +85,7 @@ class ViewStateModel:
         self.corrosion_interpolation_algo: str = "1d_dual_axis"
         self.corrosion_peak_selection_mode: str = "max_peak"
         self.corrosion_peak_selection_mode_a: str = "max_peak"
-        self.corrosion_peak_selection_mode_b: str = "max_peak"
+        self.corrosion_peak_selection_mode_b: str = "pessimistic"
         self.corrosion_label_a: Optional[int] = None
         self.corrosion_label_b: Optional[int] = None
         self.corrosion_session_stage: str = "base"
@@ -472,7 +472,7 @@ class ViewStateModel:
         if str(raw_value or "").strip():
             return normalize_corrosion_peak_selection_mode(raw_value)
         return normalize_corrosion_peak_selection_mode(
-            getattr(self, "corrosion_peak_selection_mode", "max_peak")
+            getattr(self, "corrosion_peak_selection_mode", "pessimistic")
         )
 
     def set_corrosion_peak_selection_mode_a(self, mode: Optional[str]) -> str:
