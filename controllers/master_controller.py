@@ -732,7 +732,13 @@ class MasterController:
             raise ValueError("Volume NDE indisponible.")
 
         overlay_path = Path(file_path)
-        mask_volume = self.overlay_loader.load(str(overlay_path), target_shape=volume.shape)
+        axis_order = list((getattr(self.nde_model, "metadata", {}) or {}).get("axis_order") or [])
+        primary_axis_name = str(axis_order[0]) if axis_order else None
+        mask_volume = self.overlay_loader.load(
+            str(overlay_path),
+            target_shape=volume.shape,
+            preferred_primary_axis=primary_axis_name,
+        )
         self._apply_overlay_mask_volume(mask_volume, preserve_labels=preserve_labels)
         self.imported_overlay_model.set_imported_overlay(
             source_path=str(overlay_path),
@@ -912,10 +918,13 @@ class MasterController:
         if volume is None:
             QMessageBox.warning(self.main_window, "Overlay", "Chargez un NDE avant de sauvegarder.")
             return
+        axis_order = list((getattr(self.nde_model, "metadata", {}) or {}).get("axis_order") or [])
+        primary_axis_name = str(axis_order[0]) if axis_order else None
         try:
             saved_path = self.annotation_controller.save_overlay_via_dialog(
                 parent=self.main_window,
                 volume_shape=volume.shape,
+                primary_axis_name=primary_axis_name,
             )
             if not saved_path:
                 return

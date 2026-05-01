@@ -4119,3 +4119,22 @@ Le workflow corrosion gardait deux incoherences visibles dans l UI. D une part, 
 3. Centraliser la restauration des colormaps dans `_apply_saved_colormaps()` au niveau de `MasterController`, afin de recalculer explicitement les LUT OmniScan/Gris avant de pousser l etat dans les vues et d eliminer le fallback implicite sur `None`.
 4. Memoriser l ouverture de la vue solide 3D avec `corrosion_piece_view_enabled` dans l etat de session, afin de ne plus confondre "session sans donnees 3D" et "utilisateur a volontairement ferme la vue".
 5. Continuer d ouvrir automatiquement la vue solide 3D apres `Analyze` et `Interpolate`, mais persister cette ouverture dans la session nouvellement creee pour que les allers-retours `base -> raw/interpolated` restaurent le meme etat visuel.
+
+### 2026-04-30 - Export overlay multi-format et orientation explicite U/V
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#services/overlay_export.py`, `#services/overlay_loader.py`, `#views/overlay_export_dialog.py`, `#overlay`, `#import`, `#export`, `#npz`, `#sentinel`, `#orientation`, `#ui`, `#mvc`
+
+**Actions effectuees :**
+- Etend `views/overlay_export_dialog.py` avec un choix de cible `Normal` ou `Sentinel`, puis expose les parametres de transformation Sentinel (rotation, axes, transpose, suffixe, miroirs, mode strict) dans une section UI dediee activee uniquement pour ce mode.
+- Refactorise `services/overlay_export.py` pour separer l export applicatif standard et l export de compatibilite Sentinel, avec validation commune du volume, normalisation du chemin de sortie et pipeline de transformations `transpose -> rotate -> mirrors`.
+- Fait ecrire par l export standard un NPZ versionne contenant `mask_ucoord` et `mask_vcoord`, afin de persister explicitement les deux orientations d annotation au lieu d un unique `arr_0`.
+- Etend `services/overlay_loader.py` pour detecter ce nouveau format NPZ, choisir automatiquement `mask_ucoord` ou `mask_vcoord` selon l axe primaire courant, puis conserver un fallback sur les anciens fichiers `mask` ou `arr_0`.
+- Propage dans `controllers/master_controller.py` et `controllers/annotation_controller.py` le `primary_axis_name` derive des metadonnees NDE, aussi bien lors de l import que lors de la sauvegarde, afin d aligner le format exporte et la relecture sur l orientation active.
+
+**Contexte :**
+Le besoin etait de supporter deux usages distincts pour les overlays. D un cote, l application devait sauvegarder un format plus robuste pour ses propres reimports, sans ambiguite sur l orientation U/V. De l autre, l utilisateur avait besoin d un export Sentinel configurable avec une chaine de transformations explicite pour s adapter a des conventions externes de rotation, transpose et miroir.
+
+**Decisions techniques :**
+1. Stocker explicitement `mask_ucoord` et `mask_vcoord` dans le format applicatif, afin d eliminer la dependance a des heuristiques de shape ou a des transposes implicites lors des reimports.
+2. Garder la logique de transformation Sentinel dans `OverlayExport`, plutot que dans la vue ou le controller, pour respecter MVC et centraliser la validation des permutations, axes de rotation et miroirs.
+3. Faire transiter l axe primaire courant via `MasterController` et `AnnotationController`, afin que l import/export reste coherent avec les metadonnees `axis_order` du dataset actif sans acces direct des services a l UI.
+4. Conserver un fallback de lecture sur les anciens NPZ `mask` et `arr_0`, afin de ne pas casser la compatibilite avec les overlays historiques deja produits.

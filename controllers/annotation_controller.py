@@ -1637,7 +1637,13 @@ class AnnotationController:
     # Saving
     # ------------------------------------------------------------------ #
 
-    def save_overlay_via_dialog(self, *, parent: Any, volume_shape: Optional[tuple[int, int, int]]) -> Optional[str]:
+    def save_overlay_via_dialog(
+        self,
+        *,
+        parent: Any,
+        volume_shape: Optional[tuple[int, int, int]],
+        primary_axis_name: Optional[str],
+    ) -> Optional[str]:
         """
         Ouvre une boîte de dialogue et sauvegarde l'overlay courant en NPZ.
 
@@ -1667,13 +1673,27 @@ class AnnotationController:
         if not file_path:
             return None
 
-        saved_path = self.overlay_export.save_npz(
-            mask_volume,
-            file_path,
-            expected_shape=volume_shape,
-            mirror_vertical=options.mirror_vertical,
-            rotation_degrees=options.rotation_degrees,
-        )
+        if options.export_target == "sentinel":
+            saved_path = self.overlay_export.save_sentinel_npz(
+                mask_volume,
+                file_path,
+                expected_shape=volume_shape,
+                rotation_degrees=options.rotation_degrees,
+                rotation_axes=options.rotation_axes,
+                transpose_axes=options.transpose_axes,
+                output_suffix=options.output_suffix,
+                mirror_horizontal=options.mirror_horizontal,
+                mirror_vertical=options.mirror_vertical,
+                mirror_z=options.mirror_z,
+                strict_mode=options.strict_mode,
+            )
+        else:
+            saved_path = self.overlay_export.save_npz(
+                mask_volume,
+                file_path,
+                expected_shape=volume_shape,
+                primary_axis_name=primary_axis_name,
+            )
         return saved_path
 
     # ------------------------------------------------------------------ #
