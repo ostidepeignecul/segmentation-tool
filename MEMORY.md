@@ -4138,3 +4138,22 @@ Le besoin etait de supporter deux usages distincts pour les overlays. D un cote,
 2. Garder la logique de transformation Sentinel dans `OverlayExport`, plutot que dans la vue ou le controller, pour respecter MVC et centraliser la validation des permutations, axes de rotation et miroirs.
 3. Faire transiter l axe primaire courant via `MasterController` et `AnnotationController`, afin que l import/export reste coherent avec les metadonnees `axis_order` du dataset actif sans acces direct des services a l UI.
 4. Conserver un fallback de lecture sur les anciens NPZ `mask` et `arr_0`, afin de ne pas casser la compatibilite avec les overlays historiques deja produits.
+
+### 2026-05-01 - Renommage B-Scan D-Scan et dialogue d ouverture NDE
+**Tags :** `#branch:annotation`, `#MEMORY.md`, `#controllers/dock_layout_controller.py`, `#controllers/master_controller.py`, `#services/annotation_axis_service.py`, `#views/nde_open_options_dialog.py`, `#views/tools_panel.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#ui`, `#mvc`, `#nde`, `#corrosion`, `#navigation`
+
+**Actions effectuees :**
+- Remplace les libelles visibles `U-Coordinate` et `V-Coordinate` par `B-Scan` et `D-Scan` dans les titres de docks, les labels du `ToolsPanel` et les actions du menu `Affichage`.
+- Ajoute dans `AnnotationAxisService` un mapping d affichage centralise entre axes internes `UCoordinate` / `VCoordinate` et noms UI `B-Scan` / `D-Scan`.
+- Corrige `NdeOpenOptionsDialog` pour afficher des choix utilisateur `Auto`, `B-Scan` et `D-Scan` tout en conservant les valeurs internes d axe dans les donnees de retour.
+- Aligne `MasterController` sur ce mapping pour le dialogue d ouverture NDE et le fallback `QInputDialog`, puis resynchronise les labels du `ToolsPanel` avec les titres de vues.
+- Rend le libelle du dock C-scan et de son action menu dynamique: `C-Scan` en mode standard et `Map corrosion` quand un etat corrosion est actif.
+
+**Contexte :**
+Le volume est interprete metierement comme `{profondeur, u, v}` et les noms `U-Coordinate` / `V-Coordinate` etaient juges trompeurs pour des vues 2D. Le besoin etait de presenter des noms de vues directement alignes sur les coupes reelles (`B-Scan`, `D-Scan`) et d etendre ce renommage au dialogue d ouverture NDE, qui exposait encore les noms techniques internes des axes.
+
+**Decisions techniques :**
+1. Limiter le renommage a la couche UI/MVC et conserver `UCoordinate` / `VCoordinate` comme identifiants internes, afin de ne pas casser la logique existante ni les formats de donnees relies aux axes.
+2. Centraliser la conversion vers `B-Scan` / `D-Scan` dans `AnnotationAxisService`, pour eviter la duplication de libelles entre docks, dialogue d ouverture et prompts de selection d axe.
+3. Faire porter a `NdeOpenOptionsDialog` un couple `(valeur interne, libelle affiche)` plutot qu une simple liste de textes, afin de separer proprement presentation utilisateur et contrat backend.
+4. Synchroniser explicitement le titre du dock C-scan apres les transitions du workflow corrosion, afin que le libelle `Map corrosion` suive l etat reel meme quand `CScanController.update_views()` desactive la corrosion.

@@ -50,8 +50,8 @@ class DockLayoutController:
         self.volume_ui = Ui_VolumeDockWidget()
         self.tools_ui = Ui_ToolsPanelDockWidget()
 
-        self.ucoordinate_dock = ads.CDockWidget("U-Coordinate")
-        self.vcoordinate_dock = ads.CDockWidget("V-Coordinate")
+        self.ucoordinate_dock = ads.CDockWidget("B-Scan")
+        self.vcoordinate_dock = ads.CDockWidget("D-Scan")
         self.cscan_dock = ads.CDockWidget("C-Scan")
         self.ascan_dock = ads.CDockWidget("A-Scan")
         self.volume_dock = ads.CDockWidget("Volume")
@@ -127,9 +127,9 @@ class DockLayoutController:
 
     def _configure_docks(self) -> None:
         self.ucoordinate_dock.setObjectName("dock_ucoordinate")
-        self.ucoordinate_dock.setWindowTitle("U-Coordinate")
+        self.ucoordinate_dock.setWindowTitle("B-Scan")
         self.vcoordinate_dock.setObjectName("dock_vcoordinate")
-        self.vcoordinate_dock.setWindowTitle("V-Coordinate")
+        self.vcoordinate_dock.setWindowTitle("D-Scan")
         self.cscan_dock.setObjectName("dock_cscan")
         self.cscan_dock.setWindowTitle("C-Scan")
         self.ascan_dock.setObjectName("dock_ascan")

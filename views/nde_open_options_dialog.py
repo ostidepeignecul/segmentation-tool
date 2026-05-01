@@ -23,7 +23,7 @@ class NdeOpenOptionsDialog(QDialog):
     def __init__(
         self,
         *,
-        axis_choices: Sequence[str],
+        axis_choices: Sequence[Tuple[str, str]],
         current_axis_mode: str,
         detected_title: str,
         detected_lines: Sequence[str],
@@ -36,9 +36,9 @@ class NdeOpenOptionsDialog(QDialog):
         self.setModal(True)
 
         self._axis_combo = QComboBox(self)
-        for choice in axis_choices:
-            self._axis_combo.addItem(str(choice))
-        current_idx = self._axis_combo.findText(str(current_axis_mode))
+        for axis_mode, label in axis_choices:
+            self._axis_combo.addItem(str(label), str(axis_mode))
+        current_idx = self._axis_combo.findData(str(current_axis_mode))
         if current_idx >= 0:
             self._axis_combo.setCurrentIndex(current_idx)
 
@@ -88,7 +88,7 @@ class NdeOpenOptionsDialog(QDialog):
     def get_selection(self) -> Tuple[str, bool, bool]:
         """Return (axis_mode, apply_hilbert, apply_smoothing)."""
         return (
-            str(self._axis_combo.currentText()),
+            str(self._axis_combo.currentData()),
             bool(self._hilbert_checkbox.isChecked()),
             bool(self._smoothing_checkbox.isChecked()),
         )

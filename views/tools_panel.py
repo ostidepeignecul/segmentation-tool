@@ -812,13 +812,13 @@ class ToolsPanel(QFrame):
         """Display the primary coordinate axis label."""
         if self._primary_axis_label is None:
             return
-        self._primary_axis_label.setText(str(name).strip() if name else "U-Coordinate")
+        self._primary_axis_label.setText(str(name).strip() if name else "B-Scan")
 
     def set_secondary_axis_name(self, name: str) -> None:
         """Display the secondary coordinate axis label."""
         if self._secondary_axis_label is None:
             return
-        self._secondary_axis_label.setText(str(name).strip() if name else "V-Coordinate")
+        self._secondary_axis_label.setText(str(name).strip() if name else "D-Scan")
 
     def set_nde_opacity_available(self, available: bool) -> None:
         enabled = bool(available)

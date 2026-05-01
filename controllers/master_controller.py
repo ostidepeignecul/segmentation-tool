@@ -134,8 +134,8 @@ class MasterController:
         self._pre_corrosion_session_state = None
         self._pre_corrosion_session_id: Optional[str] = None
         self._annotation_axis_mode: str = "Auto"
-        self._annotation_axis_name: str = "UCoordinate"
-        self._secondary_axis_name: str = "VCoordinate"
+        self._annotation_axis_name: str = "B-Scan"
+        self._secondary_axis_name: str = "D-Scan"
         self.main_window.closeEvent = self._on_main_window_close_event  # type: ignore[method-assign]
         self._app = QApplication.instance()
         self._nnunet_ui_signals = NnUnetUiSignals()
@@ -300,6 +300,7 @@ class MasterController:
         self._update_main_window_title()
         self._update_endview_label()
         self._sync_display_toggle_actions()
+        self._sync_cscan_labels()
         self.session_manager.ensure_default(
             annotation_model=self.annotation_model,
             temp_mask_model=self.temp_mask_model,
@@ -1298,6 +1299,7 @@ class MasterController:
             self._pre_corrosion_session_state = None
             self._pre_corrosion_session_id = None
         self.cscan_controller.run_corrosion_analysis()
+        self._sync_cscan_labels()
         if not self.view_state_model.corrosion_active:
             self._pre_corrosion_session_state = None
             self._pre_corrosion_session_id = None
@@ -2085,6 +2087,17 @@ class MasterController:
             primary=self._annotation_axis_name,
             secondary=self._secondary_axis_name,
         )
+        self.tools_panel.set_primary_axis_name(self._annotation_axis_name)
+        self.tools_panel.set_secondary_axis_name(self._secondary_axis_name)
+
+    def _sync_cscan_labels(self) -> None:
+        """Keep the C-scan dock and toggle action aligned with corrosion state."""
+        is_corrosion = bool(self.view_state_model.corrosion_active)
+        dock_title = "Map corrosion" if is_corrosion else "C-Scan"
+        action_text = "Toggle map corrosion" if is_corrosion else "Toggle c-scan"
+        self.dock_layout_controller.cscan_dock.setWindowTitle(dock_title)
+        if hasattr(self.ui, "actionToggle_C_Scan"):
+            self.ui.actionToggle_C_Scan.setText(action_text)
 
     # ------------------------------------------------------------------ #
     # Internal helpers
@@ -2106,9 +2119,13 @@ class MasterController:
         defaults = self.nde_signal_processing_service.default_processing_options(
             transform_info
         )
+        axis_choice_items = [
+            (choice, self.annotation_axis_service.display_axis_name(choice))
+            for choice in choices
+        ]
 
         dialog = NdeOpenOptionsDialog(
-            axis_choices=choices,
+            axis_choices=axis_choice_items,
             current_axis_mode=current,
             detected_title=self.nde_signal_processing_service.build_detection_title(
                 transform_info
@@ -2139,18 +2156,27 @@ class MasterController:
             self._annotation_axis_mode,
             choices,
         )
-        current_idx = choices.index(current)
+        display_choices = [
+            self.annotation_axis_service.display_axis_name(choice)
+            for choice in choices
+        ]
+        current_display = self.annotation_axis_service.display_axis_name(current)
+        current_idx = display_choices.index(current_display)
         selection, ok = QInputDialog.getItem(
             self.main_window,
             "Plan d'annotation",
             "Plan autorise pour annotation:",
-            choices,
+            display_choices,
             current_idx,
             False,
         )
         if not ok:
             return None
-        return str(selection)
+        selection_text = str(selection)
+        for choice in choices:
+            if self.annotation_axis_service.display_axis_name(choice) == selection_text:
+                return str(choice)
+        return current
 
     def _apply_annotation_axis_mode(self, model: NdeModel, axis_mode: str) -> None:
         """Force U/V as primary slice axis when requested by the user."""
@@ -2618,6 +2644,7 @@ class MasterController:
         )
         self.view_state_model.set_corrosion_session_stage(stage)
         self.view_state_model.corrosion_active = True
+        self._sync_cscan_labels()
 
         if result.overlay_volume is not None:
             self.annotation_model.set_mask_volume(result.overlay_volume)
@@ -2670,6 +2697,7 @@ class MasterController:
     def _refresh_views(self) -> None:
         """Push the current volume state into all views."""
         volume = self._current_volume()
+        self._sync_cscan_labels()
         if volume is None:
             self.tools_panel.set_nde_opacity_available(False)
             self.endview_controller.set_primary_endview_name("-")
@@ -2702,6 +2730,7 @@ class MasterController:
 
         # Met à jour la C‑scan (standard ou corrosion)
         self.cscan_controller.update_views(volume)
+        self._sync_cscan_labels()
         self.endview_controller.sync_mode()
 
         # Récupère l'ordre des axes depuis le modèle, s'il existe

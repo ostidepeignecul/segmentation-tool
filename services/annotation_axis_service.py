@@ -25,6 +25,11 @@ class CoordinateDockTitles:
 class AnnotationAxisService:
     """Encapsulate axis/orthogonal-view business logic away from controllers."""
 
+    _DISPLAY_AXIS_NAMES = {
+        "UCoordinate": "B-Scan",
+        "VCoordinate": "D-Scan",
+    }
+
     @staticmethod
     def axis_mode_choices(model: Optional[NdeModel]) -> list[str]:
         """Return allowed annotation plane modes based on model axis metadata."""
@@ -98,8 +103,10 @@ class AnnotationAxisService:
         axis_order = []
         if model is not None:
             axis_order = list(model.metadata.get("axis_order") or [])
-        primary = str(axis_order[0]) if len(axis_order) >= 1 else "Primary"
-        secondary = str(axis_order[2]) if len(axis_order) >= 3 else "Secondary"
+        primary_axis = str(axis_order[0]) if len(axis_order) >= 1 else "UCoordinate"
+        secondary_axis = str(axis_order[2]) if len(axis_order) >= 3 else "VCoordinate"
+        primary = AnnotationAxisService.display_axis_name(primary_axis)
+        secondary = AnnotationAxisService.display_axis_name(secondary_axis)
         auto_suffix = " [Auto]" if str(axis_mode) == "Auto" else ""
         return CoordinateDockTitles(
             primary_axis_name=primary,
@@ -107,6 +114,14 @@ class AnnotationAxisService:
             primary_title=f"{primary} (annotation){auto_suffix}",
             secondary_title=f"{secondary} (read-only)",
         )
+
+    @classmethod
+    def display_axis_name(cls, axis_name: Optional[str]) -> str:
+        """Return the user-facing label for a logical annotation axis."""
+        name = str(axis_name or "").strip()
+        if not name:
+            return "Unknown axis"
+        return cls._DISPLAY_AXIS_NAMES.get(name, name)
 
     @staticmethod
     def build_secondary_volume(volume: Optional[np.ndarray]) -> Optional[np.ndarray]:

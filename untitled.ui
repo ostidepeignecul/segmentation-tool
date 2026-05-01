@@ -217,12 +217,12 @@
   </action>
   <action name="actionToggle_vcoord">
    <property name="text">
-    <string>Toggle v-coord</string>
+    <string>Toggle D-Scan</string>
    </property>
   </action>
   <action name="actionToggle_ucoord">
    <property name="text">
-    <string>Toggle u-coord</string>
+    <string>Toggle B-Scan</string>
    </property>
   </action>
   <action name="actionOuvrir_une_session">
