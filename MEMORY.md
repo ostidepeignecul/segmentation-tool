@@ -4157,3 +4157,22 @@ Le volume est interprete metierement comme `{profondeur, u, v}` et les noms `U-C
 2. Centraliser la conversion vers `B-Scan` / `D-Scan` dans `AnnotationAxisService`, pour eviter la duplication de libelles entre docks, dialogue d ouverture et prompts de selection d axe.
 3. Faire porter a `NdeOpenOptionsDialog` un couple `(valeur interne, libelle affiche)` plutot qu une simple liste de textes, afin de separer proprement presentation utilisateur et contrat backend.
 4. Synchroniser explicitement le titre du dock C-scan apres les transitions du workflow corrosion, afin que le libelle `Map corrosion` suive l etat reel meme quand `CScanController.update_views()` desactive la corrosion.
+
+### 2026-05-02 - Regles colorees synchronisees sur Endview C-scan et A-scan
+**Tags :** `#branch:feature/axis-color-mapping`, `#MEMORY.md`, `#controllers/cscan_controller.py`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#services/annotation_axis_service.py`, `#views/ascan_view.py`, `#views/color_axis_ruler.py`, `#views/cscan_view.py`, `#views/endview_view.py`, `#ruler`, `#axes`, `#zoom`, `#pan`, `#ui`, `#mvc`, `#cscan`, `#endview`, `#ascan`
+
+**Actions effectuees :**
+- Ajoute `views/color_axis_ruler.py`, un widget partage de regle horizontale ou verticale capable d afficher des graduations pixel et des libelles colores selon les axes metier `B-Scan`, `D-Scan`, `Profondeur` et `Amplitude`.
+- Integre ces regles dans `views/endview_view.py` autour de la `QGraphicsView`, avec mise a jour automatique de la fenetre visible lors du zoom, du pan, du resize, du reset d affichage et du changement de slice.
+- Etend `views/cscan_view.py` avec le meme habillage de regles, tout en refactorant le zoom/pan pour conserver un centre scene explicite, recalculer le `sceneRect` avec padding et maintenir les graduations synchronisees avec la zone visible.
+- Harmonise `views/ascan_view.py` en remappant l axe horizontal sur `Profondeur` et en reappliquant la meme palette de couleurs d axes sur les labels et ticks PyQtGraph.
+- Ajoute dans `services/annotation_axis_service.py` des structures `EndviewRulerAxes` et `CScanRulerAxes`, puis calcule les noms d axes affiches a partir de `axis_order` pour propager des libelles coherents depuis `MasterController` vers `EndviewController` et `CScanController`.
+
+**Contexte :**
+Le renommage precedent vers `B-Scan`, `D-Scan` et `Profondeur` etait encore incomplet dans les reperes visuels internes des vues 2D. Le besoin etait d afficher des regles pixel directement alignees sur les axes metier reels, tout en gardant leur comportement correct pendant les interactions de navigation comme le zoom, le pan et le redimensionnement.
+
+**Decisions techniques :**
+1. Introduire un widget partage `ColorAxisRuler` au lieu de dupliquer du code de dessin dans `EndviewView` et `CScanView`, afin de centraliser la logique de graduations, de couleurs et de rendu des axes.
+2. Faire calculer les noms d axes affiches par `AnnotationAxisService` plutot que par les vues, pour rester conforme a MVC et reutiliser `axis_order` comme source unique de verite metier.
+3. Conserver dans `CScanView` et `EndviewView` un centre scene explicite et un recalcul du `sceneRect` avec padding, afin que les regles suivent fidelement la fenetre visible meme sans scrollbars et avec zoom/pan manuels.
+4. Reutiliser la meme palette pour A-scan, Endview et C-scan, afin d etablir une correspondance visuelle stable entre les differentes vues sans changer les identifiants d axes internes.

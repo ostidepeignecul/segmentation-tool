@@ -22,12 +22,31 @@ class CoordinateDockTitles:
     secondary_title: str
 
 
+@dataclass(frozen=True)
+class EndviewRulerAxes:
+    """Computed axis labels for pixel rulers drawn around both endviews."""
+
+    primary_horizontal_axis_name: str
+    primary_vertical_axis_name: str
+    secondary_horizontal_axis_name: str
+    secondary_vertical_axis_name: str
+
+
+@dataclass(frozen=True)
+class CScanRulerAxes:
+    """Computed axis labels for pixel rulers drawn around the C-scan."""
+
+    horizontal_axis_name: str
+    vertical_axis_name: str
+
+
 class AnnotationAxisService:
     """Encapsulate axis/orthogonal-view business logic away from controllers."""
 
     _DISPLAY_AXIS_NAMES = {
         "UCoordinate": "B-Scan",
         "VCoordinate": "D-Scan",
+        "Ultrasound": "Profondeur",
     }
 
     @staticmethod
@@ -113,6 +132,39 @@ class AnnotationAxisService:
             secondary_axis_name=secondary,
             primary_title=f"{primary} (annotation){auto_suffix}",
             secondary_title=f"{secondary} (read-only)",
+        )
+
+    @classmethod
+    def build_endview_ruler_axes(cls, model: Optional[NdeModel]) -> EndviewRulerAxes:
+        """Return the displayed X/Y axis names for the primary and secondary endviews."""
+        axis_order = []
+        if model is not None:
+            axis_order = list(model.metadata.get("axis_order") or [])
+
+        primary_slice_axis = str(axis_order[0]) if len(axis_order) >= 1 else "UCoordinate"
+        vertical_axis = str(axis_order[1]) if len(axis_order) >= 2 else "VCoordinate"
+        horizontal_depth_axis = str(axis_order[2]) if len(axis_order) >= 3 else "Ultrasound"
+
+        return EndviewRulerAxes(
+            primary_horizontal_axis_name=cls.display_axis_name(horizontal_depth_axis),
+            primary_vertical_axis_name=cls.display_axis_name(vertical_axis),
+            secondary_horizontal_axis_name=cls.display_axis_name(primary_slice_axis),
+            secondary_vertical_axis_name=cls.display_axis_name(vertical_axis),
+        )
+
+    @classmethod
+    def build_cscan_ruler_axes(cls, model: Optional[NdeModel]) -> CScanRulerAxes:
+        """Return the displayed X/Y axis names for the C-scan projection."""
+        axis_order = []
+        if model is not None:
+            axis_order = list(model.metadata.get("axis_order") or [])
+
+        vertical_axis = str(axis_order[0]) if len(axis_order) >= 1 else "UCoordinate"
+        horizontal_axis = str(axis_order[2]) if len(axis_order) >= 3 else "Ultrasound"
+
+        return CScanRulerAxes(
+            horizontal_axis_name=cls.display_axis_name(horizontal_axis),
+            vertical_axis_name=cls.display_axis_name(vertical_axis),
         )
 
     @classmethod

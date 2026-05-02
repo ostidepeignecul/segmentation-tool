@@ -2082,10 +2082,22 @@ class MasterController:
         self.nde_settings_view.set_colormaps(endview=endview_name, cscan=cscan_name)
 
     def _sync_coordinate_view_labels(self) -> None:
-        """Push primary/secondary axis names into the endview-local controls."""
+        """Push navigation and displayed axis names into the endview-local controls."""
         self.endview_controller.set_axis_names(
             primary=self._annotation_axis_name,
             secondary=self._secondary_axis_name,
+        )
+        ruler_axes = self.annotation_axis_service.build_endview_ruler_axes(self.nde_model)
+        self.endview_controller.set_ruler_axis_names(
+            primary_horizontal=ruler_axes.primary_horizontal_axis_name,
+            primary_vertical=ruler_axes.primary_vertical_axis_name,
+            secondary_horizontal=ruler_axes.secondary_horizontal_axis_name,
+            secondary_vertical=ruler_axes.secondary_vertical_axis_name,
+        )
+        cscan_ruler_axes = self.annotation_axis_service.build_cscan_ruler_axes(self.nde_model)
+        self.cscan_controller.set_ruler_axis_names(
+            horizontal=cscan_ruler_axes.horizontal_axis_name,
+            vertical=cscan_ruler_axes.vertical_axis_name,
         )
         self.tools_panel.set_primary_axis_name(self._annotation_axis_name)
         self.tools_panel.set_secondary_axis_name(self._secondary_axis_name)

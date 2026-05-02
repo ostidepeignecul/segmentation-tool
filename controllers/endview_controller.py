@@ -99,6 +99,35 @@ class EndviewController:
         if self.secondary_corrosion_view is not None:
             self.secondary_corrosion_view.set_navigation_axis_name(secondary)
 
+    def set_ruler_axis_names(
+        self,
+        *,
+        primary_horizontal: str,
+        primary_vertical: str,
+        secondary_horizontal: str,
+        secondary_vertical: str,
+    ) -> None:
+        """Push displayed X/Y axis names into the rulers of both endviews."""
+        self.standard_view.set_ruler_axis_names(
+            horizontal=primary_horizontal,
+            vertical=primary_vertical,
+        )
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_ruler_axis_names(
+                horizontal=primary_horizontal,
+                vertical=primary_vertical,
+            )
+        if self.secondary_view is not None:
+            self.secondary_view.set_ruler_axis_names(
+                horizontal=secondary_horizontal,
+                vertical=secondary_vertical,
+            )
+        if self.secondary_corrosion_view is not None:
+            self.secondary_corrosion_view.set_ruler_axis_names(
+                horizontal=secondary_horizontal,
+                vertical=secondary_vertical,
+            )
+
     def set_primary_endview_name(self, name: str) -> None:
         self.standard_view.set_endview_name(name)
         if self.corrosion_view is not None:

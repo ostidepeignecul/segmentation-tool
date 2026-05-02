@@ -10,6 +10,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import QFrame, QVBoxLayout
 
+from views.color_axis_ruler import ColorAxisRuler
+
 
 class AScanView(QFrame):
     """Displays a 1D signal with interactive position marker."""
@@ -30,8 +32,9 @@ class AScanView(QFrame):
         self._plot_widget = pg.PlotWidget(background="#111111")
         self._plot_widget.setMenuEnabled(False)
         self._plot_widget.showGrid(x=True, y=True, alpha=0.2)
-        self._plot_widget.setLabel("bottom", "Position Y")
+        self._plot_widget.setLabel("bottom", "Profondeur")
         self._plot_widget.setLabel("left", "Amplitude (%)")
+        self._apply_axis_colors()
         self._overlay_bars = pg.BarGraphItem(x0=[], x1=[], y0=[], height=[], pen=None, brush=None)
         self._overlay_bars.setZValue(-10)
         self._plot_widget.addItem(self._overlay_bars)
@@ -209,3 +212,19 @@ class AScanView(QFrame):
         b, g, r, a = (int(value) for value in bgra)
         alpha = max(0, min(255, int(round(a * self._overlay_opacity))))
         return pg.mkBrush(QColor(r, g, b, alpha))
+
+    def _apply_axis_colors(self) -> None:
+        """Align A-scan axis styling with the shared ruler color mapping."""
+        bottom_axis = self._plot_widget.getAxis("bottom")
+        left_axis = self._plot_widget.getAxis("left")
+
+        depth_color = ColorAxisRuler.axis_color_for_name("Profondeur") or QColor("#9b649b")
+        amplitude_color = ColorAxisRuler.axis_color_for_name("Amplitude") or QColor("#cfff53")
+
+        bottom_axis.setLabel("Profondeur", color=depth_color.name())
+        bottom_axis.setPen(pg.mkPen(depth_color))
+        bottom_axis.setTextPen(pg.mkPen(depth_color))
+
+        left_axis.setLabel("Amplitude (%)", color=amplitude_color.name())
+        left_axis.setPen(pg.mkPen(amplitude_color))
+        left_axis.setTextPen(pg.mkPen(amplitude_color))

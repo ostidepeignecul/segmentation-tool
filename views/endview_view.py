@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, Mapping
 
 import numpy as np
-from PyQt6.QtCore import QEvent, QPointF, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QImage, QMouseEvent, QPixmap, QPen
 from PyQt6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QGraphicsLineItem,
     QGraphicsPixmapItem,
@@ -19,9 +20,11 @@ from PyQt6.QtWidgets import (
     QSlider,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 from models.overlay_data import OverlayData
+from views.color_axis_ruler import ColorAxisRuler
 
 
 @dataclass
@@ -61,6 +64,8 @@ class EndviewView(QFrame):
         self._status_endview_name: str = "-"
         self._status_position: Optional[Tuple[int, int]] = None
         self._show_status_position: bool = False
+        self._display_axis_x_name: str = ""
+        self._display_axis_y_name: str = ""
 
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
@@ -103,9 +108,27 @@ class EndviewView(QFrame):
         self._scene.addItem(self._crosshair_h)
         self._scene.addItem(self._crosshair_v)
 
+        self._horizontal_ruler = ColorAxisRuler(Qt.Orientation.Horizontal, self)
+        self._vertical_ruler = ColorAxisRuler(Qt.Orientation.Vertical, self)
+        self._ruler_corner = QWidget(self)
+        self._ruler_corner.setFixedSize(
+            self._vertical_ruler.width(),
+            self._horizontal_ruler.height(),
+        )
+        self._ruler_corner.setStyleSheet("background-color: #171717;")
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._view, 1)
+        self._view_ruler_layout = QGridLayout()
+        self._view_ruler_layout.setContentsMargins(0, 0, 0, 0)
+        self._view_ruler_layout.setSpacing(0)
+        self._view_ruler_layout.addWidget(self._vertical_ruler, 0, 0)
+        self._view_ruler_layout.addWidget(self._view, 0, 1)
+        self._view_ruler_layout.addWidget(self._ruler_corner, 1, 0)
+        self._view_ruler_layout.addWidget(self._horizontal_ruler, 1, 1)
+        self._view_ruler_layout.setColumnStretch(1, 1)
+        self._view_ruler_layout.setRowStretch(0, 1)
+        layout.addLayout(self._view_ruler_layout, 1)
 
         self._navigation_row = QHBoxLayout()
         self._navigation_row.setContentsMargins(0, 0, 0, 0)
@@ -132,6 +155,7 @@ class EndviewView(QFrame):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFocusProxy(self._view)
         self._set_navigation_enabled(False)
+        self.set_ruler_axis_names(horizontal="", vertical="")
         self._refresh_status()
 
     # ------------------------------------------------------------------ #
@@ -156,6 +180,7 @@ class EndviewView(QFrame):
             self._set_navigation_bounds(0, 0)
             self._set_navigation_value(0)
             self._set_navigation_enabled(False)
+            self._clear_rulers()
             self._refresh_status()
             return
         self._volume = np.asarray(volume)
@@ -238,6 +263,13 @@ class EndviewView(QFrame):
         """Display the axis name that the local slider controls."""
         self._navigation_axis_name = str(name).strip() if name else "Slice"
         self._navigation_title.setText(self._navigation_axis_name)
+
+    def set_ruler_axis_names(self, *, horizontal: str, vertical: str) -> None:
+        """Display the X/Y axis names used by the pixel rulers."""
+        self._display_axis_x_name = str(horizontal or "").strip()
+        self._display_axis_y_name = str(vertical or "").strip()
+        self._horizontal_ruler.set_axis_name(self._display_axis_x_name)
+        self._vertical_ruler.set_axis_name(self._display_axis_y_name)
 
     def set_navigation_bounds(self, minimum: int, maximum: int) -> None:
         """Update slider/spinbox bounds without emitting navigation signals."""
@@ -390,6 +422,7 @@ class EndviewView(QFrame):
 
     def _refresh_pixmaps(self) -> None:
         if self._volume is None:
+            self._clear_rulers()
             return
         slice_data = self._volume[self._current_slice]
         pixmap = self._array_to_pixmap(slice_data)
@@ -402,6 +435,7 @@ class EndviewView(QFrame):
         self._update_scene_padding()
         self._apply_display_scale()
         self._refresh_overlay_pixmap()
+        self._refresh_rulers()
 
     def _refresh_overlay_pixmap(self) -> None:
         if self._mask_volume is None or self._volume is None:
@@ -717,6 +751,7 @@ class EndviewView(QFrame):
         self._view.resetTransform()
         self._view.scale(scale_x, scale_y)
         self._view.centerOn(center_scene)
+        self._refresh_rulers()
 
     def _update_scene_padding(self) -> None:
         rect = self._image_item.boundingRect()
@@ -738,9 +773,11 @@ class EndviewView(QFrame):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if not self._scene.items():
+            self._clear_rulers()
             return
         self._apply_view_transform()
         self._update_scene_padding()
+        self._refresh_rulers()
 
     def _emit_slice_scroll(self, delta: int) -> None:
         if self._volume is None or delta == 0:
@@ -792,3 +829,39 @@ class EndviewView(QFrame):
             x, y = self._status_position
             parts.append(f"position x = {int(x)} ; y = {int(y)}")
         self._status.setText(" | ".join(parts))
+
+    def _clear_rulers(self) -> None:
+        self._horizontal_ruler.clear_range()
+        self._vertical_ruler.clear_range()
+
+    def _refresh_rulers(self) -> None:
+        if self._volume is None:
+            self._clear_rulers()
+            return
+
+        visible_rect = self._visible_scene_rect()
+        if visible_rect is None or visible_rect.isEmpty():
+            self._clear_rulers()
+            return
+
+        height, width = self._volume.shape[1:]
+        self._horizontal_ruler.set_view_range(
+            view_min=visible_rect.left(),
+            view_max=visible_rect.right(),
+            content_min=0.0,
+            content_max=float(max(0, width - 1)),
+        )
+        self._vertical_ruler.set_view_range(
+            view_min=visible_rect.top(),
+            view_max=visible_rect.bottom(),
+            content_min=0.0,
+            content_max=float(max(0, height - 1)),
+        )
+
+    def _visible_scene_rect(self) -> Optional[QRectF]:
+        viewport_rect = self._view.viewport().rect()
+        if viewport_rect.isEmpty():
+            return None
+        top_left = self._view.mapToScene(viewport_rect.topLeft())
+        bottom_right = self._view.mapToScene(viewport_rect.bottomRight())
+        return QRectF(top_left, bottom_right).normalized()

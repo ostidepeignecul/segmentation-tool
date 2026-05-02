@@ -94,6 +94,19 @@ class CScanController:
         if self.corrosion_view is not None:
             self.corrosion_view.set_cross_visible(visible)
 
+    def set_ruler_axis_names(self, *, horizontal: str, vertical: str) -> None:
+        """Push displayed X/Y axis names into the C-scan rulers."""
+        if self.standard_view is not None:
+            self.standard_view.set_ruler_axis_names(
+                horizontal=horizontal,
+                vertical=vertical,
+            )
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_ruler_axis_names(
+                horizontal=horizontal,
+                vertical=vertical,
+            )
+
     def set_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
         """Apply colormap on the standard C-scan view."""
         if self.standard_view is not None:
