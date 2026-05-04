@@ -26,9 +26,13 @@ class CoordinateDockTitles:
 class EndviewRulerAxes:
     """Computed axis labels for pixel rulers drawn around both endviews."""
 
+    primary_horizontal_axis_key: str
     primary_horizontal_axis_name: str
+    primary_vertical_axis_key: str
     primary_vertical_axis_name: str
+    secondary_horizontal_axis_key: str
     secondary_horizontal_axis_name: str
+    secondary_vertical_axis_key: str
     secondary_vertical_axis_name: str
 
 
@@ -36,7 +40,9 @@ class EndviewRulerAxes:
 class CScanRulerAxes:
     """Computed axis labels for pixel rulers drawn around the C-scan."""
 
+    horizontal_axis_key: str
     horizontal_axis_name: str
+    vertical_axis_key: str
     vertical_axis_name: str
 
 
@@ -142,13 +148,17 @@ class AnnotationAxisService:
             axis_order = list(model.metadata.get("axis_order") or [])
 
         primary_slice_axis = str(axis_order[0]) if len(axis_order) >= 1 else "UCoordinate"
-        vertical_axis = str(axis_order[1]) if len(axis_order) >= 2 else "VCoordinate"
-        horizontal_depth_axis = str(axis_order[2]) if len(axis_order) >= 3 else "Ultrasound"
+        vertical_axis = str(axis_order[1]) if len(axis_order) >= 2 else "Ultrasound"
+        horizontal_depth_axis = str(axis_order[2]) if len(axis_order) >= 3 else "VCoordinate"
 
         return EndviewRulerAxes(
+            primary_horizontal_axis_key=horizontal_depth_axis,
             primary_horizontal_axis_name=cls.display_axis_name(horizontal_depth_axis),
+            primary_vertical_axis_key=vertical_axis,
             primary_vertical_axis_name=cls.display_axis_name(vertical_axis),
+            secondary_horizontal_axis_key=primary_slice_axis,
             secondary_horizontal_axis_name=cls.display_axis_name(primary_slice_axis),
+            secondary_vertical_axis_key=vertical_axis,
             secondary_vertical_axis_name=cls.display_axis_name(vertical_axis),
         )
 
@@ -160,10 +170,12 @@ class AnnotationAxisService:
             axis_order = list(model.metadata.get("axis_order") or [])
 
         vertical_axis = str(axis_order[0]) if len(axis_order) >= 1 else "UCoordinate"
-        horizontal_axis = str(axis_order[2]) if len(axis_order) >= 3 else "Ultrasound"
+        horizontal_axis = str(axis_order[2]) if len(axis_order) >= 3 else "VCoordinate"
 
         return CScanRulerAxes(
+            horizontal_axis_key=horizontal_axis,
             horizontal_axis_name=cls.display_axis_name(horizontal_axis),
+            vertical_axis_key=vertical_axis,
             vertical_axis_name=cls.display_axis_name(vertical_axis),
         )
 

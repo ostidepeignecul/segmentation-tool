@@ -73,9 +73,17 @@ class AScanController:
             return
 
         corrosion_active = self.view_state_model.corrosion_active
+        axis_index = self.ascan_service.get_ultrasound_axis_index(nde_model, volume.shape)
+        ultrasound_resolution_mm = nde_model.get_axis_resolution_mm(
+            "Ultrasound",
+            fallback_axis_index=axis_index,
+        )
+        display_unit = getattr(self.view_state_model, "ruler_display_unit", "px")
         for view in (self.standard_view, self.corrosion_view):
             if view is None:
                 continue
+            view.set_ruler_display_unit(display_unit)
+            view.set_horizontal_axis_resolution_mm(ultrasound_resolution_mm)
             view.set_signal(profile.signal_percent, positions=profile.positions)
             view.set_marker(profile.marker_index)
             # Les spans de masque ne sont pas pertinents sur la vue corrosion :
@@ -127,6 +135,13 @@ class AScanController:
         if self.corrosion_view is not None:
             self.corrosion_view.set_overlay_opacity(opacity)
 
+    def set_ruler_display_unit(self, display_unit: Optional[str]) -> None:
+        """Propagate the shared ruler unit to both A-scan views."""
+        if self.standard_view is not None:
+            self.standard_view.set_ruler_display_unit(display_unit)
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_ruler_display_unit(display_unit)
+
     def _update_corrosion_measurement(
         self,
         nde_model: NdeModel,
@@ -171,25 +186,20 @@ class AScanController:
 
         idx_a, idx_b = indices
         distance_px = None
-        distance_mm = None
         projection_data = self.view_state_model.corrosion_projection
         if projection_data is not None:
             projection = projection_data[0]
             if projection is not None:
-                result = self.ascan_service.resolve_corrosion_distance(
+                distance_px = self.ascan_service.resolve_corrosion_distance(
                     projection=projection,
                     slice_idx=self.view_state_model.current_slice,
                     x_pos=profile.crosshair[0],
-                    nde_model=nde_model,
                 )
-                if result is not None:
-                    distance_px, distance_mm = result
 
         self.corrosion_view.set_measurement_indices(
             idx_a,
             idx_b,
             distance_px=distance_px,
-            distance_mm=distance_mm,
         )
 
     def map_profile_index_to_point(

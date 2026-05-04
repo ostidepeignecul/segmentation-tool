@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pyqtgraph as pg
 
+from services.ruler_display_service import RulerDisplayService
 from views.ascan_view import AScanView
 
 
@@ -43,7 +44,6 @@ class AScanViewCorrosion(AScanView):
         idx_b: int,
         *,
         distance_px: float | None = None,
-        distance_mm: float | None = None,
     ) -> None:
         """Set the measurement line using sample indices along the A-Scan."""
         if self._signal is None or self._signal.size == 0:
@@ -76,17 +76,14 @@ class AScanViewCorrosion(AScanView):
         self._measurement_line_b.setValue(x2)
         self._measurement_span.setData([x_min, x_max], [y_measure, y_measure])
 
-        label: str
-        if distance_mm is not None and np.isfinite(distance_mm):
-            label = f"{distance_mm:.1f} mm"
-        elif self._positions is not None and self._positions.size == self._signal.size:
-            dist_val = abs(x2 - x1)
-            label = f"{dist_val:.1f} mm"
-        elif distance_px is not None and np.isfinite(distance_px):
-            label = f"{distance_px:.1f} px"
-        else:
-            dist_px = abs(b_idx - a_idx)
-            label = f"{float(dist_px):.1f} px"
+        label_distance_px = distance_px if distance_px is not None and np.isfinite(distance_px) else abs(b_idx - a_idx)
+        label = RulerDisplayService.format_distance(
+            label_distance_px,
+            display_unit=getattr(self, "_ruler_display_unit", None),
+            resolution_mm=getattr(self, "_horizontal_axis_resolution_mm", None),
+            px_decimals=1,
+            mm_decimals=1,
+        )
 
         label_x = (x_min + x_max) / 2.0
         label_y = max(0.0, y_measure - 10.0)

@@ -356,9 +356,8 @@ class AScanService:
         projection: np.ndarray,
         slice_idx: int,
         x_pos: int,
-        nde_model: Optional[NdeModel],
-    ) -> Optional[Tuple[float, Optional[float]]]:
-        """Resolve distance (px, mm) from a corrosion projection at slice/x."""
+    ) -> Optional[float]:
+        """Resolve a corrosion distance in pixels from a projection at slice/x."""
         data = np.asarray(projection)
         if data.ndim != 2:
             return None
@@ -376,15 +375,7 @@ class AScanService:
 
         if not np.isfinite(distance_px):
             return None
-
-        mm_scale = (
-            nde_model.get_axis_resolution_mm("Ultrasound", fallback_axis_index=1)
-            if nde_model is not None
-            else None
-        )
-        if mm_scale is not None:
-            return distance_px, distance_px * float(mm_scale)
-        return distance_px, None
+        return distance_px
 
     def _ultrasound_axis_index(self, model: NdeModel, shape: Tuple[int, ...]) -> int:
         axis_order = model.metadata.get("axis_order", [])

@@ -380,6 +380,9 @@ class MasterController:
         if hasattr(self.ui, "actionToggle_plans_volume"):
             self.ui.actionToggle_plans_volume.setCheckable(True)
             self.ui.actionToggle_plans_volume.toggled.connect(self._on_volume_planes_toggled)
+        if hasattr(self.ui, "actionToggle_pixel_mm"):
+            self.ui.actionToggle_pixel_mm.setCheckable(True)
+            self.ui.actionToggle_pixel_mm.toggled.connect(self._on_ruler_display_unit_toggled)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionR_initialisation_docks"):
@@ -1734,6 +1737,16 @@ class MasterController:
         self._set_action_checked(getattr(self.ui, "actionToggle_plans_volume", None), enabled)
         self.volume_view.set_volume_planes_visible(enabled)
 
+    def _on_ruler_display_unit_toggled(self, enabled: bool) -> None:
+        """Handle the global ruler display unit toggle."""
+        unit = "mm" if enabled else "px"
+        active_unit = self.set_ruler_display_unit(unit)
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_pixel_mm", None),
+            active_unit == "mm",
+        )
+        self.status_message(f"Affichage des regles: {active_unit}", 2000)
+
     def _on_annotation_freehand_completed(self, points: Any) -> None:
         """Create the ROI preview, then optionally apply it immediately."""
         preview_created = self.annotation_controller.on_annotation_freehand_completed(points)
@@ -2041,7 +2054,7 @@ class MasterController:
         action.blockSignals(False)
 
     def _sync_display_toggle_actions(self) -> None:
-        """Sync menu toggle actions with the current overlay/cross state."""
+        """Sync menu toggle actions with the current display state."""
         self._set_action_checked(
             getattr(self.ui, "actionToggle_cross", None),
             self.view_state_model.show_cross,
@@ -2061,6 +2074,10 @@ class MasterController:
         self._set_action_checked(
             getattr(self.ui, "actionToggle_plans_volume", None),
             getattr(self.view_state_model, "show_volume_planes", True),
+        )
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_pixel_mm", None),
+            getattr(self.view_state_model, "ruler_display_unit", "px") == "mm",
         )
 
     def _apply_saved_colormaps(self) -> None:
@@ -2101,6 +2118,59 @@ class MasterController:
         )
         self.tools_panel.set_primary_axis_name(self._annotation_axis_name)
         self.tools_panel.set_secondary_axis_name(self._secondary_axis_name)
+        self._sync_ruler_display_settings(
+            endview_ruler_axes=ruler_axes,
+            cscan_ruler_axes=cscan_ruler_axes,
+        )
+
+    def _axis_resolution_mm(self, axis_name: Optional[str]) -> Optional[float]:
+        """Return the per-NDE sampling step for a logical axis when available."""
+        if self.nde_model is None:
+            return None
+        name = str(axis_name or "").strip()
+        if not name:
+            return None
+        return self.nde_model.get_axis_resolution_mm(name)
+
+    def _sync_ruler_display_settings(
+        self,
+        *,
+        endview_ruler_axes=None,
+        cscan_ruler_axes=None,
+    ) -> None:
+        """Push the global ruler unit and per-axis calibration to all ruler-enabled views."""
+        display_unit = self.view_state_model.set_ruler_display_unit(
+            getattr(self.view_state_model, "ruler_display_unit", "px")
+        )
+        self.endview_controller.set_ruler_display_unit(display_unit)
+        self.cscan_controller.set_ruler_display_unit(display_unit)
+        self.ascan_controller.set_ruler_display_unit(display_unit)
+
+        if endview_ruler_axes is None:
+            endview_ruler_axes = self.annotation_axis_service.build_endview_ruler_axes(self.nde_model)
+        if cscan_ruler_axes is None:
+            cscan_ruler_axes = self.annotation_axis_service.build_cscan_ruler_axes(self.nde_model)
+
+        self.endview_controller.set_ruler_axis_resolutions_mm(
+            primary_horizontal=self._axis_resolution_mm(endview_ruler_axes.primary_horizontal_axis_key),
+            primary_vertical=self._axis_resolution_mm(endview_ruler_axes.primary_vertical_axis_key),
+            secondary_horizontal=self._axis_resolution_mm(endview_ruler_axes.secondary_horizontal_axis_key),
+            secondary_vertical=self._axis_resolution_mm(endview_ruler_axes.secondary_vertical_axis_key),
+        )
+        self.cscan_controller.set_ruler_axis_resolutions_mm(
+            horizontal=self._axis_resolution_mm(cscan_ruler_axes.horizontal_axis_key),
+            vertical=self._axis_resolution_mm(cscan_ruler_axes.vertical_axis_key),
+        )
+
+    def set_ruler_display_unit(self, unit: Optional[str]) -> str:
+        """Switch all ruler-enabled views between pixel and millimeter display."""
+        normalized = self.view_state_model.set_ruler_display_unit(unit)
+        self._sync_ruler_display_settings()
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_pixel_mm", None),
+            normalized == "mm",
+        )
+        return normalized
 
     def _sync_cscan_labels(self) -> None:
         """Keep the C-scan dock and toggle action aligned with corrosion state."""

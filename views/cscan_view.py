@@ -21,7 +21,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from views.color_axis_ruler import ColorAxisRuler
+from services.ruler_display_service import RulerDisplayService
+from views.color_axis_ruler import AxisTitleLabel, ColorAxisRuler
 
 
 class CScanView(QFrame):
@@ -40,6 +41,9 @@ class CScanView(QFrame):
         self._colormap_name: str = "Gris"
         self._colormap_lut: Optional[np.ndarray] = None
         self._value_scale_mm: Optional[float] = None
+        self._ruler_display_unit: str = RulerDisplayService.DISPLAY_UNIT_PIXELS
+        self._horizontal_axis_resolution_mm: Optional[float] = None
+        self._vertical_axis_resolution_mm: Optional[float] = None
         self._panning: bool = False
         self._pan_last = QPointF()
         self._pan_center_scene: Optional[QPointF] = None
@@ -79,12 +83,23 @@ class CScanView(QFrame):
 
         self._horizontal_ruler = ColorAxisRuler(Qt.Orientation.Horizontal, self)
         self._vertical_ruler = ColorAxisRuler(Qt.Orientation.Vertical, self)
+        self._horizontal_axis_title = AxisTitleLabel(Qt.Orientation.Horizontal, self)
+        self._vertical_axis_title = AxisTitleLabel(Qt.Orientation.Vertical, self)
+        self._ruler_title_corner = QWidget(self)
         self._ruler_corner = QWidget(self)
+        self._bottom_left_spacer = QWidget(self)
+        self._ruler_title_corner.setFixedSize(
+            self._vertical_axis_title.width(),
+            self._horizontal_ruler.height(),
+        )
         self._ruler_corner.setFixedSize(
             self._vertical_ruler.width(),
             self._horizontal_ruler.height(),
         )
+        self._bottom_left_spacer.setFixedHeight(self._horizontal_axis_title.height())
+        self._ruler_title_corner.setStyleSheet("background-color: #171717;")
         self._ruler_corner.setStyleSheet("background-color: #171717;")
+        self._bottom_left_spacer.setStyleSheet("background-color: #171717;")
 
         header = QHBoxLayout()
         self._header_layout = header
@@ -102,11 +117,15 @@ class CScanView(QFrame):
         self._view_ruler_layout = QGridLayout()
         self._view_ruler_layout.setContentsMargins(0, 0, 0, 0)
         self._view_ruler_layout.setSpacing(0)
-        self._view_ruler_layout.addWidget(self._vertical_ruler, 0, 0)
-        self._view_ruler_layout.addWidget(self._view, 0, 1)
-        self._view_ruler_layout.addWidget(self._ruler_corner, 1, 0)
-        self._view_ruler_layout.addWidget(self._horizontal_ruler, 1, 1)
-        self._view_ruler_layout.setColumnStretch(1, 1)
+        self._view_ruler_layout.addWidget(self._vertical_axis_title, 0, 0)
+        self._view_ruler_layout.addWidget(self._vertical_ruler, 0, 1)
+        self._view_ruler_layout.addWidget(self._view, 0, 2)
+        self._view_ruler_layout.addWidget(self._ruler_title_corner, 1, 0)
+        self._view_ruler_layout.addWidget(self._ruler_corner, 1, 1)
+        self._view_ruler_layout.addWidget(self._horizontal_ruler, 1, 2)
+        self._view_ruler_layout.addWidget(self._bottom_left_spacer, 2, 0, 1, 2)
+        self._view_ruler_layout.addWidget(self._horizontal_axis_title, 2, 2)
+        self._view_ruler_layout.setColumnStretch(2, 1)
         self._view_ruler_layout.setRowStretch(0, 1)
         layout.addLayout(self._view_ruler_layout, 1)
 
@@ -134,6 +153,40 @@ class CScanView(QFrame):
         self._display_axis_y_name = str(vertical or "").strip()
         self._horizontal_ruler.set_axis_name(self._display_axis_x_name)
         self._vertical_ruler.set_axis_name(self._display_axis_y_name)
+        self._horizontal_axis_title.set_axis_name(self._display_axis_x_name)
+        self._vertical_axis_title.set_axis_name(self._display_axis_y_name)
+
+    def set_ruler_display_unit(self, display_unit: Optional[str]) -> None:
+        """Switch the scene-based rulers between pixels and millimeters."""
+        normalized = RulerDisplayService.normalize_display_unit(display_unit)
+        if normalized == self._ruler_display_unit:
+            return
+        self._ruler_display_unit = normalized
+        if self._projection is not None:
+            self._refresh_rulers()
+            if self._current_crosshair is not None:
+                self._update_status(*self._current_crosshair)
+
+    def set_ruler_axis_resolutions_mm(
+        self,
+        *,
+        horizontal_resolution_mm: Optional[float],
+        vertical_resolution_mm: Optional[float],
+    ) -> None:
+        """Store the NDE-specific sampling steps used by the C-scan rulers."""
+        horizontal = RulerDisplayService.normalize_resolution_mm(horizontal_resolution_mm)
+        vertical = RulerDisplayService.normalize_resolution_mm(vertical_resolution_mm)
+        if (
+            horizontal == self._horizontal_axis_resolution_mm
+            and vertical == self._vertical_axis_resolution_mm
+        ):
+            return
+        self._horizontal_axis_resolution_mm = horizontal
+        self._vertical_axis_resolution_mm = vertical
+        if self._projection is not None:
+            self._refresh_rulers()
+            if self._current_crosshair is not None:
+                self._update_status(*self._current_crosshair)
 
     def set_projection(
         self,
@@ -486,17 +539,43 @@ class CScanView(QFrame):
             return
 
         height, width = self._projection.shape
+        content_min_x, content_max_x = RulerDisplayService.build_content_range(
+            sample_count=width,
+            resolution_mm=self._horizontal_axis_resolution_mm,
+            display_unit=self._ruler_display_unit,
+        )
+        content_min_y, content_max_y = RulerDisplayService.build_content_range(
+            sample_count=height,
+            resolution_mm=self._vertical_axis_resolution_mm,
+            display_unit=self._ruler_display_unit,
+        )
         self._horizontal_ruler.set_view_range(
-            view_min=visible_rect.left(),
-            view_max=visible_rect.right(),
-            content_min=0.0,
-            content_max=float(max(0, width - 1)),
+            view_min=RulerDisplayService.axis_value_for_display(
+                visible_rect.left(),
+                display_unit=self._ruler_display_unit,
+                resolution_mm=self._horizontal_axis_resolution_mm,
+            ),
+            view_max=RulerDisplayService.axis_value_for_display(
+                visible_rect.right(),
+                display_unit=self._ruler_display_unit,
+                resolution_mm=self._horizontal_axis_resolution_mm,
+            ),
+            content_min=content_min_x,
+            content_max=content_max_x,
         )
         self._vertical_ruler.set_view_range(
-            view_min=visible_rect.top(),
-            view_max=visible_rect.bottom(),
-            content_min=0.0,
-            content_max=float(max(0, height - 1)),
+            view_min=RulerDisplayService.axis_value_for_display(
+                visible_rect.top(),
+                display_unit=self._ruler_display_unit,
+                resolution_mm=self._vertical_axis_resolution_mm,
+            ),
+            view_max=RulerDisplayService.axis_value_for_display(
+                visible_rect.bottom(),
+                display_unit=self._ruler_display_unit,
+                resolution_mm=self._vertical_axis_resolution_mm,
+            ),
+            content_min=content_min_y,
+            content_max=content_max_y,
         )
 
     def _visible_scene_rect(self) -> Optional[QRectF]:
@@ -519,10 +598,12 @@ class CScanView(QFrame):
 
         text_value = "-"
         if np.isfinite(value):
-            if self._value_scale_mm is not None:
-                mm = value * float(self._value_scale_mm)
-                text_value = f"{mm:.2f} mm ({value:.2f} px)"
-            else:
-                text_value = f"{value:.2f} px"
+            text_value = RulerDisplayService.format_distance(
+                value,
+                display_unit=self._ruler_display_unit,
+                resolution_mm=self._value_scale_mm,
+                px_decimals=2,
+                mm_decimals=2,
+            )
 
         self._status.setText(f"Z={z} | X={x} | dist={text_value}")

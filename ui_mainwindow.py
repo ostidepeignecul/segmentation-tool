@@ -101,6 +101,8 @@ class Ui_MainWindow(object):
         self.actionInterpolate.setObjectName("actionInterpolate")
         self.actionToggle_plans_volume = QtGui.QAction(parent=MainWindow)
         self.actionToggle_plans_volume.setObjectName("actionToggle_plans_volume")
+        self.actionToggle_pixel_mm = QtGui.QAction(parent=MainWindow)
+        self.actionToggle_pixel_mm.setObjectName("actionToggle_pixel_mm")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionOuvrir_une_session)
@@ -134,6 +136,7 @@ class Ui_MainWindow(object):
         self.menuAffichage.addAction(self.actionToggle_overlay_ascan)
         self.menuAffichage.addAction(self.actionToggle_outline_only)
         self.menuAffichage.addAction(self.actionToggle_plans_volume)
+        self.menuAffichage.addAction(self.actionToggle_pixel_mm)
         self.menuAffichage.addSeparator()
         self.menuAffichage.addAction(self.actionResize_endview)
         self.menuAffichage.addAction(self.actionR_initialisation_docks)
@@ -189,6 +192,7 @@ class Ui_MainWindow(object):
         self.actionToggle_overlay_ascan.setText(_translate("MainWindow", "Toggle overlay ascan"))
         self.actionInterpolate.setText(_translate("MainWindow", "Interpolate"))
         self.actionToggle_plans_volume.setText(_translate("MainWindow", "Toggle plans volume"))
+        self.actionToggle_pixel_mm.setText(_translate("MainWindow", "Toggle pixel/mm"))
 
 
 if __name__ == "__main__":

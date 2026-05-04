@@ -4176,3 +4176,27 @@ Le renommage precedent vers `B-Scan`, `D-Scan` et `Profondeur` etait encore inco
 2. Faire calculer les noms d axes affiches par `AnnotationAxisService` plutot que par les vues, pour rester conforme a MVC et reutiliser `axis_order` comme source unique de verite metier.
 3. Conserver dans `CScanView` et `EndviewView` un centre scene explicite et un recalcul du `sceneRect` avec padding, afin que les regles suivent fidelement la fenetre visible meme sans scrollbars et avec zoom/pan manuels.
 4. Reutiliser la meme palette pour A-scan, Endview et C-scan, afin d etablir une correspondance visuelle stable entre les differentes vues sans changer les identifiants d axes internes.
+
+### 2026-05-04 - Mode global pixel/mm et calibration unifiee des regles
+**Tags :** `#branch:feature/axis-color-mapping`, `#controllers/ascan_controller.py`, `#controllers/cscan_controller.py`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_axis_service.py`, `#services/ascan_service.py`, `#services/ruler_display_service.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#views/ascan_view.py`, `#views/ascan_view_corrosion.py`, `#views/color_axis_ruler.py`, `#views/cscan_view.py`, `#views/endview_view.py`, `#ruler`, `#px`, `#mm`, `#axes`, `#ui`, `#mvc`, `#ascan`, `#cscan`, `#endview`
+
+**Actions effectuees :**
+- Ajoute `services/ruler_display_service.py` comme point unique de conversion et de formatage pour les regles, avec prise en charge des domaines d axe, des distances affichees et des conversions `px -> mm`.
+- Etend `models/view_state_model.py` avec un etat global `ruler_display_unit`, puis propage ce mode dans `controllers/master_controller.py`, `controllers/ascan_controller.py`, `controllers/cscan_controller.py` et `controllers/endview_controller.py`.
+- Fait reconstruire l axe horizontal de `views/ascan_view.py` a partir du mode d affichage et de la resolution `Ultrasound`, puis aligne `views/ascan_view_corrosion.py` pour que la mesure corrosion affiche des pixels ou des millimetres via le service central au lieu d une logique locale.
+- Simplifie `services/ascan_service.py` pour retourner uniquement la distance corrosion canonique en pixels, laissant la conversion d affichage a `RulerDisplayService`.
+- Etend `views/cscan_view.py` et `views/endview_view.py` avec des resolutions par axe et une conversion de la fenetre visible scene -> unite affichee, afin que les graduations restent correctes pendant le zoom et le pan en mode `mm`.
+- Enrichit `services/annotation_axis_service.py` avec les cles d axes logiques associees aux regles (`UCoordinate`, `VCoordinate`, `Ultrasound`) pour resoudre proprement les calibrations NDE, puis corrige les fallbacks sans NDE pour conserver `Profondeur` en vertical sur les endviews et eliminer `Profondeur` du fallback du C-scan.
+- Branche dans `ui_mainwindow.py`, `untitled.ui` et `controllers/master_controller.py` une action menu `Toggle pixel/mm` qui bascule le mode global des regles et resynchronise son etat coche avec le `ViewStateModel`.
+- Refait `views/color_axis_ruler.py` et les vues consommatrices pour consolider le rendu des regles colorees, les titres externes et la compatibilite avec le nouveau mode global `px/mm`.
+
+**Contexte :**
+Les regles colorees introduites sur Endview, C-scan et A-scan etaient encore pilotees de maniere heterogene. L A-scan corrosion pouvait afficher une mesure en `mm` alors que son axe restait en `px`, les vues 2D ne partageaient pas encore un mode global d unites, et les noms/fallbacks d axes etaient incoherents quand aucun NDE n etait charge. Le lot staged vise a rendre le systeme de regles coherent dans toute l application : pixels comme repere canonique interne, conversion centralisee vers `mm` a partir de la calibration du NDE courant, et bascule utilisateur unique depuis le menu `Affichage`.
+
+**Decisions techniques :**
+1. Conserver `px` comme representation canonique interne des mesures et de la navigation, puis faire de `RulerDisplayService` l unique couche de conversion et de formatage vers `mm`, afin d eviter les divergences entre vues et mesures metier.
+2. Utiliser la resolution par axe du `NdeModel` (`UCoordinate`, `VCoordinate`, `Ultrasound`) plutot qu une echelle globale, car chaque NDE peut fournir des calibrations distinctes selon l axe et selon le fichier charge.
+3. Convertir aussi les bornes visibles des `QGraphicsView` (`visible_rect`) dans `CScanView` et `EndviewView`, pas seulement les bornes de contenu, pour garantir des graduations correctes en `mm` pendant le zoom, le pan et le resize.
+4. Faire piloter l unite `px/mm` par `ViewStateModel` et `MasterController`, puis propager cet etat aux controllers et aux vues, afin de garder une source unique de verite UI conforme a l architecture MVC.
+5. Laisser `AScanService` retourner uniquement des distances en pixels et deleguer l affichage final a la vue via `RulerDisplayService`, afin de separer strictement extraction metier et presentation.
+6. Corriger les fallbacks d axes sans NDE directement dans `AnnotationAxisService`, pour que les libelles et orientations des regles restent coherents avec les conventions metier `B-Scan`, `D-Scan` et `Profondeur` meme hors contexte de donnees.

@@ -107,6 +107,31 @@ class CScanController:
                 vertical=vertical,
             )
 
+    def set_ruler_display_unit(self, display_unit: Optional[str]) -> None:
+        """Push the shared ruler display unit into both C-scan views."""
+        if self.standard_view is not None:
+            self.standard_view.set_ruler_display_unit(display_unit)
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_ruler_display_unit(display_unit)
+
+    def set_ruler_axis_resolutions_mm(
+        self,
+        *,
+        horizontal: Optional[float],
+        vertical: Optional[float],
+    ) -> None:
+        """Push per-axis mm calibration into both C-scan views."""
+        if self.standard_view is not None:
+            self.standard_view.set_ruler_axis_resolutions_mm(
+                horizontal_resolution_mm=horizontal,
+                vertical_resolution_mm=vertical,
+            )
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_ruler_axis_resolutions_mm(
+                horizontal_resolution_mm=horizontal,
+                vertical_resolution_mm=vertical,
+            )
+
     def set_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
         """Apply colormap on the standard C-scan view."""
         if self.standard_view is not None:
@@ -157,6 +182,7 @@ class CScanController:
             return
 
         nde_model = self.get_nde_model()
+        self.set_ruler_display_unit(getattr(self.view_state_model, "ruler_display_unit", "px"))
         ultrasound_resolution_mm = (
             nde_model.get_axis_resolution_mm("Ultrasound", fallback_axis_index=1)
             if nde_model is not None

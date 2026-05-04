@@ -82,6 +82,7 @@
     <addaction name="actionToggle_overlay_ascan"/>
     <addaction name="actionToggle_outline_only"/>
     <addaction name="actionToggle_plans_volume"/>
+    <addaction name="actionToggle_pixel_mm"/>
     <addaction name="separator"/>
     <addaction name="actionResize_endview"/>
     <addaction name="actionR_initialisation_docks"/>
@@ -258,6 +259,11 @@
   <action name="actionToggle_plans_volume">
    <property name="text">
     <string>Toggle plans volume</string>
+   </property>
+  </action>
+  <action name="actionToggle_pixel_mm">
+   <property name="text">
+    <string>Toggle pixel/mm</string>
    </property>
   </action>
  </widget>

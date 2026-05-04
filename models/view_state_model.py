@@ -16,6 +16,7 @@ class ViewStateModel:
         self.overlay_alpha: float = 0.4
         self.nde_alpha: float = 1.0
         self.nde_contrast: float = 1.0
+        self.ruler_display_unit: str = "px"
         self.colormap: Optional[str] = None
         self.endview_colormap: str = "Gris"
         self.cscan_colormap: str = "Gris"
@@ -480,6 +481,18 @@ class ViewStateModel:
 
     def set_cscan_colormap(self, name: str) -> None:
         self.cscan_colormap = str(name)
+
+    @staticmethod
+    def normalize_ruler_display_unit(unit: Optional[str]) -> str:
+        value = str(unit or "px").strip().casefold()
+        if value == "mm":
+            return "mm"
+        return "px"
+
+    def set_ruler_display_unit(self, unit: Optional[str]) -> str:
+        normalized = self.normalize_ruler_display_unit(unit)
+        self.ruler_display_unit = normalized
+        return normalized
 
     def set_corrosion_interpolation_algo(self, algo: Optional[str]) -> str:
         normalized = normalize_interpolation_algo(algo)

@@ -128,6 +128,45 @@ class EndviewController:
                 vertical=secondary_vertical,
             )
 
+    def set_ruler_display_unit(self, display_unit: Optional[str]) -> None:
+        """Push the shared ruler display unit into both endview stacks."""
+        self.standard_view.set_ruler_display_unit(display_unit)
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_ruler_display_unit(display_unit)
+        if self.secondary_view is not None:
+            self.secondary_view.set_ruler_display_unit(display_unit)
+        if self.secondary_corrosion_view is not None:
+            self.secondary_corrosion_view.set_ruler_display_unit(display_unit)
+
+    def set_ruler_axis_resolutions_mm(
+        self,
+        *,
+        primary_horizontal: Optional[float],
+        primary_vertical: Optional[float],
+        secondary_horizontal: Optional[float],
+        secondary_vertical: Optional[float],
+    ) -> None:
+        """Push per-axis mm calibration into both endview stacks."""
+        self.standard_view.set_ruler_axis_resolutions_mm(
+            horizontal_resolution_mm=primary_horizontal,
+            vertical_resolution_mm=primary_vertical,
+        )
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_ruler_axis_resolutions_mm(
+                horizontal_resolution_mm=primary_horizontal,
+                vertical_resolution_mm=primary_vertical,
+            )
+        if self.secondary_view is not None:
+            self.secondary_view.set_ruler_axis_resolutions_mm(
+                horizontal_resolution_mm=secondary_horizontal,
+                vertical_resolution_mm=secondary_vertical,
+            )
+        if self.secondary_corrosion_view is not None:
+            self.secondary_corrosion_view.set_ruler_axis_resolutions_mm(
+                horizontal_resolution_mm=secondary_horizontal,
+                vertical_resolution_mm=secondary_vertical,
+            )
+
     def set_primary_endview_name(self, name: str) -> None:
         self.standard_view.set_endview_name(name)
         if self.corrosion_view is not None:
