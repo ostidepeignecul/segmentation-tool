@@ -4200,3 +4200,21 @@ Les regles colorees introduites sur Endview, C-scan et A-scan etaient encore pil
 4. Faire piloter l unite `px/mm` par `ViewStateModel` et `MasterController`, puis propager cet etat aux controllers et aux vues, afin de garder une source unique de verite UI conforme a l architecture MVC.
 5. Laisser `AScanService` retourner uniquement des distances en pixels et deleguer l affichage final a la vue via `RulerDisplayService`, afin de separer strictement extraction metier et presentation.
 6. Corriger les fallbacks d axes sans NDE directement dans `AnnotationAxisService`, pour que les libelles et orientations des regles restent coherents avec les conventions metier `B-Scan`, `D-Scan` et `Profondeur` meme hors contexte de donnees.
+
+### 2026-05-05 - Optimisations du workflow corrosion et du switch de session
+**Tags :** `#branch:optimisation/analyse-corrosion`, `#controllers/master_controller.py`, `#services/cscan_corrosion_service.py`, `#services/distance_measurement.py`, `#services/peak_plateau.py`, `#views/piece3d_view.py`, `#corrosion`, `#session`, `#piece3d`, `#overlay`, `#performance`
+
+**Actions effectuees :**
+- Ajoute un parametre `rebuild_volume_view` dans `MasterController._refresh_views()` et evite de reconstruire la scene VisPy du volume lors d un simple changement de session.
+- Supprime les rafraichissements overlay et les pushes `piece3d` en double apres `Analyze` et `Interpolate`, puis restaure la piece 3D depuis le `ViewStateModel` sans recopier inutilement les volumes.
+- Introduit `Piece3DView.sync_piece_state()` et des gardes no-op pour ne plus relancer un rebuild 3D quand les sources, le mode brut/interpole et l ancre n ont pas change.
+- Normalise une seule fois les modes de selection de pics dans `DistanceMeasurementService` et limite dans `peak_plateau.py` la resolution `optimistic/pessimistic` aux colonnes vraiment ambiguës.
+- Vectorise le remplissage par colonne du volume solide legacy dans `CScanCorrosionService._build_solid_volume()` afin de reduire le cout de construction de la piece corrosion.
+
+**Contexte :**
+Le workflow corrosion et les changements de session restaient lents parce que le volume NDE et l overlay 3D etaient reconstruits alors que le dataset ne changeait pas entre sessions. Le flux `Analyze/Interpolate` repoussait aussi l overlay et la piece 3D plus d une fois, tandis que l analyse corrosion conservait des couts evitables dans la selection de pics et la construction du solide.
+
+**Decisions techniques :**
+1. Traiter le changement de session comme une simple resynchronisation d etat UI et de slices, sans rebuild VisPy du volume tant que le NDE actif ne change pas.
+2. Faire de `ViewStateModel` la source de verite des volumes `piece3d` et synchroniser `Piece3DView` seulement quand son etat reel change, afin d eviter les reconstructions redondantes.
+3. Optimiser d abord les chemins a faible risque et a gain mesure en analyse corrosion, en gardant les modes `max_peak`, `optimistic` et `pessimistic` fonctionnellement inchanges.

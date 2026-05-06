@@ -1324,6 +1324,7 @@ class CScanCorrosionService(CScanService):
 
         depth, height, width = mask_stack.shape
         solid = np.zeros((depth, height, width), dtype=np.float32)
+        y_indices = np.arange(height, dtype=np.int32)[:, None]
 
         def _min_max_by_x(y_coords: np.ndarray, x_coords: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             if y_coords.size == 0:
@@ -1362,16 +1363,19 @@ class CScanCorrosionService(CScanService):
             minB_full[xB_unique] = minB
             maxB_full[xB_unique] = maxB
 
-            for x in common_x:
-                start_y = min(minA_full[x], minB_full[x])
-                end_y = max(maxA_full[x], maxB_full[x])
-                if not np.isfinite(start_y) or not np.isfinite(end_y):
-                    continue
-                y0 = int(max(0, min(height - 1, start_y)))
-                y1 = int(max(0, min(height - 1, end_y)))
-                if y1 < y0:
-                    y0, y1 = y1, y0
-                solid[z, y0 : y1 + 1, int(x)] = 1.0
+            start_y = np.minimum(minA_full[common_x], minB_full[common_x])
+            end_y = np.maximum(maxA_full[common_x], maxB_full[common_x])
+            finite = np.isfinite(start_y) & np.isfinite(end_y)
+            if not np.any(finite):
+                continue
+
+            xs = common_x[finite].astype(np.int32, copy=False)
+            y0 = np.clip(start_y[finite].astype(np.int32, copy=False), 0, height - 1)
+            y1 = np.clip(end_y[finite].astype(np.int32, copy=False), 0, height - 1)
+            start_clip = np.minimum(y0, y1)
+            end_clip = np.maximum(y0, y1)
+            fill_mask = (y_indices >= start_clip[None, :]) & (y_indices <= end_clip[None, :])
+            solid[z][:, xs] = fill_mask.astype(np.float32, copy=False)
 
         return solid
 

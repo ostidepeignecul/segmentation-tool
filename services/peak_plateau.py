@@ -127,17 +127,17 @@ def _resolve_peak_indices_from_reference(
     if selection_mode == "max_peak":
         return peaks
 
-    _, width = label_mask.shape
-    for x in range(width):
-        if peaks[x] < 0:
-            continue
+    run_starts = label_mask[0].astype(np.int32, copy=False)
+    if label_mask.shape[0] > 1:
+        run_starts = run_starts + np.sum(label_mask[1:] & ~label_mask[:-1], axis=0, dtype=np.int32)
+    ambiguous_columns = np.flatnonzero((peaks >= 0) & (reference_peaks >= 0) & (run_starts > 1))
+    if ambiguous_columns.size == 0:
+        return peaks
+
+    for x in ambiguous_columns:
         reference_peak = int(reference_peaks[x])
-        if reference_peak < 0:
-            continue
 
         runs = _contiguous_runs(label_mask[:, x])
-        if len(runs) <= 1:
-            continue
 
         run_idx = _select_run_for_reference(
             slice_values[:, x],

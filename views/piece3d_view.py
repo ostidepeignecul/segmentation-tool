@@ -64,25 +64,76 @@ class Piece3DView(VolumeView):
         legacy_interpolated: np.ndarray | None,
     ) -> None:
         """Assigne tous les volumes disponibles et rafraichit l affichage."""
-        self._piece_distance_raw = None if distance_raw is None else np.asarray(distance_raw, dtype=np.float32)
-        self._piece_distance_interpolated = (
-            None if distance_interpolated is None else np.asarray(distance_interpolated, dtype=np.float32)
-        )
-        self._piece_legacy_raw = None if legacy_raw is None else np.asarray(legacy_raw, dtype=np.float32)
-        self._piece_legacy_interpolated = (
-            None if legacy_interpolated is None else np.asarray(legacy_interpolated, dtype=np.float32)
-        )
+        distance_raw = self._normalize_piece_volume(distance_raw)
+        distance_interpolated = self._normalize_piece_volume(distance_interpolated)
+        legacy_raw = self._normalize_piece_volume(legacy_raw)
+        legacy_interpolated = self._normalize_piece_volume(legacy_interpolated)
+        if self._piece_sources_match(
+            distance_raw=distance_raw,
+            distance_interpolated=distance_interpolated,
+            legacy_raw=legacy_raw,
+            legacy_interpolated=legacy_interpolated,
+        ):
+            return
+        self._piece_distance_raw = distance_raw
+        self._piece_distance_interpolated = distance_interpolated
+        self._piece_legacy_raw = legacy_raw
+        self._piece_legacy_interpolated = legacy_interpolated
         self._refresh_piece_volume()
 
     def set_piece_show_interpolated(self, enabled: bool) -> None:
         """Choisit entre volume brut et interpole pour la source active."""
-        self._show_interpolated = bool(enabled)
+        enabled = bool(enabled)
+        if self._show_interpolated == enabled:
+            return
+        self._show_interpolated = enabled
         self._refresh_piece_volume()
 
     def set_anchor_point(self, anchor: tuple[float, float, float] | None) -> None:
         """Set the data-space anchor point (x, y, z) used for camera centering."""
+        if self._anchor_point == anchor:
+            return
         self._anchor_point = anchor
         if self._anchor_mode == AnchorMode.VOLUME_CENTER:
+            self._focus_camera_on_slice()
+
+    def sync_piece_state(
+        self,
+        *,
+        distance_raw: np.ndarray | None,
+        distance_interpolated: np.ndarray | None,
+        legacy_raw: np.ndarray | None,
+        legacy_interpolated: np.ndarray | None,
+        show_interpolated: bool,
+        anchor: tuple[float, float, float] | None,
+    ) -> None:
+        """Synchronise toutes les sources piece3D en un seul rafraichissement."""
+        distance_raw = self._normalize_piece_volume(distance_raw)
+        distance_interpolated = self._normalize_piece_volume(distance_interpolated)
+        legacy_raw = self._normalize_piece_volume(legacy_raw)
+        legacy_interpolated = self._normalize_piece_volume(legacy_interpolated)
+        show_interpolated = bool(show_interpolated)
+
+        sources_changed = not self._piece_sources_match(
+            distance_raw=distance_raw,
+            distance_interpolated=distance_interpolated,
+            legacy_raw=legacy_raw,
+            legacy_interpolated=legacy_interpolated,
+        )
+        show_changed = self._show_interpolated != show_interpolated
+        anchor_changed = self._anchor_point != anchor
+
+        self._piece_distance_raw = distance_raw
+        self._piece_distance_interpolated = distance_interpolated
+        self._piece_legacy_raw = legacy_raw
+        self._piece_legacy_interpolated = legacy_interpolated
+        self._show_interpolated = show_interpolated
+        self._anchor_point = anchor
+
+        if sources_changed or show_changed:
+            self._refresh_piece_volume()
+            return
+        if anchor_changed and self._anchor_mode == AnchorMode.VOLUME_CENTER:
             self._focus_camera_on_slice()
 
     def set_overlay(self, *args, **kwargs) -> None:  # type: ignore[override]
@@ -152,6 +203,27 @@ class Piece3DView(VolumeView):
             return
         self._geometry_source = source
         self._refresh_piece_volume()
+
+    @staticmethod
+    def _normalize_piece_volume(volume: np.ndarray | None) -> np.ndarray | None:
+        if volume is None:
+            return None
+        return np.asarray(volume, dtype=np.float32)
+
+    def _piece_sources_match(
+        self,
+        *,
+        distance_raw: np.ndarray | None,
+        distance_interpolated: np.ndarray | None,
+        legacy_raw: np.ndarray | None,
+        legacy_interpolated: np.ndarray | None,
+    ) -> bool:
+        return bool(
+            self._piece_distance_raw is distance_raw
+            and self._piece_distance_interpolated is distance_interpolated
+            and self._piece_legacy_raw is legacy_raw
+            and self._piece_legacy_interpolated is legacy_interpolated
+        )
 
     def _set_anchor_mode(self, mode: AnchorMode) -> None:
         if self._anchor_mode != mode:

@@ -2776,7 +2776,7 @@ class MasterController:
         if crosshair is not None:
             self.endview_controller.set_secondary_crosshair(*crosshair)
 
-    def _refresh_views(self) -> None:
+    def _refresh_views(self, *, rebuild_volume_view: bool = True) -> None:
         """Push the current volume state into all views."""
         volume = self._current_volume()
         self._sync_cscan_labels()
@@ -2815,11 +2815,13 @@ class MasterController:
         self._sync_cscan_labels()
         self.endview_controller.sync_mode()
 
-        # Récupère l'ordre des axes depuis le modèle, s'il existe
-        axis_order = self.view_state_model.axis_order
-
-        # Envoie le volume à la vue 3D en précisant l’ordre des axes
-        self.volume_view.set_volume(volume, slice_idx=slice_idx, axis_order=axis_order)
+        # Le dataset NDE ne change pas au switch de session: on ne reconstruit
+        # la scène VisPy que lors d'un vrai changement de volume.
+        if rebuild_volume_view:
+            axis_order = self.view_state_model.axis_order
+            self.volume_view.set_volume(volume, slice_idx=slice_idx, axis_order=axis_order)
+        else:
+            self.volume_view.set_slice_index(slice_idx, update_slider=True, emit=False)
         self.volume_view.set_nde_opacity(self.view_state_model.nde_alpha)
         self.volume_view.set_nde_contrast(self.view_state_model.nde_contrast)
         self.volume_view.set_secondary_slice_index(
@@ -2873,7 +2875,6 @@ class MasterController:
 
     def _after_session_switch(self) -> None:
         """Synchronise l'état du modèle actif vers les vues."""
-        self._restore_piece3d_state_from_view_state(sync_action=True)
         self.annotation_controller.clear_apply_history()
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
@@ -2947,9 +2948,9 @@ class MasterController:
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
         self.tools_panel.set_nde_contrast(self.view_state_model.nde_contrast)
         self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
-        # Rafraîchir le volume puis réappliquer l'overlay pour forcer le push 3D
-        self._refresh_views()
+        self._refresh_views(rebuild_volume_view=False)
         self.corrosion_profile_controller.sync_anchors()
+        self._restore_piece3d_state_from_view_state(sync_action=True)
 
     # ------------------------------------------------------------------ #
     # Corrosion completion handling
@@ -2982,6 +2983,9 @@ class MasterController:
         # Prépare la session avec les données brutes (pas d'interpolation)
         origin_name = getattr(origin_state, "name", None)
         name = self._build_corrosion_raw_session_name(origin_name)
+        self.view_state_model.corrosion_piece_view_enabled = self._workflow_result_has_piece3d_data(
+            result
+        )
 
         new_session_id = self.session_manager.create_from_models(
             name=name,
@@ -2998,24 +3002,6 @@ class MasterController:
         self._pre_corrosion_session_id = None
 
         self._after_session_switch()
-        self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
-
-        has_distance = (
-            result.piece_volume_raw is not None and result.piece_volume_raw.size > 0
-        )
-        has_legacy = (
-            result.piece_volume_legacy_raw is not None and result.piece_volume_legacy_raw.size > 0
-        )
-        if has_distance or has_legacy:
-            self._piece_anchor = result.piece_anchor
-            self._show_piece3d_volume(
-                raw_volume=result.piece_volume_raw,
-                interpolated_volume=None,
-                legacy_raw_volume=result.piece_volume_legacy_raw,
-                legacy_interpolated_volume=None,
-            )
-            self.view_state_model.corrosion_piece_view_enabled = True
-            self._show_piece3d_view(sync_action=True)
 
     def _on_corrosion_interpolation_requested(self, algo: str) -> None:
         """Applique l'algorithme d'interpolation choisi sur les données brutes."""
@@ -3061,6 +3047,9 @@ class MasterController:
         # Met à jour le view_state avec les données interpolées
         self._apply_corrosion_session_result(interp_result, stage="interpolated")
 
+        self.view_state_model.corrosion_piece_view_enabled = self._workflow_result_has_piece3d_data(
+            interp_result
+        )
         new_session_id = self.session_manager.create_from_models(
             name=self._build_corrosion_interpolated_session_name(raw_session_name, algo),
             annotation_model=self.annotation_model,
@@ -3077,30 +3066,6 @@ class MasterController:
 
         # Rafraîchit toutes les vues
         self._after_session_switch()
-        self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
-
-        # 3D piece
-        has_distance = (
-            interp_result.piece_volume_raw is not None and interp_result.piece_volume_raw.size > 0
-        ) or (
-            interp_result.piece_volume_interpolated is not None and interp_result.piece_volume_interpolated.size > 0
-        )
-        has_legacy = (
-            interp_result.piece_volume_legacy_raw is not None and interp_result.piece_volume_legacy_raw.size > 0
-        ) or (
-            interp_result.piece_volume_legacy_interpolated is not None
-            and interp_result.piece_volume_legacy_interpolated.size > 0
-        )
-        if has_distance or has_legacy:
-            self._piece_anchor = interp_result.piece_anchor
-            self._show_piece3d_volume(
-                raw_volume=interp_result.piece_volume_raw,
-                interpolated_volume=interp_result.piece_volume_interpolated,
-                legacy_raw_volume=interp_result.piece_volume_legacy_raw,
-                legacy_interpolated_volume=interp_result.piece_volume_legacy_interpolated,
-            )
-            self.view_state_model.corrosion_piece_view_enabled = True
-            self._show_piece3d_view(sync_action=True)
 
         self.status_message(interp_result.message, 3000)
 
@@ -3108,6 +3073,16 @@ class MasterController:
         if self.nde_model is None:
             return None
         return self.nde_model.get_active_volume()
+
+    @staticmethod
+    def _workflow_result_has_piece3d_data(result: CorrosionWorkflowResult) -> bool:
+        volumes = (
+            result.piece_volume_raw,
+            result.piece_volume_interpolated,
+            result.piece_volume_legacy_raw,
+            result.piece_volume_legacy_interpolated,
+        )
+        return any(volume is not None and volume.size > 0 for volume in volumes)
 
     def _on_piece3d_toggled(self, checked: bool) -> None:
         """Show/hide the embedded piece3D view inside the Volume dock."""
@@ -3183,17 +3158,21 @@ class MasterController:
         )
 
     def _restore_piece3d_state_from_view_state(self, *, sync_action: bool) -> None:
-        self._piece_volume_raw = self._copy_piece_volume(
-            getattr(self.view_state_model, "corrosion_piece_volume_raw", None)
+        self._piece_volume_raw = getattr(self.view_state_model, "corrosion_piece_volume_raw", None)
+        self._piece_volume_interpolated = getattr(
+            self.view_state_model,
+            "corrosion_piece_volume_interpolated",
+            None,
         )
-        self._piece_volume_interpolated = self._copy_piece_volume(
-            getattr(self.view_state_model, "corrosion_piece_volume_interpolated", None)
+        self._piece_volume_legacy_raw = getattr(
+            self.view_state_model,
+            "corrosion_piece_volume_legacy_raw",
+            None,
         )
-        self._piece_volume_legacy_raw = self._copy_piece_volume(
-            getattr(self.view_state_model, "corrosion_piece_volume_legacy_raw", None)
-        )
-        self._piece_volume_legacy_interpolated = self._copy_piece_volume(
-            getattr(self.view_state_model, "corrosion_piece_volume_legacy_interpolated", None)
+        self._piece_volume_legacy_interpolated = getattr(
+            self.view_state_model,
+            "corrosion_piece_volume_legacy_interpolated",
+            None,
         )
         self._piece_anchor = self._copy_piece_anchor(
             getattr(self.view_state_model, "corrosion_piece_anchor", None)
@@ -3204,8 +3183,6 @@ class MasterController:
         restore_piece3d_view = bool(
             getattr(self.view_state_model, "corrosion_piece_view_enabled", False)
         )
-        self._sync_piece3d_view()
-
         if restore_piece3d_view and self._has_piece3d_data():
             self._show_piece3d_view(sync_action=sync_action)
             return
@@ -3222,14 +3199,14 @@ class MasterController:
             self._piece_show_interpolated
         )
 
-        self._piece3d_view.set_piece_volume_sources(
+        self._piece3d_view.sync_piece_state(
             distance_raw=self._piece_volume_raw,
             distance_interpolated=self._piece_volume_interpolated,
             legacy_raw=self._piece_volume_legacy_raw,
             legacy_interpolated=self._piece_volume_legacy_interpolated,
+            show_interpolated=self._piece_show_interpolated,
+            anchor=self._piece_anchor,
         )
-        self._piece3d_view.set_piece_show_interpolated(self._piece_show_interpolated)
-        self._piece3d_view.set_anchor_point(self._piece_anchor)
         self._update_piece_toggle_label()
 
     def _show_piece3d_view(self, *, sync_action: bool) -> None:
@@ -3277,10 +3254,16 @@ class MasterController:
         )
         self._piece_show_interpolated = self._has_piece3d_interpolated()
         self._persist_piece3d_state_to_view_state()
-        self._sync_piece3d_view()
+        piece3d_visible = bool(
+            self._volume_stack is not None
+            and self._piece3d_page is not None
+            and self._volume_stack.currentWidget() is self._piece3d_page
+        )
         action = getattr(self.ui, "actionAfficher_solide_3d", None)
-        if action is not None and action.isChecked():
+        if piece3d_visible or (action is not None and action.isChecked()):
             self._show_piece3d_view(sync_action=False)
+            return
+        self._update_piece_toggle_label()
 
     def _toggle_piece_volume(self) -> None:
         """Bascule entre volume brut et volume interpolé si les deux sont disponibles."""
