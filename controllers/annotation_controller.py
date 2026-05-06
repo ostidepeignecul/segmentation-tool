@@ -185,6 +185,7 @@ class AnnotationController:
                 self.annotation_corrosion_view.set_overlay(None)
             self.volume_view.set_overlay(None)
             self._notify_overlay_updated()
+            return
 
         mask_volume = self.annotation_model.get_mask_volume()
         palette = self.annotation_model.get_label_palette()

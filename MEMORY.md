@@ -4218,3 +4218,17 @@ Le workflow corrosion et les changements de session restaient lents parce que le
 1. Traiter le changement de session comme une simple resynchronisation d etat UI et de slices, sans rebuild VisPy du volume tant que le NDE actif ne change pas.
 2. Faire de `ViewStateModel` la source de verite des volumes `piece3d` et synchroniser `Piece3DView` seulement quand son etat reel change, afin d eviter les reconstructions redondantes.
 3. Optimiser d abord les chemins a faible risque et a gain mesure en analyse corrosion, en gardant les modes `max_peak`, `optimistic` et `pessimistic` fonctionnellement inchanges.
+
+### 2026-05-05 - Sortie overlay au switch de session et couleur D-scan
+**Tags :** `#branch:optimisation/analyse-corrosion`, `#controllers/annotation_controller.py`, `#views/color_axis_ruler.py`, `#overlay`, `#session`, `#performance`, `#ruler`, `#axes`, `#ui`
+
+**Actions effectuees :**
+- Ajoute un `return` immediat dans `AnnotationController.refresh_overlay()` apres le clear des vues quand `show_overlay` est desactive, pour eviter de recalculer et repousser inutilement l overlay pendant un switch vers une session qui le masque.
+- Modifie la couleur de reference `D-Scan` dans `ColorAxisRuler` de orange a vert pour aligner le code couleur des regles avec la convention visuelle voulue.
+
+**Contexte :**
+Un delai restait perceptible surtout lorsqu on quittait une session affichant deja l overlay 3D vers une session ou l overlay n etait pas visible. En parallele, une retouche UI sur les regles colorees etait staged pour faire correspondre la teinte du `D-Scan` au repere attendu.
+
+**Decisions techniques :**
+1. Considerer l etat `overlay masque` comme une sortie terminale du pipeline `refresh_overlay()`, afin que le nettoyage des vues ne soit pas suivi d un rebuild de cache et d un push VisPy inutiles.
+2. Garder la table des couleurs d axes centralisee dans `ColorAxisRuler`, pour que les vues consommatrices recuperent automatiquement la meme convention sans style local duplique.
