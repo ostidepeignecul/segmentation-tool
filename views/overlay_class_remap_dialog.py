@@ -41,7 +41,7 @@ class OverlayClassRemapDialog(QDialog):
         self._target_preview_labels: dict[int, QLabel] = {}
 
         info_label = QLabel(
-            "Remap en memoire depuis le NPZ importe. Le fichier source n'est jamais modifie.",
+            "In-memory remap from the imported NPZ. The source file is never modified.",
             self,
         )
         info_label.setWordWrap(True)
@@ -51,7 +51,7 @@ class OverlayClassRemapDialog(QDialog):
         path_label.setWordWrap(True)
 
         self._table = QTableWidget(len(self._source_classes), 3, self)
-        self._table.setHorizontalHeaderLabels(["Classe source", "Classe cible", "Libelle cible"])
+        self._table.setHorizontalHeaderLabels(["Source class", "Target class", "Target label"])
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -82,7 +82,7 @@ class OverlayClassRemapDialog(QDialog):
         header = self._table.horizontalHeader()
         header.setStretchLastSection(True)
 
-        reset_button = QPushButton("Reset identite", self)
+        reset_button = QPushButton("Reset identity", self)
         reset_button.clicked.connect(self._reset_identity_mapping)
 
         buttons = QDialogButtonBox(

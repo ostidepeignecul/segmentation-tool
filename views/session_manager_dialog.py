@@ -25,18 +25,18 @@ class SessionManagerDialog(QDialog):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Sessions d'annotation")
+        self.setWindowTitle("Annotation sessions")
         self.setModal(False)
         self.setMinimumWidth(360)
 
         self._list = QListWidget(self)
         self._name_edit = QLineEdit(self)
-        self._name_edit.setPlaceholderText("Nom de la session")
+        self._name_edit.setPlaceholderText("Session name")
 
-        create_btn = QPushButton("Créer", self)
-        duplicate_btn = QPushButton("Dupliquer", self)
-        delete_btn = QPushButton("Supprimer", self)
-        close_btn = QPushButton("Fermer", self)
+        create_btn = QPushButton("Create", self)
+        duplicate_btn = QPushButton("Duplicate", self)
+        delete_btn = QPushButton("Delete", self)
+        close_btn = QPushButton("Close", self)
 
         create_btn.clicked.connect(self._on_create)
         duplicate_btn.clicked.connect(self._on_duplicate)
@@ -45,7 +45,7 @@ class SessionManagerDialog(QDialog):
         self._list.currentItemChanged.connect(self._on_selection_changed)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Sessions disponibles :", self))
+        layout.addWidget(QLabel("Available sessions:", self))
         layout.addWidget(self._list, 1)
         layout.addWidget(self._name_edit, 0)
 

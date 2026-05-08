@@ -153,7 +153,7 @@
               </font>
              </property>
              <property name="text">
-              <string>Threshold :</string>
+              <string>Threshold:</string>
              </property>
             </widget>
            </item>
@@ -173,7 +173,7 @@
               </font>
              </property>
              <property name="text">
-              <string>Paint zise : </string>
+              <string>Paint size:</string>
              </property>
             </widget>
            </item>
@@ -196,7 +196,7 @@
               <item row="0" column="0" rowspan="2" colspan="2">
                <widget class="QCheckBox" name="checkBox">
                 <property name="text">
-                 <string>Appliquer au volume</string>
+                 <string>Apply to volume</string>
                 </property>
                </widget>
               </item>
@@ -224,7 +224,7 @@
               <item row="1" column="1">
                <widget class="QCheckBox" name="checkBox_3">
                 <property name="text">
-                 <string>Persistance de ROI</string>
+                 <string>ROI persistence</string>
                 </property>
                </widget>
               </item>
@@ -255,28 +255,28 @@
            <item>
             <widget class="QPushButton" name="pushButton_7">
              <property name="text">
-              <string>Appliquer ROI</string>
+              <string>Apply ROI</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="pushButton_2">
              <property name="text">
-              <string>Recalculer ROI</string>
+              <string>Recompute ROI</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="pushButton_3">
              <property name="text">
-              <string>Supprimer ROI</string>
+              <string>Delete ROI</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="pushButton_4">
              <property name="text">
-              <string>Annuler ROI</string>
+              <string>Cancel ROI</string>
              </property>
             </widget>
            </item>
@@ -344,7 +344,7 @@
                  </font>
                 </property>
                 <property name="text">
-                 <string>Overlay opacité</string>
+                 <string>Overlay opacity</string>
                 </property>
                </widget>
               </item>
@@ -438,7 +438,7 @@
                  </font>
                 </property>
                 <property name="text">
-                 <string>NDE contraste</string>
+                 <string>NDE contrast</string>
                 </property>
                </widget>
               </item>
@@ -479,7 +479,7 @@
                  </font>
                 </property>
                 <property name="text">
-                 <string>NDE opacité</string>
+                 <string>NDE opacity</string>
                 </property>
                </widget>
               </item>

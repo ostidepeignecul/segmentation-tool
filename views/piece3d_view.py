@@ -33,7 +33,7 @@ class Piece3DView(VolumeView):
         self._shading_profile = "standard"
         self._shading_lut_boost: bool = False
         self.set_base_colormap("Metal", self._metal_lut())
-        self._status.setText("Piece 3D non chargee")
+        self._status.setText("3D piece not loaded")
         self._anchor_mode = AnchorMode.VOLUME_CENTER
         self._anchor_point: tuple[float, float, float] | None = None
 
@@ -147,7 +147,7 @@ class Piece3DView(VolumeView):
         shading_group = QActionGroup(self)
         shading_group.setExclusive(True)
 
-        shading_menu = menu.addMenu("Ombrage")
+        shading_menu = menu.addMenu("Shading")
         action_std = QAction("Standard", self)
         action_std.setCheckable(True)
         action_std.setActionGroup(shading_group)
@@ -155,7 +155,7 @@ class Piece3DView(VolumeView):
         action_std.triggered.connect(lambda: self._set_shading_profile("standard"))
         shading_menu.addAction(action_std)
 
-        action_boost = QAction("Renforce", self)
+        action_boost = QAction("Boosted", self)
         action_boost.setCheckable(True)
         action_boost.setActionGroup(shading_group)
         action_boost.setChecked(self._shading_profile == "boosted")
@@ -165,8 +165,8 @@ class Piece3DView(VolumeView):
         geometry_group = QActionGroup(self)
         geometry_group.setExclusive(True)
 
-        geometry_menu = menu.addMenu("Geometrie")
-        action_distance = QAction("Prisme distance", self)
+        geometry_menu = menu.addMenu("Geometry")
+        action_distance = QAction("Distance prism", self)
         action_distance.setCheckable(True)
         action_distance.setActionGroup(geometry_group)
         action_distance.setChecked(self._geometry_source == PieceGeometrySource.DISTANCE_PRISM)
@@ -184,13 +184,13 @@ class Piece3DView(VolumeView):
         )
         geometry_menu.addAction(action_legacy)
 
-        action_slice = QAction("Ancrage: Slice", self)
+        action_slice = QAction("Anchor: Slice", self)
         action_slice.setCheckable(True)
         action_slice.setChecked(self._anchor_mode == AnchorMode.SLICE)
         action_slice.triggered.connect(lambda: self._set_anchor_mode(AnchorMode.SLICE))
         menu.addAction(action_slice)
 
-        action_center = QAction("Ancrage: Centre du volume", self)
+        action_center = QAction("Anchor: Volume center", self)
         action_center.setCheckable(True)
         action_center.setChecked(self._anchor_mode == AnchorMode.VOLUME_CENTER)
         action_center.triggered.connect(lambda: self._set_anchor_mode(AnchorMode.VOLUME_CENTER))
@@ -261,7 +261,7 @@ class Piece3DView(VolumeView):
         volume = self._resolve_current_piece_volume()
         if volume is None:
             self.set_volume(None)
-            self._status.setText("Piece 3D non chargee")
+            self._status.setText("3D piece not loaded")
             return
         self._iso_threshold = 0.5
         self.set_volume(volume)
@@ -272,8 +272,8 @@ class Piece3DView(VolumeView):
             self._focus_camera_on_slice()
 
         source_label = "distance" if self._geometry_source == PieceGeometrySource.DISTANCE_PRISM else "bw/fw"
-        interp_label = "interpole" if self._show_interpolated else "brut"
-        self._status.setText(f"Piece 3D ({source_label}, {interp_label})")
+        interp_label = "interpolated" if self._show_interpolated else "raw"
+        self._status.setText(f"3D piece ({source_label}, {interp_label})")
 
     def _focus_camera_on_slice(self) -> None:
         """Recentre la camera selon le mode d ancrage."""

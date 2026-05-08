@@ -38,7 +38,7 @@ class CScanView(QFrame):
         self._projection: Optional[np.ndarray] = None
         self._value_range: Tuple[float, float] = (0.0, 1.0)
         self._current_crosshair: Optional[Tuple[int, int]] = None
-        self._colormap_name: str = "Gris"
+        self._colormap_name: str = "Gray"
         self._colormap_lut: Optional[np.ndarray] = None
         self._value_scale_mm: Optional[float] = None
         self._ruler_display_unit: str = RulerDisplayService.DISPLAY_UNIT_PIXELS
@@ -103,7 +103,7 @@ class CScanView(QFrame):
 
         header = QHBoxLayout()
         self._header_layout = header
-        self._status = QLabel("C-scan non disponible")
+        self._status = QLabel("C-scan unavailable")
         self._status.setAlignment(Qt.AlignmentFlag.AlignLeft)
         header.addWidget(self._status, 1)
 
@@ -143,7 +143,7 @@ class CScanView(QFrame):
             self._colormap_lut = np.asarray(lut, dtype=np.float32)
         else:
             self._colormap_lut = None
-            self._colormap_name = "Gris"
+            self._colormap_name = "Gray"
         self._set_combo_current(self._colormap_name)
         self._render_pixmap()
 
@@ -203,7 +203,7 @@ class CScanView(QFrame):
             self._panning = False
             self._pan_center_scene = None
             self._zoom_factor = 1.0
-            self._status.setText("C-scan vide")
+            self._status.setText("Empty C-scan")
             self._pixmap_item.setPixmap(QPixmap())
             self._clear_rulers()
             return
@@ -589,7 +589,7 @@ class CScanView(QFrame):
     def _update_status(self, z: int, x: int) -> None:
         """Refresh header label with current coordinates and pixel value."""
         if self._projection is None:
-            self._status.setText("C-scan non disponible")
+            self._status.setText("C-scan unavailable")
             return
         try:
             value = float(self._projection[z, x])

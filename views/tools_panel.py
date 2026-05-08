@@ -65,8 +65,8 @@ class ToolsPanel(QFrame):
     }
     _COLORMAP_BY_TEXT = {
         "omniscan": "OmniScan",
-        "gray": "Gris",
-        "gris": "Gris",
+        "gray": "Gray",
+        "gris": "Gray",
     }
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -430,7 +430,7 @@ class ToolsPanel(QFrame):
         picked = QColorDialog.getColor(
             current,
             self,
-            f"Couleur pour {format_label_text(int(label_id))}",
+            f"Color for {format_label_text(int(label_id))}",
         )
         if picked.isValid():
             self.set_label_color(int(label_id), picked)
@@ -448,7 +448,7 @@ class ToolsPanel(QFrame):
             f"background-color: {color.name()}; color: {text_color}; font-weight: bold;"
         )
         button.setToolTip(
-            f"Changer la couleur de {format_label_text(label)} ({color.name()})"
+            f"Change color for {format_label_text(label)} ({color.name()})"
         )
 
     def set_slice_bounds(self, minimum: int, maximum: int) -> None:
@@ -710,7 +710,7 @@ class ToolsPanel(QFrame):
     def _update_threshold_label(self, value: int) -> None:
         if self._threshold_label is None:
             return
-        self._threshold_label.setText(f"Threshold : {int(value)}")
+        self._threshold_label.setText(f"Threshold: {int(value)}")
 
     def _on_colormap_combo_changed(self, _index: int) -> None:
         name = self.current_endview_colormap()
@@ -780,7 +780,7 @@ class ToolsPanel(QFrame):
         """Update the position label with the latest cursor coordinates."""
         if self._position_label is None:
             return
-        self._position_label.setText(f"position x = {int(x)} ; y = {int(y)}")
+        self._position_label.setText(f"x = {int(x)} ; y = {int(y)}")
 
     def set_paint_size(self, radius: int) -> None:
         """Update the paint size slider without emitting signals."""
@@ -822,7 +822,7 @@ class ToolsPanel(QFrame):
 
     def set_nde_opacity_available(self, available: bool) -> None:
         enabled = bool(available)
-        tooltip = "" if enabled else "Affichage NDE non disponible pour l'instant."
+        tooltip = "" if enabled else "NDE display is currently unavailable."
         for widget in (
             self._nde_opacity_slider,
             self._nde_opacity_spinbox,
@@ -839,4 +839,4 @@ class ToolsPanel(QFrame):
     @classmethod
     def _normalize_colormap_name(cls, value: str) -> str:
         text = str(value).strip()
-        return cls._COLORMAP_BY_TEXT.get(text.lower(), text or "Gris")
+        return cls._COLORMAP_BY_TEXT.get(text.lower(), text or "Gray")

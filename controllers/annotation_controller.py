@@ -1652,7 +1652,7 @@ class AnnotationController:
         """
         mask_volume = self.annotation_model.get_mask_volume()
         if mask_volume is None:
-            raise ValueError("Aucun overlay à sauvegarder.")
+            raise ValueError("No overlay to save.")
 
         # Validation de shape si fournie
         if volume_shape is not None:

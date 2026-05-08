@@ -167,7 +167,7 @@ class VolumeView(QFrame):
         self._secondary_slider.valueChanged.connect(self._emit_secondary_slice_change)
         layout.addWidget(self._secondary_slider)
         # Status label
-        self._status = QLabel("Volume non chargé")
+        self._status = QLabel("Volume not loaded")
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._status)
         # Visuals
@@ -179,7 +179,7 @@ class VolumeView(QFrame):
         self._secondary_slice_line: Optional[scene.visuals.Line] = None
         self._slice_overlay: Optional[scene.visuals.Image] = None
         self._overlay_volume_visual: Optional[scene.visuals.Volume] = None
-        self._base_colormap_name: str = "Gris"
+        self._base_colormap_name: str = "Gray"
         self._base_colormap: Optional[BaseColormap | str] = "gray"
         # Store the axis order used to orient the current volume
         self._axis_order: Optional[Sequence[str]] = None
@@ -244,7 +244,7 @@ class VolumeView(QFrame):
         if volume is None or np.size(volume) == 0:
             self._volume = None
             self._norm_volume = None
-            self._status.setText("Volume vide")
+            self._status.setText("Empty volume")
             self._slider.setMaximum(0)
             self._secondary_slider.setMaximum(0)
             self._clear_overlay_visuals()
@@ -264,7 +264,7 @@ class VolumeView(QFrame):
         else:
             self._norm_volume = np.zeros_like(self._volume, dtype=np.float32)
         # Update status and slider range
-        self._status.setText(f"Volume chargé: {self._volume.shape}")
+        self._status.setText(f"Loaded volume: {self._volume.shape}")
         self._slider.setMaximum(self._volume.shape[0] - 1)
         self._secondary_slider.setMaximum(self._volume.shape[2] - 1)
         # Clear any existing overlay visuals before rebuilding the scene
@@ -286,7 +286,7 @@ class VolumeView(QFrame):
             self._base_colormap = Colormap(np.asarray(lut, dtype=np.float32))
         else:
             self._base_colormap = "gray"
-            self._base_colormap_name = "Gris"
+            self._base_colormap_name = "Gray"
         if self._volume_visual is not None:
             self._volume_visual.cmap = self._base_colormap
         # self._slice_image uses direct RGBA, so no colormap needed.

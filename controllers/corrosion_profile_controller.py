@@ -129,13 +129,13 @@ class CorrosionProfileController:
         )
         if not created:
             self._status_message(
-                "Double-clique directement sur la ligne active pour ajouter un ancrage.",
+                "Double-click directly on the active line to add an anchor.",
                 timeout_ms=1800,
             )
             return
         self.refresh_preview()
         self.sync_anchors()
-        self._status_message("Ancrage ajoute.", timeout_ms=1000)
+        self._status_message("Anchor added.", timeout_ms=1000)
 
     def ensure_context(self) -> bool:
         volume = self._get_volume()

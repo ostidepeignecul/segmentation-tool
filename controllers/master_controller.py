@@ -386,7 +386,7 @@ class MasterController:
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionR_initialisation_docks"):
-            self.ui.actionR_initialisation_docks.setText("Réinitialisation docks")
+            self.ui.actionR_initialisation_docks.setText("Reset docks")
             self.ui.actionR_initialisation_docks.triggered.connect(
                 self.dock_layout_controller.reset_layout_to_default
             )
@@ -681,20 +681,20 @@ class MasterController:
         """Handle opening an NDE file."""
         file_path, _ = QFileDialog.getOpenFileName(
             self.main_window,
-            "Ouvrir un fichier .nde",
+            "Open .nde file",
             "",
             "NDE Files (*.nde);;All Files (*)",
         )
         if not file_path:
             return
-        if not self._confirm_unsaved_sessions_before_reset("ouvrir un autre fichier NDE"):
+        if not self._confirm_unsaved_sessions_before_reset("open another NDE file"):
             return
 
         try:
             if not self._load_nde_file(file_path, prompt_open_options=True):
                 return
         except Exception as exc:
-            QMessageBox.critical(self.main_window, "Erreur NDE", str(exc))
+            QMessageBox.critical(self.main_window, "NDE error", str(exc))
 
     def _on_open_session(self) -> None:
         """Open a persisted `.session` file and restore the contained active session."""
@@ -703,11 +703,11 @@ class MasterController:
     def _on_load_npz(self) -> None:
         """Handle loading an NPZ overlay."""
         if self.nde_model is None:
-            QMessageBox.warning(self.main_window, "Overlay", "Chargez un NDE avant l'overlay.")
+            QMessageBox.warning(self.main_window, "Overlay", "Load an NDE before using the overlay.")
             return
         file_path, _ = QFileDialog.getOpenFileName(
             self.main_window,
-            "Charger un overlay (.npz/.npy)",
+            "Load overlay (.npz/.npy)",
             "",
             "Overlay Files (*.npz *.npy);;All Files (*)",
         )
@@ -719,9 +719,9 @@ class MasterController:
                 preserve_labels=True,
                 force_visible=False,
             )
-            self.status_message(f"Overlay chargé: {file_path}")
+            self.status_message(f"Overlay loaded: {file_path}")
         except Exception as exc:
-            QMessageBox.critical(self.main_window, "Erreur overlay", str(exc))
+            QMessageBox.critical(self.main_window, "Overlay error", str(exc))
 
     def _load_overlay_from_file(
         self,
@@ -733,7 +733,7 @@ class MasterController:
         """Load an overlay file and apply it through the standard MVC refresh pipeline."""
         volume = self._current_volume()
         if volume is None:
-            raise ValueError("Volume NDE indisponible.")
+            raise ValueError("NDE volume unavailable.")
 
         overlay_path = Path(file_path)
         axis_order = list((getattr(self.nde_model, "metadata", {}) or {}).get("axis_order") or [])
@@ -756,7 +756,7 @@ class MasterController:
     def _handle_nnunet_success(self, payload: Any) -> None:
         """Load the saved nnUNet NPZ through the standard overlay-import path."""
         if not isinstance(payload, NnUnetResult):
-            self._handle_nnunet_error(RuntimeError("Résultat nnUNet invalide."))
+            self._handle_nnunet_error(RuntimeError("Invalid nnUNet result."))
             return
         try:
             self._load_overlay_from_file(
@@ -765,13 +765,13 @@ class MasterController:
                 force_visible=True,
             )
             self.status_message(
-                f"nnUNet terminé, NPZ affiché : {payload.output_path}",
+                f"nnUNet completed, NPZ displayed: {payload.output_path}",
                 timeout_ms=5000,
             )
             QMessageBox.information(
                 self.main_window,
                 "nnUNet",
-                f"Résultat enregistré et affiché :\n{payload.output_path}",
+                f"Result saved and displayed:\n{payload.output_path}",
             )
         except Exception as exc:
             self._handle_nnunet_error(exc)
@@ -780,18 +780,18 @@ class MasterController:
         """Display nnUNet errors once they have been marshalled back to the UI thread."""
         exc = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
         QMessageBox.critical(self.main_window, "nnUNet", str(exc))
-        self.status_message("Echec de l'inférence nnUNet", timeout_ms=5000)
+        self.status_message("nnUNet inference failed", timeout_ms=5000)
 
     def _on_remap_classes(self) -> None:
         """Open the in-memory class remap dialog for the last imported NPZ overlay."""
         if self.nde_model is None:
-            QMessageBox.warning(self.main_window, "Remap classes", "Chargez un NDE avant de remapper un overlay.")
+            QMessageBox.warning(self.main_window, "Remap classes", "Load an NDE before remapping an overlay.")
             return
         if not self.imported_overlay_model.has_source():
             QMessageBox.warning(
                 self.main_window,
                 "Remap classes",
-                "Chargez d'abord un fichier .npz/.npy depuis le menu Overlay.",
+                "Load a .npz/.npy file first from the Overlay menu.",
             )
             return
 
@@ -801,9 +801,9 @@ class MasterController:
                 self.main_window,
                 "Remap classes",
                 (
-                    "L'overlay courant a ete modifie depuis l'import NPZ.\n\n"
-                    "Le remap repartira du NPZ importe original et remplacera le masque courant.\n"
-                    "Continuer ?"
+                    "The current overlay has been modified since the NPZ import.\n\n"
+                    "The remap will restart from the original imported NPZ and replace the current mask.\n"
+                    "Continue?"
                 ),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
@@ -823,7 +823,7 @@ class MasterController:
         try:
             original_mask = self.imported_overlay_model.original_mask_volume
             if original_mask is None:
-                raise ValueError("Overlay source introuvable pour le remap.")
+                raise ValueError("Overlay source not found for remap.")
             mapping = self.overlay_class_remap_service.normalize_mapping(
                 dialog.get_mapping(),
                 allowed_sources=self.imported_overlay_model.original_label_ids,
@@ -836,8 +836,8 @@ class MasterController:
             )
             final_classes = self.overlay_class_remap_service.extract_classes(remapped_volume)
             self.status_message(
-                "Remap classes applique: "
-                f"{self.imported_overlay_model.source_path} | classes finales: {list(final_classes)}",
+                "Remap classes applied: "
+                f"{self.imported_overlay_model.source_path} | final classes: {list(final_classes)}",
                 timeout_ms=5000,
             )
         except Exception as exc:
@@ -846,19 +846,19 @@ class MasterController:
     def _on_run_nnunet(self) -> None:
         """Lance l'inférence nnUNet sur le volume NDE chargé."""
         if self.nde_model is None:
-            QMessageBox.warning(self.main_window, "nnUNet", "Chargez un NDE avant de lancer l'inférence.")
+            QMessageBox.warning(self.main_window, "nnUNet", "Load an NDE before starting inference.")
             return
 
         volume = self._current_volume()
         if volume is None:
-            QMessageBox.warning(self.main_window, "nnUNet", "Volume NDE indisponible.")
+            QMessageBox.warning(self.main_window, "nnUNet", "NDE volume unavailable.")
             return
 
         model_path, _ = QFileDialog.getOpenFileName(
             self.main_window,
-            "Choisir le modèle nnUNet (zip ou dossier)",
+            "Choose nnUNet model (zip or folder)",
             "",
-            "Modèles nnUNet (*.zip);;Tous les fichiers (*)",
+            "nnUNet models (*.zip);;All files (*)",
         )
         if not model_path:
             return
@@ -866,7 +866,7 @@ class MasterController:
         suggested_save_path = self._suggest_nnunet_output_path(model_path)
         save_path, _ = QFileDialog.getSaveFileName(
             self.main_window,
-            "Enregistrer le résultat nnUNet (.npz)",
+            "Save nnUNet result (.npz)",
             suggested_save_path,
             "NPZ Files (*.npz)",
         )
@@ -883,7 +883,7 @@ class MasterController:
             self._nnunet_ui_signals.error.emit(exc)
 
         try:
-            self.status_message("Inférence nnUNet en cours...", timeout_ms=4000)
+            self.status_message("nnUNet inference in progress...", timeout_ms=4000)
             self.nnunet_service.run_inference(
                 volume=volume,
                 raw_volume=raw_volume,
@@ -920,7 +920,7 @@ class MasterController:
         """Export the current overlay to a standalone NPZ file."""
         volume = self._current_volume()
         if volume is None:
-            QMessageBox.warning(self.main_window, "Overlay", "Chargez un NDE avant de sauvegarder.")
+            QMessageBox.warning(self.main_window, "Overlay", "Load an NDE before saving.")
             return
         axis_order = list((getattr(self.nde_model, "metadata", {}) or {}).get("axis_order") or [])
         primary_axis_name = str(axis_order[0]) if axis_order else None
@@ -932,9 +932,9 @@ class MasterController:
             )
             if not saved_path:
                 return
-            self.status_message(f"Overlay sauvegarde: {saved_path}")
+            self.status_message(f"Overlay saved: {saved_path}")
         except Exception as exc:
-            QMessageBox.critical(self.main_window, "Erreur sauvegarde overlay", str(exc))
+            QMessageBox.critical(self.main_window, "Overlay save error", str(exc))
 
     def _on_save_session(self) -> None:
         """Persist the active annotation session to its bound `.session` file."""
@@ -947,12 +947,12 @@ class MasterController:
     def _on_export_endviews(self) -> None:
         """Export endviews (RGB + UINT8) via le service dédié."""
         if self.nde_model is None:
-            QMessageBox.warning(self.main_window, "Export endviews", "Chargez un NDE avant d'exporter les endviews.")
+            QMessageBox.warning(self.main_window, "Export endviews", "Load an NDE before exporting endviews.")
             return
 
         base_dir = QFileDialog.getExistingDirectory(
             self.main_window,
-            "Choisir le dossier de sortie (sera utilisé comme racine endviews)",
+            "Choose output folder (used as the endview root)",
             "",
         )
         if not base_dir:
@@ -983,7 +983,7 @@ class MasterController:
             return
 
         final_message = f"{message_rgb}\n\n{message_uint8}"
-        self.status_message("Export endviews terminé", timeout_ms=4000)
+        self.status_message("Endviews export completed", timeout_ms=4000)
         QMessageBox.information(self.main_window, "Export endviews", final_message)
 
     def _on_export_corrosion_cscan(self) -> None:
@@ -992,7 +992,7 @@ class MasterController:
             QMessageBox.warning(
                 self.main_window,
                 "Export C-scan corrosion",
-                "Chargez un NDE avant d'exporter le C-scan corrosion.",
+                "Load an NDE before exporting the corrosion C-scan.",
             )
             return
 
@@ -1005,7 +1005,7 @@ class MasterController:
         initial_dir = str(Path(nde_path).parent) if nde_path else ""
         output_dir = QFileDialog.getExistingDirectory(
             self.main_window,
-            "Choisir le dossier d'export du C-scan corrosion",
+            "Choose corrosion C-scan export folder",
             initial_dir,
         )
         if not output_dir:
@@ -1023,12 +1023,12 @@ class MasterController:
             return
 
         saved_path = f"{npz_path} | {png_path}"
-        self.status_message(f"C-scan corrosion sauvegardé: {saved_path}", timeout_ms=5000)
+        self.status_message(f"Corrosion C-scan saved: {saved_path}", timeout_ms=5000)
 
     def _on_split_flaw_noflaw(self) -> None:
         """Lance le split flaw/noflaw (export + tri) via le service dédié."""
         if self.nde_model is None:
-            QMessageBox.warning(self.main_window, "Split flaw/noflaw", "Chargez un NDE avant de lancer le split.")
+            QMessageBox.warning(self.main_window, "Split flaw/noflaw", "Load an NDE before starting the split.")
             return
 
         nde_path = None
@@ -1040,7 +1040,7 @@ class MasterController:
         initial_dir = str(Path(nde_path).parent) if nde_path else ""
         output_root = QFileDialog.getExistingDirectory(
             self.main_window,
-            "Choisir le dossier parent pour l'export endviews split",
+            "Choose the parent folder for split endview export",
             initial_dir,
         )
         if not output_root:
@@ -1049,14 +1049,14 @@ class MasterController:
         prefix, ok = QInputDialog.getText(
             self.main_window,
             "Split flaw/noflaw",
-            "Préfixe des images exportées (optionnel) :",
+            "Exported image prefix (optional):",
         )
         if not ok:
             return
         suffix, ok = QInputDialog.getText(
             self.main_window,
             "Split flaw/noflaw",
-            "Suffixe des images exportées (optionnel) :",
+            "Exported image suffix (optional):",
         )
         if not ok:
             return
@@ -1074,7 +1074,7 @@ class MasterController:
                     apply_smoothing=bool(sel.get("apply_smoothing", False)),
                 )
 
-        self.status_message("Split flaw/noflaw en cours...", timeout_ms=2000)
+        self.status_message("flaw/noflaw split in progress...", timeout_ms=2000)
         success, message = self.split_flaw_noflaw_service.split_endviews(
             nde_model=self.nde_model,
             annotation_model=self.annotation_model,
@@ -1086,7 +1086,7 @@ class MasterController:
         )
 
         if success:
-            self.status_message("Split flaw/noflaw terminé", timeout_ms=5000)
+            self.status_message("flaw/noflaw split completed", timeout_ms=5000)
             QMessageBox.information(self.main_window, "Split flaw/noflaw", message)
         else:
             QMessageBox.critical(self.main_window, "Split flaw/noflaw", message)
@@ -1094,7 +1094,7 @@ class MasterController:
     def _on_dataset_export_requested(self) -> None:
         """Launch the dataset export flow selected by the user."""
         if self.nde_model is None:
-            QMessageBox.warning(self.main_window, "Split flaw/noflaw", "Chargez un NDE avant de lancer le split.")
+            QMessageBox.warning(self.main_window, "Split flaw/noflaw", "Load an NDE before starting the split.")
             return
 
         export_mode = self._prompt_split_export_mode()
@@ -1110,9 +1110,9 @@ class MasterController:
         initial_dir = str(Path(nde_path).parent) if nde_path else ""
         dialog_title = "Export nnU-Net" if export_mode == "nnunet" else "Split flaw/noflaw"
         output_prompt = (
-            "Choisir le dossier parent du dataset nnU-Net"
+            "Choose the parent folder for the nnU-Net dataset"
             if export_mode == "nnunet"
-            else "Choisir le dossier parent pour l'export endviews split"
+            else "Choose the parent folder for split endview export"
         )
         output_root = QFileDialog.getExistingDirectory(
             self.main_window,
@@ -1129,7 +1129,7 @@ class MasterController:
         processing_options = self._current_signal_processing_options()
 
         if export_mode == "nnunet":
-            self.status_message("Export nnU-Net en cours...", timeout_ms=2000)
+            self.status_message("nnU-Net export in progress...", timeout_ms=2000)
             success, message = self.split_flaw_noflaw_service.export_nnunet_dataset(
                 nde_model=self.nde_model,
                 annotation_model=self.annotation_model,
@@ -1140,13 +1140,13 @@ class MasterController:
                 signal_processing_options=processing_options,
             )
             if success:
-                self.status_message("Export nnU-Net termine", timeout_ms=5000)
+                self.status_message("nnU-Net export completed", timeout_ms=5000)
                 QMessageBox.information(self.main_window, dialog_title, message)
             else:
                 QMessageBox.critical(self.main_window, dialog_title, message)
             return
 
-        self.status_message("Split flaw/noflaw en cours...", timeout_ms=2000)
+        self.status_message("flaw/noflaw split in progress...", timeout_ms=2000)
         success, message = self.split_flaw_noflaw_service.split_endviews(
             nde_model=self.nde_model,
             annotation_model=self.annotation_model,
@@ -1158,7 +1158,7 @@ class MasterController:
         )
 
         if success:
-            self.status_message("Split flaw/noflaw termine", timeout_ms=5000)
+            self.status_message("flaw/noflaw split completed", timeout_ms=5000)
             QMessageBox.information(self.main_window, dialog_title, message)
         else:
             QMessageBox.critical(self.main_window, dialog_title, message)
@@ -1171,8 +1171,8 @@ class MasterController:
         ]
         selection, ok = QInputDialog.getItem(
             self.main_window,
-            "Type d'export",
-            "Dataset a generer:",
+            "Export type",
+            "Dataset to generate:",
             choices,
             0,
             False,
@@ -1186,7 +1186,7 @@ class MasterController:
         prefix, ok = QInputDialog.getText(
             self.main_window,
             dialog_title,
-            "Prefixe des images exportees (optionnel) :",
+            "Exported image prefix (optional):",
         )
         if not ok:
             return None
@@ -1194,7 +1194,7 @@ class MasterController:
         suffix, ok = QInputDialog.getText(
             self.main_window,
             dialog_title,
-            "Suffixe des images exportees (optionnel) :",
+            "Exported image suffix (optional):",
         )
         if not ok:
             return None
@@ -1592,17 +1592,17 @@ class MasterController:
         """Undo the last committed annotation apply action."""
         if self.annotation_controller.on_undo_last_applied_annotation_requested():
             self._mark_active_session_dirty()
-            self.status_message("Derniere annotation appliquee annulee.", timeout_ms=1800)
+            self.status_message("Last applied annotation undone.", timeout_ms=1800)
             return
-        self.status_message("Aucune annotation appliquee a annuler.", timeout_ms=1800)
+        self.status_message("No applied annotation to undo.", timeout_ms=1800)
 
     def _on_annotation_redo_requested(self) -> None:
         """Redo the last committed annotation undo action."""
         if self.annotation_controller.on_redo_last_applied_annotation_requested():
             self._mark_active_session_dirty()
-            self.status_message("Derniere annotation reappliquee.", timeout_ms=1800)
+            self.status_message("Last annotation reapplied.", timeout_ms=1800)
             return
-        self.status_message("Aucune annotation a reappliquer.", timeout_ms=1800)
+        self.status_message("No annotation to reapply.", timeout_ms=1800)
 
     def _on_roi_delete_requested(self) -> None:
         """Delete ROI/temp previews and clear mod pending edits consistently."""
@@ -1616,8 +1616,8 @@ class MasterController:
         if lowered == "omniscan":
             return "OmniScan"
         if lowered in {"gray", "gris"}:
-            return "Gris"
-        return text or "Gris"
+            return "Gray"
+        return text or "Gray"
 
     def _get_colormap_lut(self, name: str) -> Optional[np.ndarray]:
         """Return LUT (256x3 float) for known colormap names."""
@@ -1745,7 +1745,7 @@ class MasterController:
             getattr(self.ui, "actionToggle_pixel_mm", None),
             active_unit == "mm",
         )
-        self.status_message(f"Affichage des regles: {active_unit}", 2000)
+        self.status_message(f"Ruler display: {active_unit}", 2000)
 
     def _on_annotation_freehand_completed(self, points: Any) -> None:
         """Create the ROI preview, then optionally apply it immediately."""
@@ -2083,10 +2083,10 @@ class MasterController:
     def _apply_saved_colormaps(self) -> None:
         """Reapply persisted colormap names with their resolved LUTs."""
         endview_name = self._normalize_colormap_name(
-            getattr(self.view_state_model, "endview_colormap", "Gris")
+            getattr(self.view_state_model, "endview_colormap", "Gray")
         )
         cscan_name = self._normalize_colormap_name(
-            getattr(self.view_state_model, "cscan_colormap", "Gris")
+            getattr(self.view_state_model, "cscan_colormap", "Gray")
         )
         endview_lut = self._get_colormap_lut(endview_name)
         cscan_lut = self._get_colormap_lut(cscan_name)
@@ -2363,7 +2363,7 @@ class MasterController:
         """Apply a full overlay mask volume through the standard MVC refresh pipeline."""
         volume = self._current_volume()
         if volume is None:
-            raise ValueError("Volume NDE indisponible.")
+            raise ValueError("NDE volume unavailable.")
 
         self.annotation_controller.reset_overlay_state(preserve_labels=preserve_labels)
         if not preserve_labels:
@@ -2536,12 +2536,12 @@ class MasterController:
         analyze_tip = ""
         interpolate_tip = ""
         if stage == CORROSION_STAGE_RAW:
-            analyze_tip = "La session brute est deja analysee."
+            analyze_tip = "The raw session has already been analyzed."
         elif stage == CORROSION_STAGE_INTERPOLATED:
-            analyze_tip = "La session interpolee est finalisee."
-            interpolate_tip = "La session interpolee ne peut pas etre re-interpolee."
+            analyze_tip = "The interpolated session is finalized."
+            interpolate_tip = "The interpolated session cannot be interpolated again."
         else:
-            interpolate_tip = "Lance d'abord Analyze pour creer une session brute."
+            interpolate_tip = "Run Analyze first to create a raw session."
 
         analyze_action = getattr(self.ui, "actionCorrosion_analyse", None)
         if analyze_action is not None:
@@ -2565,6 +2565,7 @@ class MasterController:
             " corrosion brute",
             " corrosion raw",
             " corrosion interpolee",
+            " corrosion interpolated",
         ):
             marker_pos = lowered.find(marker)
             if marker_pos >= 0:
@@ -2574,7 +2575,7 @@ class MasterController:
 
     def _build_corrosion_raw_session_name(self, session_name: Optional[str]) -> str:
         base_name = self._base_corrosion_session_name(session_name)
-        return f"{base_name} corrosion brute"
+        return f"{base_name} corrosion raw"
 
     def _build_corrosion_interpolated_session_name(
         self,
@@ -2583,7 +2584,7 @@ class MasterController:
     ) -> str:
         base_name = self._base_corrosion_session_name(session_name)
         algo_label = normalize_interpolation_algo(algo)
-        return f"{base_name} corrosion interpolee {algo_label}"
+        return f"{base_name} corrosion interpolated {algo_label}"
 
     def _snapshot_active_session_in_manager(self) -> tuple[Optional[str], Optional[str]]:
         active_id = self.session_manager.get_active_session_id()
@@ -2642,7 +2643,7 @@ class MasterController:
 
         return CorrosionWorkflowResult(
             ok=True,
-            message="Analyse corrosion terminee (donnees brutes)",
+            message="Corrosion analysis completed (raw data)",
             projection=projection,
             value_range=value_range,
             raw_distance_map=self.view_state_model.corrosion_raw_distance_map,
@@ -3009,7 +3010,7 @@ class MasterController:
         self.corrosion_settings_view.set_interpolation_algo(algo)
         if not self.view_state_model.can_run_corrosion_interpolation():
             self.status_message(
-                "Interpolate est disponible uniquement depuis une session corrosion brute.",
+                "Interpolate is available only from a raw corrosion session.",
                 3000,
             )
             self._sync_corrosion_workflow_controls()
@@ -3018,21 +3019,21 @@ class MasterController:
         if self.corrosion_profile_edit_service.has_pending_edits():
             if not self.corrosion_profile_controller.commit_pending_edits():
                 self.status_message(
-                    "Impossible d'appliquer les modifications corrosion en cours.",
+                    "Unable to apply the pending corrosion edits.",
                     5000,
                 )
                 return
 
         raw = self._build_raw_corrosion_workflow_result_from_active_session()
         if raw is None or not raw.ok:
-            self.status_message("Aucune analyse corrosion brute disponible.", 3000)
+            self.status_message("No raw corrosion analysis available.", 3000)
             self._sync_corrosion_workflow_controls()
             return
 
         _raw_session_id, raw_session_name = self._snapshot_active_session_in_manager()
 
         nde_model = self.nde_model if hasattr(self, "nde_model") else None
-        self.status_message(f"Interpolation ({algo}) en cours...", 2000)
+        self.status_message(f"Interpolation ({algo}) in progress...", 2000)
 
         interp_result = self.corrosion_workflow_service.run_interpolation(
             raw_result=raw,
@@ -3089,7 +3090,7 @@ class MasterController:
         self.view_state_model.corrosion_piece_view_enabled = bool(checked)
         if checked:
             if not self._has_piece3d_data():
-                self.status_message("Aucun solide 3D corrosion disponible.", 3000)
+                self.status_message("No corrosion 3D solid available.", 3000)
                 self._show_standard_volume_view(sync_action=True)
                 return
             self._show_piece3d_view(sync_action=True)
@@ -3284,9 +3285,9 @@ class MasterController:
         if self._piece_toggle_btn is None:
             return
         if self._piece_show_interpolated:
-            self._piece_toggle_btn.setText("Afficher version brute")
+            self._piece_toggle_btn.setText("Show raw version")
         else:
-            self._piece_toggle_btn.setText("Afficher version interpolee")
+            self._piece_toggle_btn.setText("Show interpolated version")
 
     def _update_main_window_title(self) -> None:
         """Reflect the current NDE absolute path in the main window title bar."""

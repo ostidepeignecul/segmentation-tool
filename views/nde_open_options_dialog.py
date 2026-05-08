@@ -32,7 +32,7 @@ class NdeOpenOptionsDialog(QDialog):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Ouverture NDE")
+        self.setWindowTitle("Open NDE")
         self.setModal(True)
 
         self._axis_combo = QComboBox(self)
@@ -42,10 +42,10 @@ class NdeOpenOptionsDialog(QDialog):
         if current_idx >= 0:
             self._axis_combo.setCurrentIndex(current_idx)
 
-        self._hilbert_checkbox = QCheckBox("Appliquer l'enveloppe de Hilbert", self)
+        self._hilbert_checkbox = QCheckBox("Apply Hilbert envelope", self)
         self._hilbert_checkbox.setChecked(bool(default_apply_hilbert))
 
-        self._smoothing_checkbox = QCheckBox("Appliquer le lissage general", self)
+        self._smoothing_checkbox = QCheckBox("Apply general smoothing", self)
         self._smoothing_checkbox.setChecked(bool(default_apply_smoothing))
 
         summary_title = QLabel(str(detected_title), self)
@@ -56,13 +56,13 @@ class NdeOpenOptionsDialog(QDialog):
         summary_body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         hint = QLabel(
-            "Laissez les deux options decochees pour conserver le signal tel qu'il apparait dans le NDE.",
+            "Leave both options unchecked to keep the signal exactly as it appears in the NDE.",
             self,
         )
         hint.setWordWrap(True)
 
         form = QFormLayout()
-        form.addRow("Plan d'annotation", self._axis_combo)
+        form.addRow("Annotation plane", self._axis_combo)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel

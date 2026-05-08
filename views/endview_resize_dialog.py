@@ -22,7 +22,7 @@ class EndviewResizeDialog(QDialog):
 
     def __init__(self, current_size: Tuple[int, int], parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Redimensionner l'endview")
+        self.setWindowTitle("Resize endview")
         self.setModal(True)
         self._reset_requested = False
         self._square_sync_guard = False
@@ -37,19 +37,19 @@ class EndviewResizeDialog(QDialog):
         self._height_spin.setRange(100, 5000)
         self._height_spin.setValue(max(1, int(height)))
 
-        self._lock_square = QCheckBox("Forcer carre", self)
+        self._lock_square = QCheckBox("Force square", self)
         self._lock_square.stateChanged.connect(self._sync_square_state)
         self._width_spin.valueChanged.connect(self._on_width_changed)
         self._height_spin.valueChanged.connect(self._on_height_changed)
 
         form = QFormLayout()
-        form.addRow(QLabel("Largeur (px)"), self._width_spin)
-        form.addRow(QLabel("Hauteur (px)"), self._height_spin)
+        form.addRow(QLabel("Width (px)"), self._width_spin)
+        form.addRow(QLabel("Height (px)"), self._height_spin)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        reset_button = buttons.addButton("Par defaut", QDialogButtonBox.ButtonRole.ResetRole)
+        reset_button = buttons.addButton("Default", QDialogButtonBox.ButtonRole.ResetRole)
         reset_button.clicked.connect(self._on_reset_clicked)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)

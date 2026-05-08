@@ -109,20 +109,20 @@ class SessionWorkspaceController:
         """Open a persisted `.session` file and restore its single session."""
         file_path, _ = QFileDialog.getOpenFileName(
             self.main_window,
-            "Ouvrir une session",
+            "Open session",
             "",
             "Session Files (*.session);;All Files (*)",
         )
         if not file_path:
             return
-        if not self.confirm_unsaved_sessions_before_reset("ouvrir une autre session"):
+        if not self.confirm_unsaved_sessions_before_reset("open another session"):
             return
 
         try:
             payload = self.project_persistence.load_session(file_path)
             nde_path = str(payload.nde_path)
             if not Path(nde_path).exists():
-                raise FileNotFoundError(f"Fichier NDE introuvable: {nde_path}")
+                raise FileNotFoundError(f"NDE file not found: {nde_path}")
 
             processing_options = NdeSignalProcessingOptions(
                 apply_hilbert=bool(
@@ -143,7 +143,7 @@ class SessionWorkspaceController:
             session_dump = self._extract_single_session_dump(payload.session_manager_dump)
             active_id = self.session_manager.restore_dump(session_dump)
             if active_id is None:
-                raise ValueError("Aucune session active a restaurer.")
+                raise ValueError("No active session to restore.")
 
             loaded_session_path = str(Path(file_path).with_suffix(".session"))
             loaded_session_name = self._session_name_from_path(
@@ -163,9 +163,9 @@ class SessionWorkspaceController:
             self._set_session_dirty(active_id, False, schedule_autosave=False)
             self.refresh_session_dialog()
             self._after_session_switch()
-            self._status_message(f"Session chargee: {file_path}", timeout_ms=5000)
+            self._status_message(f"Session loaded: {file_path}", timeout_ms=5000)
         except Exception as exc:
-            QMessageBox.critical(self.main_window, "Erreur session", str(exc))
+            QMessageBox.critical(self.main_window, "Session error", str(exc))
 
     def save_active_session_via_ui(self, *, force_dialog: bool) -> None:
         """Save the active session and surface UI feedback/errors."""
@@ -175,20 +175,20 @@ class SessionWorkspaceController:
             QMessageBox.warning(
                 self.main_window,
                 "Session",
-                "Chargez un NDE avant de sauvegarder une session.",
+                "Load an NDE before saving a session.",
             )
             return
 
         try:
             self.save_active_session(force_dialog=force_dialog, sync=False)
         except Exception as exc:
-            QMessageBox.critical(self.main_window, "Erreur sauvegarde session", str(exc))
+            QMessageBox.critical(self.main_window, "Session save error", str(exc))
 
     def save_active_session(self, *, force_dialog: bool, sync: bool = False) -> Optional[str]:
         """Save the active session, optionally forcing the save dialog."""
         active_id = self.session_manager.get_active_session_id()
         if active_id is None:
-            raise ValueError("Aucune session active a sauvegarder.")
+            raise ValueError("No active session to save.")
         return self.save_session(active_id, force_dialog=force_dialog, clean_after_save=True, sync=sync)
 
     def save_session(
@@ -202,7 +202,7 @@ class SessionWorkspaceController:
         """Save one session by id, optionally forcing the save dialog."""
         target_id = str(session_id).strip()
         if not target_id or not self.session_manager.has_session(target_id):
-            raise ValueError("Session introuvable pour la sauvegarde.")
+            raise ValueError("Session not found for saving.")
 
         if target_id == self.session_manager.get_active_session_id():
             if not self._prepare_active_session_for_persistence():
@@ -219,7 +219,7 @@ class SessionWorkspaceController:
             )
             selected_path, _ = QFileDialog.getSaveFileName(
                 self.main_window,
-                "Enregistrer la session",
+                "Save session",
                 suggested_path,
                 "Session Files (*.session);;All Files (*)",
             )
@@ -231,7 +231,7 @@ class SessionWorkspaceController:
             self.refresh_session_dialog()
 
         if not destination:
-            raise ValueError("Chemin de sauvegarde de session introuvable.")
+            raise ValueError("Session save path not found.")
 
         return self._persist_session_to_destination(
             target_id,
@@ -252,7 +252,7 @@ class SessionWorkspaceController:
         """Intercept window close to protect unsaved sessions."""
         if self._confirm_unsaved_sessions(
             self._ordered_unsaved_session_ids(),
-            action_label="quitter l'application",
+            action_label="quit the application",
         ):
             event.accept()
             return
@@ -346,7 +346,7 @@ class SessionWorkspaceController:
         had_session = self.session_manager.has_session(session_id)
         if had_session and not self._confirm_unsaved_sessions(
             [session_id],
-            action_label="supprimer cette session",
+            action_label="delete this session",
         ):
             return
 
@@ -383,7 +383,7 @@ class SessionWorkspaceController:
                 QMessageBox.warning(
                     self.main_window,
                     "Session",
-                    "Impossible d'appliquer les modifications corrosion en cours avant la sauvegarde.",
+                    "Unable to apply the pending corrosion edits before saving.",
                 )
                 return False
             self.mark_active_session_dirty()
@@ -445,7 +445,7 @@ class SessionWorkspaceController:
         def on_finished(sid: str, path: str) -> None:
             if not is_autosave:
                 self._session_file_paths[sid] = path
-                self._status_message(f"Session sauvegardee: {path}", timeout_ms=5000)
+                self._status_message(f"Session saved: {path}", timeout_ms=5000)
             if clean_after_save:
                 self._set_session_dirty(sid, False, schedule_autosave=False)
             finalize_worker(sid)
@@ -454,7 +454,7 @@ class SessionWorkspaceController:
             err_msg = str(exc)
             self.logger.exception(f"Erreur Async Save Session {sid}: {err_msg}")
             if not is_autosave:
-                QMessageBox.critical(self.main_window, "Erreur sauvegarde", err_msg)
+                QMessageBox.critical(self.main_window, "Save error", err_msg)
             finalize_worker(sid)
 
         worker.signals.finished.connect(on_finished)
@@ -462,7 +462,7 @@ class SessionWorkspaceController:
 
         QThreadPool.globalInstance().start(worker)
         if not is_autosave:
-            self._status_message("Sauvegarde de session en cours...", timeout_ms=3000)
+            self._status_message("Session save in progress...", timeout_ms=3000)
         return None
 
     def _set_session_dirty(
@@ -527,18 +527,18 @@ class SessionWorkspaceController:
         session_name = self._normalize_session_name(self.session_manager.get_session_name(session_id))
         box = QMessageBox(self.main_window)
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Session non enregistree")
-        box.setText(f"La session '{session_name}' contient des modifications non enregistrees.")
-        details = f"Voulez-vous l'enregistrer avant de {action_label} ?"
+        box.setWindowTitle("Unsaved session")
+        box.setText(f"Session '{session_name}' contains unsaved changes.")
+        details = f"Do you want to save it before you {action_label}?"
         if (
             session_id == self.session_manager.get_active_session_id()
             and self._active_session_has_pending_runtime_edits()
         ):
-            details += "\n\nLes modifications en cours seront consolidees avant la sauvegarde."
+            details += "\n\nPending edits will be consolidated before saving."
         box.setInformativeText(details)
-        save_button = box.addButton("Enregistrer", QMessageBox.ButtonRole.AcceptRole)
+        save_button = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
         discard_button = box.addButton(
-            "Ne pas enregistrer",
+            "Don't save",
             QMessageBox.ButtonRole.DestructiveRole,
         )
         cancel_button = box.addButton(QMessageBox.StandardButton.Cancel)
@@ -654,7 +654,7 @@ class SessionWorkspaceController:
         """Reduce any persisted dump to a single active session payload."""
         sessions = payload.get("sessions")
         if not isinstance(sessions, dict) or not sessions:
-            raise ValueError("Dump de sessions invalide ou vide.")
+            raise ValueError("Invalid or empty session dump.")
 
         active_id = payload.get("active_id")
         if not isinstance(active_id, str) or active_id not in sessions:

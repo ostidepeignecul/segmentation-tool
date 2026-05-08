@@ -37,7 +37,7 @@ class CorrosionSettingsView(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Parametres corrosion")
+        self.setWindowTitle("Corrosion settings")
         self.setModal(False)
         self.setMinimumWidth(360)
 
@@ -53,8 +53,8 @@ class CorrosionSettingsView(QDialog):
         self._peak_mode_b_combo = QComboBox(self)
         self._interp_algo_combo = QComboBox(self)
 
-        self._peak_mode_a_combo.addItems(["Max peak", "Optimiste", "Pessimiste"])
-        self._peak_mode_b_combo.addItems(["Max peak", "Optimiste", "Pessimiste"])
+        self._peak_mode_a_combo.addItems(["Max peak", "Optimistic", "Pessimistic"])
+        self._peak_mode_b_combo.addItems(["Max peak", "Optimistic", "Pessimistic"])
         self._interp_algo_combo.addItems(
             [
                 "1D Dual-Axis",
@@ -68,14 +68,14 @@ class CorrosionSettingsView(QDialog):
         )
 
         form.addRow(QLabel("Label A"), self._label_a_combo)
-        form.addRow(QLabel("Mode label A"), self._peak_mode_a_combo)
+        form.addRow(QLabel("Label A mode"), self._peak_mode_a_combo)
         form.addRow(QLabel("Label B"), self._label_b_combo)
-        form.addRow(QLabel("Mode label B"), self._peak_mode_b_combo)
+        form.addRow(QLabel("Label B mode"), self._peak_mode_b_combo)
         form.addRow(QLabel("Interpolation"), self._interp_algo_combo)
 
         layout.addLayout(form)
 
-        close_btn = QPushButton("Fermer", self)
+        close_btn = QPushButton("Close", self)
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, 0, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -99,8 +99,8 @@ class CorrosionSettingsView(QDialog):
         self._label_b_combo.blockSignals(True)
         self._label_a_combo.clear()
         self._label_b_combo.clear()
-        self._label_a_combo.addItem("Aucun", None)
-        self._label_b_combo.addItem("Aucun", None)
+        self._label_a_combo.addItem("None", None)
+        self._label_b_combo.addItem("None", None)
         for label_id in labels:
             lbl = int(label_id)
             self._label_a_combo.addItem(format_label_text(lbl), lbl)
@@ -143,12 +143,12 @@ class CorrosionSettingsView(QDialog):
         analysis_tooltip = ""
         interpolation_tooltip = ""
         if normalized == CORROSION_STAGE_RAW:
-            analysis_tooltip = "La session brute est deja analysee."
+            analysis_tooltip = "The raw session has already been analyzed."
         elif normalized == CORROSION_STAGE_INTERPOLATED:
-            analysis_tooltip = "La session interpolee est finalisee."
-            interpolation_tooltip = "La session interpolee ne peut pas etre re-interpolee."
+            analysis_tooltip = "The interpolated session is finalized."
+            interpolation_tooltip = "The interpolated session cannot be interpolated again."
         else:
-            interpolation_tooltip = "Lance d'abord Analyze pour creer une session brute."
+            interpolation_tooltip = "Run Analyze first to create a raw session."
 
         for widget in (
             self._label_a_combo,

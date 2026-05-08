@@ -21,8 +21,8 @@ class CscanViewCorrosion(CScanView):
         super().__init__(parent)
         if CscanViewCorrosion._LUT_CACHE is None:
             CscanViewCorrosion._LUT_CACHE = self._build_lut()
-        self._export_button = QPushButton("Exporter", self)
-        self._export_button.setToolTip("Choisir un dossier d'export pour le C-scan corrosion")
+        self._export_button = QPushButton("Export", self)
+        self._export_button.setToolTip("Choose an export folder for the corrosion C-scan")
         self._export_button.clicked.connect(self.export_requested.emit)
         self.add_header_widget(self._export_button)
 

@@ -161,14 +161,14 @@ class MaskModificationController:
                 label=label,
             ):
                 self._status_message(
-                    "Tous les pixels du contour sont deja ancres.",
+                    "All contour pixels are already anchored.",
                     timeout_ms=1800,
                 )
             else:
-                self._status_message("Double-clique proche du contour pour ajouter un ancrage.", timeout_ms=1800)
+                self._status_message("Double-click near the contour to add an anchor.", timeout_ms=1800)
             return
         self.sync_anchors()
-        self._status_message("Ancrage ajoute.", timeout_ms=1000)
+        self._status_message("Anchor added.", timeout_ms=1000)
 
     def on_selection_cancel_requested(self) -> bool:
         if not self._is_mod_mode() and not self.mask_modification_service.has_pending_edits():
@@ -177,7 +177,7 @@ class MaskModificationController:
         self.annotation_view.clear_mod_anchor_points()
         cleared_preview = self._clear_mod_preview_from_temp()
         if had_dirty:
-            self._status_message("Modifications masque annulees.", timeout_ms=1800)
+            self._status_message("Mask edits canceled.", timeout_ms=1800)
         if had_dirty or cleared_preview:
             self._refresh_current_roi_overlay()
         return bool(self._is_mod_mode() or had_dirty or cleared_preview)
@@ -191,7 +191,7 @@ class MaskModificationController:
         self._mod_preview_base.clear()
         self._mod_preview_current.clear()
         if had_dirty:
-            self._status_message("Modifications masque supprimees.", timeout_ms=1800)
+            self._status_message("Mask edits deleted.", timeout_ms=1800)
 
     def has_pending_edits(self) -> bool:
         return self.mask_modification_service.has_pending_edits()
@@ -205,7 +205,7 @@ class MaskModificationController:
         self._mod_preview_base.clear()
         self._mod_preview_current.clear()
         # Temp data is already in TempMaskModel; apply/clear is handled by the standard pipeline.
-        self._status_message("Modifications masque appliquees.", timeout_ms=1800)
+        self._status_message("Mask edits applied.", timeout_ms=1800)
         return True
 
     def refresh_preview(self, *, changed_slice: Optional[int] = None) -> None:

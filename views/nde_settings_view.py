@@ -44,7 +44,7 @@ class NdeSettingsView(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Paramètres")
+        self.setWindowTitle("Settings")
         self.setModal(False)
         self.setMinimumWidth(320)
 
@@ -56,8 +56,8 @@ class NdeSettingsView(QDialog):
 
         self._endview_combo = QComboBox(self)
         self._cscan_combo = QComboBox(self)
-        form.addRow(QLabel("Colormap Endview + 3D"), self._endview_combo)
-        form.addRow(QLabel("Colormap C-scan"), self._cscan_combo)
+        form.addRow(QLabel("Endview + 3D colormap"), self._endview_combo)
+        form.addRow(QLabel("C-scan colormap"), self._cscan_combo)
 
         self._apply_volume_start = QSpinBox(self)
         self._apply_volume_end = QSpinBox(self)
@@ -66,43 +66,43 @@ class NdeSettingsView(QDialog):
             box.setMaximum(0)
             box.setValue(0)
             box.setKeyboardTracking(False)
-        form.addRow(QLabel("Appliquer au volume (de)"), self._apply_volume_start)
-        form.addRow(QLabel("Appliquer au volume (à)"), self._apply_volume_end)
+        form.addRow(QLabel("Apply to volume (from)"), self._apply_volume_start)
+        form.addRow(QLabel("Apply to volume (to)"), self._apply_volume_end)
 
         self._overwrite_source_combo = QComboBox(self)
-        form.addRow(QLabel("Ecrasement - label source"), self._overwrite_source_combo)
+        form.addRow(QLabel("Overwrite - source label"), self._overwrite_source_combo)
 
         self._overwrite_target_combo = QComboBox(self)
-        form.addRow(QLabel("Ecrasement - autorise sur"), self._overwrite_target_combo)
+        form.addRow(QLabel("Overwrite - allowed on"), self._overwrite_target_combo)
 
         self._roi_thin_line_width = QSpinBox(self)
         self._roi_thin_line_width.setMinimum(0)
         self._roi_thin_line_width.setMaximum(20)
         self._roi_thin_line_width.setValue(2)
-        form.addRow(QLabel("Bloquer lignes <= (px)"), self._roi_thin_line_width)
+        form.addRow(QLabel("Block lines <= (px)"), self._roi_thin_line_width)
 
         self._roi_peak_combo = QComboBox(self)
-        self._roi_peak_combo.addItem("Premier pic", False)
-        self._roi_peak_combo.addItem("Deuxieme pic", True)
-        form.addRow(QLabel("ROI Peak - choix du pic"), self._roi_peak_combo)
+        self._roi_peak_combo.addItem("First peak", False)
+        self._roi_peak_combo.addItem("Second peak", True)
+        form.addRow(QLabel("ROI Peak - peak choice"), self._roi_peak_combo)
 
         self._roi_peak_ignore_combo = QComboBox(self)
-        self._roi_peak_ignore_combo.addItem("Avec position", False)
-        self._roi_peak_ignore_combo.addItem("Plus fort (sans position)", True)
-        form.addRow(QLabel("ROI Peak - mode du pic"), self._roi_peak_ignore_combo)
+        self._roi_peak_ignore_combo.addItem("With position", False)
+        self._roi_peak_ignore_combo.addItem("Strongest (ignore position)", True)
+        form.addRow(QLabel("ROI Peak - peak mode"), self._roi_peak_ignore_combo)
 
         self._roi_peak_vertical_min = QSpinBox(self)
         self._roi_peak_vertical_min.setMinimum(1)
         self._roi_peak_vertical_min.setMaximum(999)
         self._roi_peak_vertical_min.setValue(1)
-        form.addRow(QLabel("ROI Peak - min vertical"), self._roi_peak_vertical_min)
+        form.addRow(QLabel("ROI Peak - vertical min"), self._roi_peak_vertical_min)
 
         self._roi_peak_vertical_max = QSpinBox(self)
         self._roi_peak_vertical_max.setMinimum(0)
         self._roi_peak_vertical_max.setMaximum(999)
         self._roi_peak_vertical_max.setValue(0)
-        self._roi_peak_vertical_max.setSpecialValueText("Illimite")
-        form.addRow(QLabel("ROI Peak - max vertical"), self._roi_peak_vertical_max)
+        self._roi_peak_vertical_max.setSpecialValueText("Unlimited")
+        form.addRow(QLabel("ROI Peak - vertical max"), self._roi_peak_vertical_max)
 
         self._prune_label_a_combo = QComboBox(self)
         self._prune_label_b_combo = QComboBox(self)
@@ -110,7 +110,7 @@ class NdeSettingsView(QDialog):
         form.addRow(QLabel("Prune - label B"), self._prune_label_b_combo)
 
         self._prune_peak_mode_combo = QComboBox(self)
-        self._prune_peak_mode_combo.addItems(["Max peak", "Optimiste", "Pessimiste"])
+        self._prune_peak_mode_combo.addItems(["Max peak", "Optimistic", "Pessimistic"])
         self._prepare_peak_mode_combo(self._prune_peak_mode_combo)
         form.addRow(QLabel("Prune - mode"), self._prune_peak_mode_combo)
 
@@ -118,26 +118,26 @@ class NdeSettingsView(QDialog):
         self._closing_mask_tolerance.setMinimum(0)
         self._closing_mask_tolerance.setMaximum(99999)
         self._closing_mask_tolerance.setValue(64)
-        form.addRow(QLabel("Closing mask - aire max trou (px2)"), self._closing_mask_tolerance)
+        form.addRow(QLabel("Closing mask - max hole area (px2)"), self._closing_mask_tolerance)
 
         self._closing_mask_merge_distance = QSpinBox(self)
         self._closing_mask_merge_distance.setMinimum(0)
         self._closing_mask_merge_distance.setMaximum(9999)
         self._closing_mask_merge_distance.setValue(0)
-        form.addRow(QLabel("Closing mask - distance fusion (px)"), self._closing_mask_merge_distance)
+        form.addRow(QLabel("Closing mask - merge distance (px)"), self._closing_mask_merge_distance)
 
         self._clean_outliers_tolerance = QSpinBox(self)
         self._clean_outliers_tolerance.setMinimum(0)
         self._clean_outliers_tolerance.setMaximum(99999)
         self._clean_outliers_tolerance.setValue(64)
-        form.addRow(QLabel("Mask cleanup - aire max ilot (px2)"), self._clean_outliers_tolerance)
+        form.addRow(QLabel("Mask cleanup - max island area (px2)"), self._clean_outliers_tolerance)
 
         self._clean_outliers_thin_line_width = QSpinBox(self)
         self._clean_outliers_thin_line_width.setMinimum(0)
         self._clean_outliers_thin_line_width.setMaximum(20)
         self._clean_outliers_thin_line_width.setValue(1)
         form.addRow(
-            QLabel("Mask cleanup - largeur max excroissance (px)"),
+            QLabel("Mask cleanup - max protrusion width (px)"),
             self._clean_outliers_thin_line_width,
         )
 
@@ -146,7 +146,7 @@ class NdeSettingsView(QDialog):
         self._clean_outliers_thin_gap_width.setMaximum(20)
         self._clean_outliers_thin_gap_width.setValue(0)
         form.addRow(
-            QLabel("Mask cleanup - largeur max entaille (px)"),
+            QLabel("Mask cleanup - max notch width (px)"),
             self._clean_outliers_thin_gap_width,
         )
 
@@ -155,17 +155,17 @@ class NdeSettingsView(QDialog):
         self._clean_outliers_contour_smoothing.setMaximum(20)
         self._clean_outliers_contour_smoothing.setValue(0)
         form.addRow(
-            QLabel("Mask cleanup - lissage contour (px)"),
+            QLabel("Mask cleanup - contour smoothing (px)"),
             self._clean_outliers_contour_smoothing,
         )
 
         layout.addLayout(form)
 
-        close_btn = QPushButton("Fermer", self)
+        close_btn = QPushButton("Close", self)
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, 0, alignment=Qt.AlignmentFlag.AlignRight)
 
-        self._populate(["Gris", "OmniScan"])
+        self._populate(["Gray", "OmniScan"])
         self._wire_signals()
 
     # ------------------------------------------------------------------ #
@@ -239,8 +239,8 @@ class NdeSettingsView(QDialog):
         """Populate the overwrite-target combo."""
         self._overwrite_target_combo.blockSignals(True)
         self._overwrite_target_combo.clear()
-        self._overwrite_target_combo.addItem("Aucun", ("default", None))
-        self._overwrite_target_combo.addItem("Tous", ("all", None))
+        self._overwrite_target_combo.addItem("None", ("default", None))
+        self._overwrite_target_combo.addItem("All", ("all", None))
         for label_id in labels:
             lbl = int(label_id)
             self._overwrite_target_combo.addItem(format_label_text(lbl), ("label", lbl))
@@ -319,8 +319,8 @@ class NdeSettingsView(QDialog):
         self._prune_label_b_combo.blockSignals(True)
         self._prune_label_a_combo.clear()
         self._prune_label_b_combo.clear()
-        self._prune_label_a_combo.addItem("Aucun", None)
-        self._prune_label_b_combo.addItem("Aucun", None)
+        self._prune_label_a_combo.addItem("None", None)
+        self._prune_label_b_combo.addItem("None", None)
         for label_id in labels:
             lbl = int(label_id)
             self._prune_label_a_combo.addItem(format_label_text(lbl), lbl)

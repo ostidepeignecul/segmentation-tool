@@ -36,7 +36,7 @@ class OverlaySettingsView(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Paramètres overlay")
+        self.setWindowTitle("Overlay settings")
         self.setModal(False)
         self.setMinimumWidth(340)
 
@@ -54,7 +54,7 @@ class OverlaySettingsView(QDialog):
         layout.addWidget(self._scroll, 1)
 
         opacity_layout = QHBoxLayout()
-        self._opacity_label = QLabel("Opacité overlay", self)
+        self._opacity_label = QLabel("Overlay opacity", self)
         opacity_layout.addWidget(self._opacity_label, 0)
         self._opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
         self._opacity_slider.setRange(0, 100)
@@ -68,7 +68,7 @@ class OverlaySettingsView(QDialog):
         layout.addLayout(opacity_layout)
 
         buttons_layout = QHBoxLayout()
-        self._add_button = QPushButton("Ajouter un label", self)
+        self._add_button = QPushButton("Add label", self)
         self._add_button.clicked.connect(self._on_add_label)
         buttons_layout.addWidget(self._add_button, 1)
 
@@ -220,7 +220,7 @@ class _LabelRow(QWidget):
 
         self._delete_button: Optional[QPushButton] = None
         if allow_delete:
-            self._delete_button = QPushButton("Supprimer", self)
+            self._delete_button = QPushButton("Delete", self)
             self._delete_button.setFixedWidth(90)
             self._delete_button.clicked.connect(self._on_delete_clicked)
             layout.addWidget(self._delete_button, 0)
@@ -245,7 +245,7 @@ class _LabelRow(QWidget):
         self.visibility_toggled.emit(self.label_id, checked)
 
     def _on_pick_color(self) -> None:
-        picked = QColorDialog.getColor(self._color, self, f"Couleur pour {format_label_text(self.label_id)}")
+        picked = QColorDialog.getColor(self._color, self, f"Color for {format_label_text(self.label_id)}")
         if picked.isValid():
             self.set_color(picked)
             self.color_changed.emit(self.label_id, picked)

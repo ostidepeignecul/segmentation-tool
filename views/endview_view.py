@@ -56,7 +56,7 @@ class EndviewView(QFrame):
         self._overlay_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self._visible_labels: Optional[set[int]] = None
         self._overlay_outline_only: bool = False
-        self._colormap_name: str = "Gris"
+        self._colormap_name: str = "Gray"
         self._colormap_lut: Optional[np.ndarray] = None
         self._pixmaps = _PixmapBundle()
         self._display_size: Optional[Tuple[int, int]] = None
@@ -166,7 +166,7 @@ class EndviewView(QFrame):
         self._navigation_row.addWidget(self._navigation_spinbox)
         layout.addLayout(self._navigation_row)
 
-        self._status = QLabel("Endview vide")
+        self._status = QLabel("Empty endview")
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._status)
 
@@ -868,7 +868,7 @@ class EndviewView(QFrame):
 
     def _refresh_status(self) -> None:
         if self._volume is None:
-            self._status.setText("Endview vide")
+            self._status.setText("Empty endview")
             return
 
         parts = [
@@ -876,7 +876,7 @@ class EndviewView(QFrame):
         ]
         if self._show_status_position and self._status_position is not None:
             x, y = self._status_position
-            parts.append(f"position x = {int(x)} ; y = {int(y)}")
+            parts.append(f"x = {int(x)} ; y = {int(y)}")
         self._status.setText(" | ".join(parts))
 
     def _clear_rulers(self) -> None:

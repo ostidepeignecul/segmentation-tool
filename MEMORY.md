@@ -4232,3 +4232,19 @@ Un delai restait perceptible surtout lorsqu on quittait une session affichant de
 **Decisions techniques :**
 1. Considerer l etat `overlay masque` comme une sortie terminale du pipeline `refresh_overlay()`, afin que le nettoyage des vues ne soit pas suivi d un rebuild de cache et d un push VisPy inutiles.
 2. Garder la table des couleurs d axes centralisee dans `ColorAxisRuler`, pour que les vues consommatrices recuperent automatiquement la meme convention sans style local duplique.
+
+### 2026-05-08 - Traduction de l interface utilisateur du francais vers l anglais
+**Tags :** `#branch:feature/english-translation`, `#MEMORY.md`, `#untitled.ui`, `#toolspanel.ui`, `#ui_mainwindow.py`, `#ui_toolspanel.py`, `#controllers/annotation_controller.py`, `#controllers/corrosion_profile_controller.py`, `#controllers/cscan_controller.py`, `#controllers/dock_layout_controller.py`, `#controllers/mask_modification_controller.py`, `#controllers/master_controller.py`, `#controllers/session_workspace_controller.py`, `#views/annotation_view.py`, `#views/corrosion_settings_view.py`, `#views/cscan_view.py`, `#views/cscan_view_corrosion.py`, `#views/endview_resize_dialog.py`, `#views/endview_view.py`, `#views/nde_open_options_dialog.py`, `#views/nde_settings_view.py`, `#views/overlay_class_remap_dialog.py`, `#views/overlay_export_dialog.py`, `#views/overlay_settings_view.py`, `#views/piece3d_view.py`, `#views/session_manager_dialog.py`, `#views/tools_panel.py`, `#views/volume_view.py`, `#ui`, `#translation`, `#i18n`, `#pyqt6`, `#mvc`
+
+**Actions effectuées :**
+- Traduit en anglais les chaines visibles des sources Qt Designer `untitled.ui` et `toolspanel.ui`, puis regenere `ui_mainwindow.py` et `ui_toolspanel.py` via `pyuic6` pour garder les wrappers synchronises avec les `.ui`.
+- Traduit les libelles, tooltips, titres de fenetres, messages de status et dialogues user-facing restants dans les vues et controllers sans deplacer de logique metier ni modifier l architecture MVC.
+- Aligne les libelles dynamiques relies aux colormaps, a la piece 3D, aux exports, aux sessions et aux workflows corrosion/nnUNet afin que l UI soit coherentement en anglais d un bout a l autre.
+
+**Contexte :**
+Le lot staged visait uniquement la presentation utilisateur: remplacer le francais par de l anglais pour tout ce qui apparait dans l interface, tout en preservant les comportements existants et en evitant de toucher aux identifiants internes, aux formats persistants et aux conventions deja utiliseses par les services et models.
+
+**Décisions techniques :**
+1. Modifier d abord les sources `.ui`, puis regenerer les fichiers `ui_*.py`, afin d eviter les divergences entre Designer et les wrappers generes.
+2. Limiter la traduction aux chaines visibles a l ecran et conserver les marqueurs de compatibilite non affiches, notamment certains suffixes historiques de sessions corrosion, pour ne pas casser la reconnaissance de noms deja persistants.
+3. Garder les normalisations metier et les valeurs internes existantes (`gray`, modes corrosion, ids de labels, axes) en ne traduisant que les libelles exposes par la vue, afin de separer proprement presentation et logique.

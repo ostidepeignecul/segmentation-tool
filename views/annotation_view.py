@@ -194,7 +194,7 @@ class AnnotationView(EndviewView):
         """Open a save dialog for overlay export and return the chosen path."""
         file_path, _ = QFileDialog.getSaveFileName(
             parent,
-            "Sauvegarder l'overlay (.npz)",
+            "Save overlay (.npz)",
             "",
             "Overlay NPZ (*.npz);;All Files (*)",
         )

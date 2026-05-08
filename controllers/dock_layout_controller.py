@@ -401,7 +401,7 @@ class DockLayoutController:
         piece_layout.setContentsMargins(0, 0, 0, 0)
         piece_layout.setSpacing(0)
         piece_view = Piece3DView(parent=piece_page)
-        toggle_button = QPushButton("Afficher version brute", parent=piece_page)
+        toggle_button = QPushButton("Show raw version", parent=piece_page)
         piece_layout.addWidget(piece_view)
         piece_layout.addWidget(toggle_button)
         stack.addWidget(piece_page)

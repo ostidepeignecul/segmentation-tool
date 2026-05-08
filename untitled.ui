@@ -27,7 +27,7 @@
    </property>
    <widget class="QMenu" name="menuFichier">
     <property name="title">
-     <string>Fichier</string>
+    <string>File</string>
     </property>
     <addaction name="actionopen_nde"/>
     <addaction name="separator"/>
@@ -53,7 +53,7 @@
    </widget>
    <widget class="QMenu" name="menuAnalyse">
     <property name="title">
-     <string>Analyse</string>
+    <string>Analysis</string>
     </property>
     <addaction name="actionCorrosion_analyse"/>
     <addaction name="actionInterpolate"/>
@@ -68,7 +68,7 @@
    </widget>
    <widget class="QMenu" name="menuAffichage">
     <property name="title">
-     <string>Affichage</string>
+    <string>View</string>
     </property>
     <addaction name="actionToggle_C_Scan"/>
     <addaction name="actionToggle_A_Scan"/>
@@ -103,27 +103,27 @@
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actioncharger_npz">
    <property name="text">
-    <string>Charger un fichier .npz/.npy</string>
+    <string>Load .npz/.npy file</string>
    </property>
   </action>
   <action name="actionopen_nde">
    <property name="text">
-    <string>Ouvrir un fichier .nde</string>
+    <string>Open .nde file</string>
    </property>
   </action>
   <action name="actionSauvegarder">
    <property name="text">
-    <string>Enregistrer</string>
+    <string>Save</string>
    </property>
   </action>
   <action name="actionParam_tres">
    <property name="text">
-    <string>Paramètres</string>
+    <string>Settings</string>
    </property>
   </action>
   <action name="actionQuitter">
    <property name="text">
-    <string>Quitter</string>
+    <string>Quit</string>
    </property>
   </action>
   <action name="actionCorrosion_analyse">
@@ -133,12 +133,12 @@
   </action>
   <action name="actionParam_tres_2">
    <property name="text">
-    <string>Paramètres overlay</string>
+    <string>Overlay settings</string>
    </property>
   </action>
   <action name="actionExporter_npz">
    <property name="text">
-    <string>Exporter .npz</string>
+    <string>Export .npz</string>
    </property>
   </action>
   <action name="actionnnunet">
@@ -148,7 +148,7 @@
   </action>
   <action name="actionExporter_endviews">
    <property name="text">
-    <string>Exporter endviews</string>
+    <string>Export endviews</string>
    </property>
   </action>
   <action name="actionSplit_flaw_noflaw">
@@ -178,17 +178,17 @@
   </action>
   <action name="actionAfficher_solide_3d">
    <property name="text">
-    <string>Afficher solide 3d</string>
+    <string>Show 3D solid</string>
    </property>
   </action>
   <action name="actionParam_tres_3">
    <property name="text">
-    <string>Paramètres</string>
+    <string>Settings</string>
    </property>
   </action>
   <action name="actionR_initialisation_docks">
    <property name="text">
-    <string>Réinitialisation docks</string>
+    <string>Reset docks</string>
    </property>
   </action>
   <action name="actionToggle_cross">
@@ -228,12 +228,12 @@
   </action>
   <action name="actionOuvrir_une_session">
    <property name="text">
-    <string>Ouvrir une session</string>
+    <string>Open session</string>
    </property>
   </action>
   <action name="actionEnregistrer_sous">
    <property name="text">
-    <string>Enregistrer sous</string>
+    <string>Save as</string>
    </property>
   </action>
   <action name="actionRemap_classes">

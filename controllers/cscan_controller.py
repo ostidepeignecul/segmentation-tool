@@ -225,7 +225,7 @@ class CScanController:
                 self.standard_view.set_projection(
                     standard_projection,
                     standard_range,
-                    colormaps=("Gris", "OmniScan"),
+                    colormaps=("Gray", "OmniScan"),
                 )
 
     # --- Corrosion workflow --------------------------------------------------------
@@ -245,7 +245,7 @@ class CScanController:
             return
 
         self.logger.info("Corrosion analysis: started")
-        self.status_callback("Analyse corrosion en cours...", 2000)
+        self.status_callback("Corrosion analysis in progress...", 2000)
         label_a = getattr(self.view_state_model, "corrosion_label_a", None)
         label_b = getattr(self.view_state_model, "corrosion_label_b", None)
         peak_selection_mode_a = self.view_state_model.get_corrosion_peak_selection_mode_a()
@@ -281,15 +281,15 @@ class CScanController:
     def export_corrosion_projection(self, *, output_directory: str) -> tuple[str, str]:
         """Export the corrosion C-scan currently displayed in the corrosion view."""
         if not output_directory:
-            raise ValueError("Aucun dossier de sortie sÃ©lectionnÃ©.")
+            raise ValueError("No output folder selected.")
 
         nde_model = self.get_nde_model()
         if nde_model is None:
-            raise ValueError("Chargez un NDE avant d'exporter le C-scan corrosion.")
+            raise ValueError("Load an NDE before exporting the corrosion C-scan.")
 
         projection_payload = self.view_state_model.corrosion_projection
         if not self.view_state_model.corrosion_active or projection_payload is None:
-            raise ValueError("Lancez une analyse corrosion avant d'exporter le C-scan.")
+            raise ValueError("Run corrosion analysis before exporting the C-scan.")
 
         projection, value_range = projection_payload
         nde_filename = str((nde_model.metadata or {}).get("path", "unknown"))
