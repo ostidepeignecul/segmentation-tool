@@ -134,8 +134,8 @@ class MasterController:
         self._pre_corrosion_session_state = None
         self._pre_corrosion_session_id: Optional[str] = None
         self._annotation_axis_mode: str = "Auto"
-        self._annotation_axis_name: str = "B-Scan"
-        self._secondary_axis_name: str = "D-Scan"
+        self._primary_view_name: str = "D-Scan"
+        self._secondary_view_name: str = "B-Scan"
         self.main_window.closeEvent = self._on_main_window_close_event  # type: ignore[method-assign]
         self._app = QApplication.instance()
         self._nnunet_ui_signals = NnUnetUiSignals()
@@ -183,9 +183,9 @@ class MasterController:
         )
         self.endview_controller.set_primary_status_position_visible(True)
         self.endview_controller.set_secondary_status_position_visible(False)
-        self.endview_controller.set_axis_names(
-            primary=self._annotation_axis_name,
-            secondary=self._secondary_axis_name,
+        self.endview_controller.set_navigation_view_names(
+            primary=self._primary_view_name,
+            secondary=self._secondary_view_name,
         )
 
         self.annotation_service = AnnotationService()
@@ -2099,10 +2099,10 @@ class MasterController:
         self.nde_settings_view.set_colormaps(endview=endview_name, cscan=cscan_name)
 
     def _sync_coordinate_view_labels(self) -> None:
-        """Push navigation and displayed axis names into the endview-local controls."""
-        self.endview_controller.set_axis_names(
-            primary=self._annotation_axis_name,
-            secondary=self._secondary_axis_name,
+        """Push view names and ruler axis labels into the endview-local controls."""
+        self.endview_controller.set_navigation_view_names(
+            primary=self._primary_view_name,
+            secondary=self._secondary_view_name,
         )
         ruler_axes = self.annotation_axis_service.build_endview_ruler_axes(self.nde_model)
         self.endview_controller.set_ruler_axis_names(
@@ -2116,8 +2116,8 @@ class MasterController:
             horizontal=cscan_ruler_axes.horizontal_axis_name,
             vertical=cscan_ruler_axes.vertical_axis_name,
         )
-        self.tools_panel.set_primary_axis_name(self._annotation_axis_name)
-        self.tools_panel.set_secondary_axis_name(self._secondary_axis_name)
+        self.tools_panel.set_primary_view_name(self._primary_view_name)
+        self.tools_panel.set_secondary_view_name(self._secondary_view_name)
         self._sync_ruler_display_settings(
             endview_ruler_axes=ruler_axes,
             cscan_ruler_axes=cscan_ruler_axes,
@@ -2201,8 +2201,13 @@ class MasterController:
         defaults = self.nde_signal_processing_service.default_processing_options(
             transform_info
         )
+        annotatable_view_by_axis_mode = {
+            "Auto": "Auto",
+            "UCoordinate": "D-Scan",
+            "VCoordinate": "B-Scan",
+        }
         axis_choice_items = [
-            (choice, self.annotation_axis_service.display_axis_name(choice))
+            (choice, annotatable_view_by_axis_mode.get(str(choice), str(choice)))
             for choice in choices
         ]
 
@@ -2238,11 +2243,16 @@ class MasterController:
             self._annotation_axis_mode,
             choices,
         )
+        annotatable_view_by_axis_mode = {
+            "Auto": "Auto",
+            "UCoordinate": "D-Scan",
+            "VCoordinate": "B-Scan",
+        }
         display_choices = [
-            self.annotation_axis_service.display_axis_name(choice)
+            annotatable_view_by_axis_mode.get(str(choice), str(choice))
             for choice in choices
         ]
-        current_display = self.annotation_axis_service.display_axis_name(current)
+        current_display = annotatable_view_by_axis_mode.get(str(current), str(current))
         current_idx = display_choices.index(current_display)
         selection, ok = QInputDialog.getItem(
             self.main_window,
@@ -2254,11 +2264,13 @@ class MasterController:
         )
         if not ok:
             return None
+        resolved = None
         selection_text = str(selection)
         for choice in choices:
-            if self.annotation_axis_service.display_axis_name(choice) == selection_text:
-                return str(choice)
-        return current
+            if annotatable_view_by_axis_mode.get(str(choice), str(choice)) == selection_text:
+                resolved = str(choice)
+                break
+        return resolved or current
 
     def _apply_annotation_axis_mode(self, model: NdeModel, axis_mode: str) -> None:
         """Force U/V as primary slice axis when requested by the user."""
@@ -2756,8 +2768,8 @@ class MasterController:
             model,
             axis_mode=self._annotation_axis_mode,
         )
-        self._annotation_axis_name = titles.primary_axis_name
-        self._secondary_axis_name = titles.secondary_axis_name
+        self._primary_view_name = titles.primary_view_name
+        self._secondary_view_name = titles.secondary_view_name
         self.ucoordinate_dock.setWindowTitle(titles.primary_title)
         self.vcoordinate_dock.setWindowTitle(titles.secondary_title)
         self._sync_coordinate_view_labels()

@@ -31,7 +31,7 @@ class AScanView(QFrame):
         self._overlay_spans: tuple[tuple[int, int, int], ...] = ()
         self._overlay_palette: dict[int, tuple[int, int, int, int]] = {}
         self._overlay_opacity: float = 0.4
-        self._display_axis_x_name: str = "Profondeur"
+        self._display_axis_x_name: str = "Ultrasound axis"
         self._display_axis_y_name: str = "Amplitude (%)"
         self._ruler_display_unit: str = RulerDisplayService.DISPLAY_UNIT_PIXELS
 

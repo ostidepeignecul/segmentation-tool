@@ -71,8 +71,8 @@ class ToolsPanel(QFrame):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
-        self._primary_axis_label: Optional[QLabel] = None
-        self._secondary_axis_label: Optional[QLabel] = None
+        self._primary_view_label: Optional[QLabel] = None
+        self._secondary_view_label: Optional[QLabel] = None
         self._primary_slider: Optional[QSlider] = None
         self._secondary_slider: Optional[QSlider] = None
         self._primary_spinbox: Optional[QSpinBox] = None
@@ -808,17 +808,17 @@ class ToolsPanel(QFrame):
         suffix = str(name).strip() if name else "-"
         self._endview_label.setText(f"Endview: {suffix}")
 
-    def set_primary_axis_name(self, name: str) -> None:
-        """Display the primary coordinate axis label."""
-        if self._primary_axis_label is None:
+    def set_primary_view_name(self, name: str) -> None:
+        """Display the primary endview name."""
+        if self._primary_view_label is None:
             return
-        self._primary_axis_label.setText(str(name).strip() if name else "B-Scan")
+        self._primary_view_label.setText(str(name).strip() if name else "D-Scan")
 
-    def set_secondary_axis_name(self, name: str) -> None:
-        """Display the secondary coordinate axis label."""
-        if self._secondary_axis_label is None:
+    def set_secondary_view_name(self, name: str) -> None:
+        """Display the secondary endview name."""
+        if self._secondary_view_label is None:
             return
-        self._secondary_axis_label.setText(str(name).strip() if name else "D-Scan")
+        self._secondary_view_label.setText(str(name).strip() if name else "B-Scan")
 
     def set_nde_opacity_available(self, available: bool) -> None:
         enabled = bool(available)

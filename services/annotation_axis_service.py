@@ -14,10 +14,10 @@ from models.overlay_data import OverlayData
 
 @dataclass(frozen=True)
 class CoordinateDockTitles:
-    """Computed titles and axis names for U/V coordinate docks."""
+    """Computed titles and view names for the primary/secondary coordinate docks."""
 
-    primary_axis_name: str
-    secondary_axis_name: str
+    primary_view_name: str
+    secondary_view_name: str
     primary_title: str
     secondary_title: str
 
@@ -49,10 +49,14 @@ class CScanRulerAxes:
 class AnnotationAxisService:
     """Encapsulate axis/orthogonal-view business logic away from controllers."""
 
-    _DISPLAY_AXIS_NAMES = {
+    _ENDVIEW_NAME_BY_HORIZONTAL_AXIS = {
         "UCoordinate": "B-Scan",
         "VCoordinate": "D-Scan",
-        "Ultrasound": "Profondeur",
+    }
+    _AXIS_LABELS = {
+        "UCoordinate": "Scan axis",
+        "VCoordinate": "Index axis",
+        "Ultrasound": "Ultrasound axis",
     }
 
     @staticmethod
@@ -124,18 +128,22 @@ class AnnotationAxisService:
         *,
         axis_mode: str,
     ) -> CoordinateDockTitles:
-        """Build display titles for coordinate docks from model metadata."""
+        """Build display titles and view names for coordinate docks from model metadata."""
         axis_order = []
         if model is not None:
             axis_order = list(model.metadata.get("axis_order") or [])
-        primary_axis = str(axis_order[0]) if len(axis_order) >= 1 else "UCoordinate"
-        secondary_axis = str(axis_order[2]) if len(axis_order) >= 3 else "VCoordinate"
-        primary = AnnotationAxisService.display_axis_name(primary_axis)
-        secondary = AnnotationAxisService.display_axis_name(secondary_axis)
+        primary_horizontal_axis = str(axis_order[2]) if len(axis_order) >= 3 else "VCoordinate"
+        secondary_horizontal_axis = str(axis_order[0]) if len(axis_order) >= 1 else "UCoordinate"
+        primary = AnnotationAxisService.display_endview_name_for_horizontal_axis(
+            primary_horizontal_axis
+        )
+        secondary = AnnotationAxisService.display_endview_name_for_horizontal_axis(
+            secondary_horizontal_axis
+        )
         auto_suffix = " [Auto]" if str(axis_mode) == "Auto" else ""
         return CoordinateDockTitles(
-            primary_axis_name=primary,
-            secondary_axis_name=secondary,
+            primary_view_name=primary,
+            secondary_view_name=secondary,
             primary_title=f"{primary} (annotation){auto_suffix}",
             secondary_title=f"{secondary} (read-only)",
         )
@@ -153,13 +161,13 @@ class AnnotationAxisService:
 
         return EndviewRulerAxes(
             primary_horizontal_axis_key=horizontal_depth_axis,
-            primary_horizontal_axis_name=cls.display_axis_name(horizontal_depth_axis),
+            primary_horizontal_axis_name=cls.display_axis_label(horizontal_depth_axis),
             primary_vertical_axis_key=vertical_axis,
-            primary_vertical_axis_name=cls.display_axis_name(vertical_axis),
+            primary_vertical_axis_name=cls.display_axis_label(vertical_axis),
             secondary_horizontal_axis_key=primary_slice_axis,
-            secondary_horizontal_axis_name=cls.display_axis_name(primary_slice_axis),
+            secondary_horizontal_axis_name=cls.display_axis_label(primary_slice_axis),
             secondary_vertical_axis_key=vertical_axis,
-            secondary_vertical_axis_name=cls.display_axis_name(vertical_axis),
+            secondary_vertical_axis_name=cls.display_axis_label(vertical_axis),
         )
 
     @classmethod
@@ -174,18 +182,26 @@ class AnnotationAxisService:
 
         return CScanRulerAxes(
             horizontal_axis_key=horizontal_axis,
-            horizontal_axis_name=cls.display_axis_name(horizontal_axis),
+            horizontal_axis_name=cls.display_axis_label(horizontal_axis),
             vertical_axis_key=vertical_axis,
-            vertical_axis_name=cls.display_axis_name(vertical_axis),
+            vertical_axis_name=cls.display_axis_label(vertical_axis),
         )
 
     @classmethod
-    def display_axis_name(cls, axis_name: Optional[str]) -> str:
-        """Return the user-facing label for a logical annotation axis."""
+    def display_endview_name_for_horizontal_axis(cls, axis_name: Optional[str]) -> str:
+        """Return the endview name implied by the visible horizontal axis."""
+        name = str(axis_name or "").strip()
+        if not name:
+            return "Unknown view"
+        return cls._ENDVIEW_NAME_BY_HORIZONTAL_AXIS.get(name, name)
+
+    @classmethod
+    def display_axis_label(cls, axis_name: Optional[str]) -> str:
+        """Return the user-facing label for a logical axis in ruler widgets."""
         name = str(axis_name or "").strip()
         if not name:
             return "Unknown axis"
-        return cls._DISPLAY_AXIS_NAMES.get(name, name)
+        return cls._AXIS_LABELS.get(name, name)
 
     @staticmethod
     def build_secondary_volume(volume: Optional[np.ndarray]) -> Optional[np.ndarray]:

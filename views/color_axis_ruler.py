@@ -98,10 +98,9 @@ class ColorAxisRuler(QWidget):
     _SUBTEXT = QColor("#8c8c8c")
     _TICK = QColor("#a8a8a8")
     _AXIS_COLORS = {
-        "d-scan": QColor("#00bb00"),
-        "profondeur": QColor("#9b649b"),
-        "b-scan": QColor("#00b4b4"),
-        "amplitude": QColor("#cfff53"),
+        "index axis": QColor("#00bb00"),
+        "ultrasound axis": QColor("#9b649b"),
+        "scan axis": QColor("#00b4b4"),
         "amplitude (%)": QColor("#cfff53"),
     }
 

@@ -4248,3 +4248,20 @@ Le lot staged visait uniquement la presentation utilisateur: remplacer le franca
 1. Modifier d abord les sources `.ui`, puis regenerer les fichiers `ui_*.py`, afin d eviter les divergences entre Designer et les wrappers generes.
 2. Limiter la traduction aux chaines visibles a l ecran et conserver les marqueurs de compatibilite non affiches, notamment certains suffixes historiques de sessions corrosion, pour ne pas casser la reconnaissance de noms deja persistants.
 3. Garder les normalisations metier et les valeurs internes existantes (`gray`, modes corrosion, ids de labels, axes) en ne traduisant que les libelles exposes par la vue, afin de separer proprement presentation et logique.
+
+### 2026-05-08 - Nommage coherent des vues B-Scan D-Scan et des axes de regles
+**Tags :** `#branch:main`, `#controllers/dock_layout_controller.py`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#services/annotation_axis_service.py`, `#views/ascan_view.py`, `#views/color_axis_ruler.py`, `#views/tools_panel.py`, `#axes`, `#endview`, `#ruler`, `#overlay`, `#mvc`, `#ui`
+
+**Actions effectuees :**
+- Separe dans `AnnotationAxisService` le nom des vues (`B-Scan`/`D-Scan`) du nom des axes affiches sur les regles (`Scan axis`/`Index axis`/`Ultrasound axis`).
+- Corrige le nom des docks et endviews pour qu il soit derive de l axe horizontal visible de la vue 2D, avec `B-Scan = Ultrasound + Scan axis` et `D-Scan = Ultrasound + Index axis`, y compris dans les fallbacks sans NDE charge.
+- Ajuste `MasterController` pour que le dialogue d ouverture NDE presente la vue annotable (`B-Scan` ou `D-Scan`) tout en continuant a piloter l axe interne `UCoordinate`/`VCoordinate`.
+- Aligne `AScanView` sur `Ultrasound axis` et retire de `ColorAxisRuler` les alias legacy devenus inutiles (`b-scan`, `d-scan`, `profondeur`, `amplitude`).
+
+**Contexte :**
+Le renommage precedent des vues et des regles melangeait deux notions differentes : une vue 2D nommee `B-Scan`/`D-Scan` et un axe logique `UCoordinate`/`VCoordinate`/`Ultrasound`. Ce couplage a introduit une inversion des noms de docks/endviews et une ambiguite dans le choix de la vue annotable a l ouverture du NDE, alors que le format NPZ standard persistait deja correctement les orientations internes `ucoord` et `vcoord`.
+
+**Decisions techniques :**
+1. Deriver le nom d une endview a partir de son axe horizontal visible, plutot qu a partir de l axe de slice primaire, afin de respecter la definition metier des vues `B-Scan` et `D-Scan`.
+2. Garder le mapping `vue annotable -> axis_mode` local a `MasterController`, car il sert uniquement au dialogue d ouverture et n a pas a complexifier `AnnotationAxisService`.
+3. Conserver le stockage NPZ applicatif sur `mask_ucoord` et `mask_vcoord`, sans lier la persistance aux noms UI `B-Scan`/`D-Scan`, pour preserver un format stable base sur les axes internes.

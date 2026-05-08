@@ -90,7 +90,8 @@ class EndviewController:
         if self.secondary_corrosion_view is not None:
             self.secondary_corrosion_view.set_navigation_bounds(int(minimum), int(maximum))
 
-    def set_axis_names(self, *, primary: str, secondary: str) -> None:
+    def set_navigation_view_names(self, *, primary: str, secondary: str) -> None:
+        """Push primary/secondary view names into the local endview navigation rows."""
         self.standard_view.set_navigation_axis_name(primary)
         if self.corrosion_view is not None:
             self.corrosion_view.set_navigation_axis_name(primary)
