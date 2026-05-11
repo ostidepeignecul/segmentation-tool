@@ -113,6 +113,7 @@ class ColorAxisRuler(QWidget):
         self._content_min: float = 0.0
         self._content_max: float = 0.0
         self._has_range: bool = False
+        self._axis_inverted: bool = False
 
         if self._orientation == Qt.Orientation.Horizontal:
             self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -151,6 +152,14 @@ class ColorAxisRuler(QWidget):
         if not self._has_range:
             return
         self._has_range = False
+        self.update()
+
+    def set_axis_inverted(self, inverted: bool) -> None:
+        """Reverse the value progression along the ruler while keeping tick values intact."""
+        normalized = bool(inverted)
+        if normalized == self._axis_inverted:
+            return
+        self._axis_inverted = normalized
         self.update()
 
     def set_view_range(
@@ -314,6 +323,7 @@ class ColorAxisRuler(QWidget):
                 length=length,
                 visible_min=visible_min,
                 visible_max=visible_max,
+                axis_inverted=self._axis_inverted,
             )
             if position is None:
                 continue
@@ -336,11 +346,14 @@ class ColorAxisRuler(QWidget):
         length: int,
         visible_min: float,
         visible_max: float,
+        axis_inverted: bool,
     ) -> int | None:
         visible_span = visible_max - visible_min
         if visible_span <= 1e-6 or length <= 0:
             return None
         ratio = (value - visible_min) / visible_span
+        if axis_inverted:
+            ratio = 1.0 - ratio
         position = int(round(ratio * float(length - 1)))
         if 0 <= position < length:
             return position

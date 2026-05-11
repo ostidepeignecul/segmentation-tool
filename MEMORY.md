@@ -1,4 +1,4 @@
-### 2025-11-26 - Align model/controller skeleton imports
+﻿### 2025-11-26 - Align model/controller skeleton imports
 
 **Tags :** `#models/nde_model.py`, `#models/__init__.py`, `#controllers/master_controller.py`, `#mvc`
 
@@ -4265,3 +4265,21 @@ Le renommage precedent des vues et des regles melangeait deux notions differente
 1. Deriver le nom d une endview a partir de son axe horizontal visible, plutot qu a partir de l axe de slice primaire, afin de respecter la definition metier des vues `B-Scan` et `D-Scan`.
 2. Garder le mapping `vue annotable -> axis_mode` local a `MasterController`, car il sert uniquement au dialogue d ouverture et n a pas a complexifier `AnnotationAxisService`.
 3. Conserver le stockage NPZ applicatif sur `mask_ucoord` et `mask_vcoord`, sans lier la persistance aux noms UI `B-Scan`/`D-Scan`, pour preserver un format stable base sur les axes internes.
+
+
+### 2026-05-11 - Inversion de l'axe amplitude dans ColorAxisRuler (AScanView)
+**Tags :** `#branch:main`, `#color_axis_ruler.py`, `#ascan_view.py`, `#axe-inversion`, `#ruler`
+
+**Actions effectuées :**
+- Ajout de `_axis_inverted: bool = False` comme état interne dans `ColorAxisRuler.__init__`.
+- Ajout de la méthode publique `set_axis_inverted(inverted: bool)` avec guard d'idempotence et appel `update()`.
+- Passage du paramètre `axis_inverted` à `_position_for_value` depuis `_iter_ticks`, afin de garder la méthode pure et testable.
+- Inversion du ratio dans `_position_for_value` via `ratio = 1.0 - ratio` lorsque `axis_inverted=True`.
+- Activation dans `AScanView.__init__` : `self._vertical_ruler.set_axis_inverted(True)` pour inverser uniquement l'axe amplitude.
+
+**Contexte :**
+L'axe vertical de l'A-Scan représente l'amplitude. Visuellement, le 100 % doit apparaître en haut et le 0 % en bas, ce qui est l'opposé du sens naturel pixel (0 = haut). Seule la vue `AScanView` active cette inversion ; les vues `CScanView` et `EndviewView` ne sont pas affectées (`_axis_inverted` reste `False` par défaut).
+
+**Décisions techniques :**
+1. Passer `axis_inverted` en paramètre explicite à `_position_for_value` plutôt que de lire `self._axis_inverted` directement, pour isoler la logique de calcul de position de l'état de l'objet (testabilité, clarté).
+2. Conserver `_axis_inverted` comme état de l'instance plutôt qu'un paramètre de `set_view_range`, car l'inversion est une propriété de la vue et non de la plage de données.

@@ -57,6 +57,7 @@ class AScanView(QFrame):
 
         self._horizontal_ruler = ColorAxisRuler(Qt.Orientation.Horizontal, self)
         self._vertical_ruler = ColorAxisRuler(Qt.Orientation.Vertical, self)
+        self._vertical_ruler.set_axis_inverted(True)
         self._horizontal_axis_title = AxisTitleLabel(Qt.Orientation.Horizontal, self)
         self._vertical_axis_title = AxisTitleLabel(Qt.Orientation.Vertical, self)
         self._ruler_title_corner = QWidget(self)
