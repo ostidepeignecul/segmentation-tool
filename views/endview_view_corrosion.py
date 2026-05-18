@@ -9,7 +9,7 @@ from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QMouseEvent, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem
 
-from models.overlay_data import OverlayData
+from models.overlay_data import OverlayData, OverlayStackData
 from views.endview_view import EndviewView
 
 
@@ -49,45 +49,61 @@ class EndviewViewCorrosion(EndviewView):
             self._clear_cosmetic_lines()
             self.clear_anchor_points()
 
+    def set_overlay_stack(self, overlay_stack: Optional[OverlayStackData]) -> None:
+        super().set_overlay_stack(overlay_stack)
+        if overlay_stack is None or not overlay_stack.layers:
+            self._clear_cosmetic_lines()
+            self.clear_anchor_points()
+
     def set_overlay_opacity(self, opacity: float) -> None:
         super().set_overlay_opacity(opacity)
-        if self._mask_volume is not None and self._volume is not None:
+        if self._overlay_stack is not None and self._volume is not None:
             self._refresh_overlay_pixmap()
 
     def _refresh_overlay_pixmap(self) -> None:
         """Build cosmetic line items instead of a scaled RGBA pixmap."""
         self._overlay_item.setPixmap(QPixmap())
         self._clear_cosmetic_lines()
-        if self._mask_volume is None or self._volume is None:
+        if self._overlay_stack is None or not self._overlay_stack.layers or self._volume is None:
             return
-        depth = int(self._mask_volume.shape[0]) if self._mask_volume.ndim == 3 else 0
-        if depth <= 0 or self._current_slice < 0 or self._current_slice >= depth:
-            return
-
-        slice_mask = np.asarray(self._mask_volume[self._current_slice], dtype=np.int32)
-        if slice_mask.ndim != 2:
-            return
-        height, width = slice_mask.shape
-        labels_to_draw = (
-            set(self._visible_labels)
-            if self._visible_labels is not None
-            else {int(lbl) for lbl in np.unique(slice_mask) if int(lbl) > 0}
-        )
-
-        for label in sorted(labels_to_draw):
-            if label <= 0:
+        for layer_index, layer in enumerate(self._overlay_stack.layers):
+            overlay = layer.overlay
+            if overlay is None or overlay.mask_volume is None:
                 continue
-            paths = self._paths_for_label(slice_mask, label=label, width=width, height=height)
-            if not paths:
+            if overlay.mask_volume.ndim != 3:
+                continue
+            depth = int(overlay.mask_volume.shape[0])
+            if depth <= 0 or self._current_slice < 0 or self._current_slice >= depth:
                 continue
 
-            pen = self._pen_for_label(label)
-            for path in paths:
-                item = QGraphicsPathItem(path)
-                item.setPen(pen)
-                item.setZValue(6)
-                self._scene.addItem(item)
-                self._cosmetic_line_items.append(item)
+            slice_mask = np.asarray(overlay.mask_volume[self._current_slice], dtype=np.int32)
+            if slice_mask.ndim != 2:
+                continue
+            height, width = slice_mask.shape
+            labels_to_draw = (
+                set(int(label_id) for label_id in layer.visible_labels)
+                if layer.visible_labels is not None
+                else {int(lbl) for lbl in np.unique(slice_mask) if int(lbl) > 0}
+            )
+
+            for label in sorted(labels_to_draw):
+                if label <= 0:
+                    continue
+                paths = self._paths_for_label(slice_mask, label=label, width=width, height=height)
+                if not paths:
+                    continue
+
+                pen = self._pen_for_label(
+                    label,
+                    palette=overlay.palette,
+                    layer_opacity=float(layer.opacity),
+                )
+                for path in paths:
+                    item = QGraphicsPathItem(path)
+                    item.setPen(pen)
+                    item.setZValue(6.0 + (layer_index * 0.01))
+                    self._scene.addItem(item)
+                    self._cosmetic_line_items.append(item)
 
     def _clear_cosmetic_lines(self) -> None:
         for item in self._cosmetic_line_items:
@@ -152,9 +168,23 @@ class EndviewViewCorrosion(EndviewView):
                     return True
         return super().eventFilter(obj, event)
 
-    def _pen_for_label(self, label: int) -> QPen:
-        b, g, r, a = self._overlay_palette.get(int(label), (255, 0, 255, 200))
-        alpha = int(max(0, min(255, round(float(a) * float(self._overlay_opacity)))))
+    def _pen_for_label(
+        self,
+        label: int,
+        *,
+        palette: dict[int, tuple[int, int, int, int]],
+        layer_opacity: float,
+    ) -> QPen:
+        b, g, r, a = palette.get(int(label), (255, 0, 255, 200))
+        alpha = int(
+            max(
+                0,
+                min(
+                    255,
+                    round(float(a) * float(layer_opacity) * float(self._overlay_opacity)),
+                ),
+            )
+        )
         color = QColor(int(r), int(g), int(b), alpha)
         pen = QPen(color)
         pen.setWidth(self._COSMETIC_LINE_WIDTH)

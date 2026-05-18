@@ -4340,3 +4340,23 @@ La phase B permettait deja de composer plusieurs layers visibles mais sans UI de
 1. Garder deux points d entree UI pour les layers, `OverlaySettingsView` et `ToolsPanel`, en reutilisant les memes handlers de `MasterController`, afin de rester coherent avec le traitement deja duplique pour les labels.
 2. Resynchroniser le layer actif depuis le modele live avant les operations de stack et apres les imports d overlay, plutot que de supposer que le pointeur `mask_volume` du layer actif reste valide apres chaque `set_mask_volume()`.
 3. Conserver pour cette phase un rendu compose legacy en overlay unique, et limiter la phase C a l orchestration UI/runtime sans encore pousser un vrai `OverlayStackData` dans les vues 2D/3D.
+
+### 2026-05-18 - Phase D du systeme de layers dans les sessions
+**Tags :** `#branch:feature/layer-system-v2`, `#annotation_controller.py`, `#overlay_data.py`, `#annotation_axis_service.py`, `#annotation_session_manager.py`, `#endview_view.py`, `#endview_view_corrosion.py`, `#volume_view.py`, `#overlay-stack`, `#rendering`, `#2d`, `#3d`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute `OverlayLayerData` et `OverlayStackData` dans `models/overlay_data.py` tout en conservant `OverlayData` comme payload legacy mono-layer.
+- Etend `services/annotation_session_manager.py` avec `build_active_overlay_stack()` et `_build_overlay_data_for_layer()` pour exposer les layers visibles de la session active comme un vrai payload de rendu ordonne.
+- Ajoute `build_secondary_overlay_stack_data()` dans `services/annotation_axis_service.py` afin de transposer le stack layer par layer pour les vues orthogonales.
+- Refactor `controllers/annotation_controller.py` pour construire le stack de rendu a partir du layer actif live, pousser `set_overlay_stack(...)` aux vues 2D/3D, et supprimer le chemin mort de rendu mono-overlay.
+- Met a jour `views/endview_view.py` et `views/endview_view_corrosion.py` pour composer les slices RGBA par alpha-blending couche par couche, avec conservation du wrapper legacy `set_overlay(...)`.
+- Refond `views/volume_view.py` pour accepter un `OverlayStackData`, composer la slice 2D depuis le stack et creer un visual VisPy distinct par layer visible avec couleur/opacite propres.
+- Verifie la phase D par compilation Python et par deux tests runtime cibles : `overlay-stack-runtime-ok` et `volume-layer-opacity-ok`.
+
+**Contexte :**
+La phase C exposait deja les layers dans l UI, mais le rendu etait encore aplati en un overlay unique avant d arriver dans les vues. La phase D devait terminer le changement d architecture en poussant le stack complet dans les vues 2D/3D, afin de se rapprocher d un comportement de vrai logiciel de dessin avec ordre de pile et opacite par layer.
+
+**Decisions techniques :**
+1. Conserver `OverlayData` comme payload de rendu unitaire et encapsuler le vrai rendu multi-layer dans `OverlayStackData`, afin de garder une compatibilite transitoire avec les appels legacy `set_overlay(...)` et les services qui construisent encore un overlay simple.
+2. Transposer les overlays secondaires layer par layer dans `AnnotationAxisService`, plutot que de recomposer puis transposer un masque aplati, afin de preserver l ordre, la visibilite et l opacite propres a chaque layer.
+3. Rendre la 3D avec un visual VisPy par layer visible dans `VolumeView`, plutot qu en synthese dans un seul volume etiquete, afin d obtenir des couleurs et opacites reelles par layer sans bricoler des `label_id` artificiels.

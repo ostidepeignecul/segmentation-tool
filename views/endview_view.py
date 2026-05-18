@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from models.overlay_data import OverlayData
+from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
 from services.ruler_display_service import RulerDisplayService
 from views.color_axis_ruler import AxisTitleLabel, ColorAxisRuler
 
@@ -52,6 +52,7 @@ class EndviewView(QFrame):
         super().__init__(parent)
         self._volume: Optional[np.ndarray] = None
         self._current_slice: int = 0
+        self._overlay_stack: Optional[OverlayStackData] = None
         self._mask_volume: Optional[np.ndarray] = None  # New single mask volume
         self._overlay_palette: Dict[int, Tuple[int, int, int, int]] = {}
         self._visible_labels: Optional[set[int]] = None
@@ -231,15 +232,46 @@ class EndviewView(QFrame):
     ) -> None:
         """Set an overlay using full mask volume and palette (LUT)."""
         if overlay is None:
+            self.set_overlay_stack(None)
+            return
+        self.set_overlay_stack(
+            OverlayStackData(
+                layers=(
+                    OverlayLayerData(
+                        layer_id="legacy-overlay",
+                        name="Overlay",
+                        overlay=overlay,
+                        visible_labels=(
+                            frozenset(int(label_id) for label_id in visible_labels)
+                            if visible_labels is not None
+                            else None
+                        ),
+                        opacity=1.0,
+                    ),
+                ),
+                active_layer_id="legacy-overlay",
+            )
+        )
+
+    def set_overlay_stack(self, overlay_stack: Optional[OverlayStackData]) -> None:
+        """Set an ordered overlay stack and redraw the current slice."""
+        self._overlay_stack = overlay_stack
+        if overlay_stack is None or not overlay_stack.layers:
             self._mask_volume = None
             self._overlay_palette = {}
             self._visible_labels = None
             self._overlay_item.setPixmap(QPixmap())
             return
-        
-        self._mask_volume = overlay.mask_volume
-        self._overlay_palette = dict(overlay.palette)
-        self._visible_labels = set(visible_labels) if visible_labels is not None else None
+
+        primary_layer = overlay_stack.layers[-1]
+        primary_overlay = primary_layer.overlay
+        self._mask_volume = primary_overlay.mask_volume if primary_overlay is not None else None
+        self._overlay_palette = dict(primary_overlay.palette) if primary_overlay is not None else {}
+        self._visible_labels = (
+            set(primary_layer.visible_labels)
+            if primary_layer.visible_labels is not None
+            else None
+        )
         self._refresh_overlay_pixmap()
 
     def set_overlay_opacity(self, opacity: float) -> None:
@@ -487,10 +519,10 @@ class EndviewView(QFrame):
         self._refresh_rulers()
 
     def _refresh_overlay_pixmap(self) -> None:
-        if self._mask_volume is None or self._volume is None:
+        if self._overlay_stack is None or not self._overlay_stack.layers or self._volume is None:
             self._overlay_item.setPixmap(QPixmap())
             return
-        overlay_slice = self._compose_slice_rgba(self._current_slice)
+        overlay_slice = self._compose_stack_slice_rgba(self._current_slice)
         overlay_pixmap = self._mask_to_pixmap(overlay_slice)
         self._pixmaps.overlay = overlay_pixmap
         self._overlay_item.setPixmap(overlay_pixmap)
@@ -660,6 +692,85 @@ class EndviewView(QFrame):
         # Apply LUT -> (H, W, 4)
         rgba = lut[np.asarray(slice_indices, dtype=np.uint8)]
         return rgba
+
+    def _compose_stack_slice_rgba(self, index: int) -> np.ndarray:
+        """Compose one RGBA slice by alpha-blending the overlay stack layer by layer."""
+        if self._overlay_stack is None or not self._overlay_stack.layers:
+            return np.zeros((0, 0, 4), dtype=np.uint8)
+
+        height, width = self._volume.shape[1:3] if self._volume is not None else (0, 0)
+        if height <= 0 or width <= 0 or index < 0:
+            return np.zeros((0, 0, 4), dtype=np.uint8)
+
+        composite = np.zeros((height, width, 4), dtype=np.float32)
+        for layer in self._overlay_stack.layers:
+            layer_rgba = self._compose_overlay_layer_slice_rgba(layer, index, height, width)
+            if layer_rgba is None:
+                continue
+            self._alpha_blend_rgba_inplace(composite, layer_rgba)
+
+        return np.clip(np.rint(composite * 255.0), 0.0, 255.0).astype(np.uint8)
+
+    def _compose_overlay_layer_slice_rgba(
+        self,
+        layer: OverlayLayerData,
+        index: int,
+        height: int,
+        width: int,
+    ) -> Optional[np.ndarray]:
+        overlay = layer.overlay
+        if overlay is None or overlay.mask_volume is None:
+            return None
+        try:
+            depth = int(overlay.mask_volume.shape[0])
+        except Exception:
+            return None
+        if index < 0 or index >= depth:
+            return None
+
+        try:
+            slice_indices = np.asarray(overlay.mask_volume[index], dtype=np.uint8)
+        except IndexError:
+            return None
+        if slice_indices.shape != (height, width):
+            return None
+
+        if self._overlay_outline_only:
+            slice_indices = self._build_outline_only_slice(slice_indices)
+
+        lut = np.zeros((256, 4), dtype=np.uint8)
+        labels_to_draw = (
+            set(int(label_id) for label_id in layer.visible_labels)
+            if layer.visible_labels is not None
+            else overlay.palette.keys()
+        )
+        alpha_scale = max(0.0, min(1.0, float(layer.opacity)))
+        for label in labels_to_draw:
+            label_int = int(label)
+            if not (0 < label_int < 256):
+                continue
+            color = overlay.palette.get(label_int)
+            if color is None:
+                continue
+            b, g, r, a = color
+            lut[label_int] = [
+                int(r),
+                int(g),
+                int(b),
+                int(max(0, min(255, round(float(a) * alpha_scale)))),
+            ]
+        return lut[slice_indices]
+
+    @staticmethod
+    def _alpha_blend_rgba_inplace(base_rgba: np.ndarray, layer_rgba: np.ndarray) -> None:
+        """Alpha-blend one uint8 RGBA layer over a float32 RGBA accumulator."""
+        src = np.asarray(layer_rgba, dtype=np.float32) / 255.0
+        src_alpha = src[..., 3:4]
+        if not np.any(src_alpha > 0.0):
+            return
+        dst_alpha = base_rgba[..., 3:4]
+        base_rgba[..., :3] = src[..., :3] * src_alpha + base_rgba[..., :3] * (1.0 - src_alpha)
+        base_rgba[..., 3:4] = src_alpha + dst_alpha * (1.0 - src_alpha)
 
     # ------------------------------------------------------------------ #
     # Utility

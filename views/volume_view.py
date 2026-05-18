@@ -27,7 +27,7 @@ from vispy.color import BaseColormap, Colormap
 from vispy.util import keys
 from vispy.visuals.transforms import STTransform
 
-from models.overlay_data import OverlayData
+from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
 
 
 class _TranslucentMask(BaseColormap):
@@ -183,6 +183,7 @@ class VolumeView(QFrame):
         self._base_colormap: Optional[BaseColormap | str] = "gray"
         # Store the axis order used to orient the current volume
         self._axis_order: Optional[Sequence[str]] = None
+        self._overlay_stack: Optional[OverlayStackData] = None
         self._overlay_mask: Optional[np.ndarray] = None
         self._overlay_alpha_volume: Optional[np.ndarray] = None
         self._mask_volume: Optional[np.ndarray] = None # Single uint8 mask
@@ -191,8 +192,8 @@ class VolumeView(QFrame):
         self._overlay_opacity: float = 1.0
         self._nde_opacity: float = 1.0
         self._nde_contrast: float = 1.0
-        self._label_visuals: Dict[int, scene.visuals.Volume] = {}
-        self._uploaded_volumes: Dict[int, np.ndarray] = {}
+        self._layer_visuals: Dict[str, scene.visuals.Volume] = {}
+        self._uploaded_volumes: Dict[str, np.ndarray] = {}
         self._visible_labels: Optional[set[int]] = None
         # Debounce overlay volume uploads to avoid GPU spam on rapid toggles
         self._overlay_timer = QTimer(self)
@@ -399,49 +400,74 @@ class VolumeView(QFrame):
         changed_slice: Optional[int] = None,
         changed_labels: Optional[set[int]] = None,
     ) -> None:
-        """Assign overlay mask and update visuals."""
+        """Backward-compatible wrapper for a single overlay layer."""
         if overlay is None:
-            self._clear_overlay_visuals()
+            self.set_overlay_stack(None)
             return
-
-        self._visible_labels = set(visible_labels) if visible_labels is not None else None
-        self._overlay_palette = dict(overlay.palette)
-        
-        # Check consistency
-        if overlay.mask_volume is None:
-            self._clear_overlay_visuals()
-            return
-            
-        if self._volume is not None:
-             if overlay.mask_volume.shape != self._volume.shape:
-                 # If shapes mismatch, ignore overlay
-                 self._clear_overlay_visuals()
-                 return
-
-        new_mask = overlay.mask_volume
-        mask_changed = (
-            self._mask_volume is None 
-            or not np.shares_memory(new_mask, self._mask_volume)
+        self.set_overlay_stack(
+            OverlayStackData(
+                layers=(
+                    OverlayLayerData(
+                        layer_id="legacy-overlay",
+                        name="Overlay",
+                        overlay=overlay,
+                        visible_labels=(
+                            frozenset(int(label_id) for label_id in visible_labels)
+                            if visible_labels is not None
+                            else None
+                        ),
+                        opacity=1.0,
+                    ),
+                ),
+                active_layer_id="legacy-overlay",
+            ),
+            defer_3d=defer_3d,
+            changed_slice=changed_slice,
+            changed_labels=changed_labels,
         )
-        self._mask_volume = new_mask
 
-        # If only visibility/palette changed, we just update the colormap.
-        # If mask data changed (new object), we need to set_data on visual.
-        
+    def set_overlay_stack(
+        self,
+        overlay_stack: Optional[OverlayStackData],
+        *,
+        defer_3d: bool = False,
+        changed_slice: Optional[int] = None,
+        changed_labels: Optional[set[int]] = None,
+    ) -> None:
+        """Assign an overlay stack and update 2D/3D visuals layer by layer."""
+        self._overlay_stack = overlay_stack
+        if overlay_stack is None or not overlay_stack.layers:
+            self._clear_overlay_visuals()
+            return
+
+        primary_layer = overlay_stack.layers[-1]
+        primary_overlay = primary_layer.overlay
+        self._visible_labels = (
+            set(primary_layer.visible_labels)
+            if primary_layer.visible_labels is not None
+            else None
+        )
+        self._overlay_palette = dict(primary_overlay.palette) if primary_overlay is not None else {}
+        self._mask_volume = primary_overlay.mask_volume if primary_overlay is not None else None
+
+        if self._volume is not None:
+            for layer in overlay_stack.layers:
+                overlay = layer.overlay
+                if overlay is None or overlay.mask_volume is None:
+                    continue
+                if overlay.mask_volume.shape != self._volume.shape:
+                    self._overlay_stack = None
+                    self._clear_overlay_visuals()
+                    return
+
         if defer_3d:
-            # For defer_3d (often used during painting), we update 2D visuals immediately
             if self._slice_overlay is None and self._view.scene is not None:
                 self._add_slice_overlay()
             self._update_overlay_image()
-            
-            # Defer 3D update
             self._schedule_overlay_volume_update(labels=changed_labels)
             return
 
-        # Immediate update
         self._apply_overlay_volume_now()
-        
-        # Update 2D stuff
         if self._slice_overlay is None and self._view.scene is not None:
             self._add_slice_overlay()
         self._update_overlay_image()
@@ -453,9 +479,11 @@ class VolumeView(QFrame):
         except (TypeError, ValueError):
             value = 1.0
         self._overlay_opacity = max(0.0, min(1.0, value))
-        if self._overlay_volume_visual is not None:
-            self._update_overlay_colormap()
-            self._overlay_volume_visual.cmap = self._overlay_colormap
+        if self._overlay_stack is not None:
+            for layer in self._iter_renderable_overlay_layers():
+                visual = self._layer_visuals.get(layer.layer_id)
+                if visual is not None:
+                    visual.cmap = self._build_layer_colormap(layer)
         self._update_overlay_image()
 
     def _clear_overlay_visuals(self) -> None:
@@ -463,16 +491,24 @@ class VolumeView(QFrame):
         self._overlay_timer.stop()
         self._mask_volume = None
         self._overlay_palette = {}
-        
-        # Clear the single volume visual
+        self._visible_labels = None
+        self._overlay_colormap = None
+        self._overlay_mask = None
+        self._overlay_alpha_volume = None
+
         if self._overlay_volume_visual is not None:
             self._overlay_volume_visual.parent = None
             self._overlay_volume_visual = None
-            
+
+        for visual in self._layer_visuals.values():
+            visual.parent = None
+        self._layer_visuals.clear()
+        self._uploaded_volumes.clear()
+
         if self._slice_overlay is not None:
             self._slice_overlay.parent = None
             self._slice_overlay = None
-            
+
         self._pending_overlay_apply = False
         self._pending_overlay_labels = None
 
@@ -492,71 +528,92 @@ class VolumeView(QFrame):
         self._apply_overlay_volume_now(labels_to_push=pending_labels)
 
     def _apply_overlay_volume_now(self, *, labels_to_push: Optional[set[int]] = None) -> None:
-        # labels_to_push is ignored now; we update the whole colormap or volume.
-        
-        if self._mask_volume is None:
+        # labels_to_push is ignored for now; the stack is uploaded layer by layer.
+        _ = labels_to_push
+
+        renderable_layers = self._iter_renderable_overlay_layers()
+        if not renderable_layers:
             if self._overlay_volume_visual is not None:
                 self._overlay_volume_visual.parent = None
                 self._overlay_volume_visual = None
+            for visual in self._layer_visuals.values():
+                visual.parent = None
+            self._layer_visuals.clear()
+            self._uploaded_volumes.clear()
             return
 
         if self._view.scene is None:
             return
 
-        # 1. Update Colormap (Lightweight)
-        self._update_overlay_colormap()
+        stale_layer_ids = set(self._layer_visuals.keys()) - {
+            layer.layer_id for layer in renderable_layers
+        }
+        for layer_id in stale_layer_ids:
+            visual = self._layer_visuals.pop(layer_id, None)
+            if visual is not None:
+                visual.parent = None
+            self._uploaded_volumes.pop(layer_id, None)
 
-        if self._overlay_volume_visual is None:
-            # Create fresh
-            # We use uint8 directly to save memory (float32 is too heavy).
-            # VisPy handles uint8 by interpreting them as 0..255 if we set clim=(0, 255).
-            self._overlay_volume_visual = scene.visuals.Volume(
-                self._mask_volume,
-                parent=self._view.scene,
-                method="translucent", # or 'iso'
-                cmap=self._overlay_colormap,
-                clim=(0, 255),
-                interpolation="nearest", # CRITICAL: No interpolation between labels
-            )
-            self._overlay_volume_visual.order = 10  # Ensure it draws AFTER the base volume
-            self._overlay_volume_visual.set_gl_state(depth_test=True, blend=True)
-            # Apply transform
-            self._apply_visual_transform()
-        else:
-            # Update data if needed (if pointer changed)
-            self._overlay_volume_visual.set_data(self._mask_volume)
-            self._overlay_volume_visual.cmap = self._overlay_colormap
+        self._overlay_volume_visual = None
+        active_layer_id = (
+            self._overlay_stack.active_layer_id if self._overlay_stack is not None else None
+        )
+        for order, layer in enumerate(renderable_layers, start=10):
+            overlay = layer.overlay
+            if overlay is None or overlay.mask_volume is None:
+                continue
+            visual = self._layer_visuals.get(layer.layer_id)
+            cmap = self._build_layer_colormap(layer)
+            if visual is None:
+                visual = scene.visuals.Volume(
+                    np.asarray(overlay.mask_volume, dtype=np.uint8),
+                    parent=self._view.scene,
+                    method="translucent",
+                    cmap=cmap,
+                    clim=(0, 255),
+                    interpolation="nearest",
+                )
+                visual.set_gl_state(depth_test=True, blend=True)
+                self._layer_visuals[layer.layer_id] = visual
+            else:
+                last_uploaded = self._uploaded_volumes.get(layer.layer_id)
+                if last_uploaded is not overlay.mask_volume or layer.layer_id == active_layer_id:
+                    visual.set_data(np.asarray(overlay.mask_volume, dtype=np.uint8))
+                visual.cmap = cmap
+            visual.order = order
+            visual.visible = True
+            self._uploaded_volumes[layer.layer_id] = overlay.mask_volume
 
-        # Ensure correct GL state
-        self._overlay_volume_visual.visible = True
+        self._apply_visual_transform()
 
-    def _update_overlay_colormap(self) -> None:
-        """Build a 256-entry colormap for the current palette/visibility."""
-        # 256 colors for uint8
+    def _build_layer_colormap(self, layer: OverlayLayerData) -> Colormap:
+        """Build a 256-entry colormap for one layer."""
         colors = np.zeros((256, 4), dtype=np.float32)
-        
+        overlay = layer.overlay
+        if overlay is None:
+            return Colormap(colors, controls=np.linspace(0, 1, 256))
+
         labels_to_draw = (
-            self._visible_labels if self._visible_labels is not None 
-            else self._overlay_palette.keys()
+            set(int(label_id) for label_id in layer.visible_labels)
+            if layer.visible_labels is not None
+            else overlay.palette.keys()
+        )
+        alpha_scale = max(
+            0.0,
+            min(1.0, float(layer.opacity) * float(self._overlay_opacity)),
         )
 
         for label in labels_to_draw:
-            if not (0 < label < 256):
-                 continue
-            c_bgra = self._overlay_palette.get(label)
+            label_int = int(label)
+            if not (0 < label_int < 256):
+                continue
+            c_bgra = overlay.palette.get(label_int)
             if c_bgra:
                 b, g, r, a = c_bgra
-                # Normalize 0..1
-                alpha = (a / 255.0) * self._overlay_opacity
-                colors[label] = [r/255.0, g/255.0, b/255.0, alpha]
+                alpha = (a / 255.0) * alpha_scale
+                colors[label_int] = [r / 255.0, g / 255.0, b / 255.0, alpha]
 
-        # Use 'from_array' directly? No, Colormap takes list of colors and controls.
-        # But for exact matching we want controls at 0, 1/255, etc.
-        # VisPy Colormap accepts 'colors' generic list.
-        # A simple way to ensure 1-to-1 mapping for uint8 is to provide all 256 colors
-        # and rely on linear interpolation between centroids which are same color?
-        # Or better: just pass the array.
-        self._overlay_colormap = Colormap(colors, controls=np.linspace(0, 1, 256))
+        return Colormap(colors, controls=np.linspace(0, 1, 256))
 
     @staticmethod
     def _label_colormap(color: Optional[Tuple[int, int, int, int]]) -> Colormap:
@@ -633,6 +690,8 @@ class VolumeView(QFrame):
         self._secondary_slice_line = None
         self._slice_overlay = None
         self._overlay_volume_visual = None
+        self._layer_visuals = {}
+        self._uploaded_volumes = {}
         # If no data, nothing to do
         if self._norm_volume is None:
             return
@@ -829,10 +888,10 @@ class VolumeView(QFrame):
 
     def _add_slice_overlay(self) -> None:
         """Add a colored overlay image for the current slice."""
-        if self._mask_volume is None or self._volume is None:
+        if self._overlay_stack is None or not self._overlay_stack.layers or self._volume is None:
             return
         slice_rgba = self._get_overlay_slice(self._current_slice)
-        if slice_rgba is None:
+        if slice_rgba is None or slice_rgba.size == 0:
             return
         self._slice_overlay = scene.visuals.Image(
             slice_rgba,
@@ -847,54 +906,114 @@ class VolumeView(QFrame):
 
     def _update_overlay_image(self) -> None:
         """Update overlay image data/transform for current slice."""
-        if self._slice_overlay is None or self._mask_volume is None:
+        if self._slice_overlay is None:
             return
         slice_rgba = self._get_overlay_slice(self._current_slice)
-        if slice_rgba is not None:
+        if slice_rgba is not None and slice_rgba.size > 0:
             self._slice_overlay.set_data(slice_rgba)
         self._slice_overlay.transform = self._overlay_transform()
         self._slice_overlay.set_gl_state(depth_test=False, blend=True)
 
     def _get_overlay_slice(self, index: int) -> Optional[np.ndarray]:
-        if self._mask_volume is None:
+        rgba = self._compose_stack_slice_rgba(index)
+        if rgba.size == 0:
             return None
+        return rgba
+
+    def _compose_stack_slice_rgba(self, index: int) -> np.ndarray:
+        """Compose one RGBA slice by alpha-blending the overlay stack layer by layer."""
+        if self._overlay_stack is None or not self._overlay_stack.layers:
+            return np.zeros((0, 0, 4), dtype=np.uint8)
         if self._volume is None:
-            return None
-        depth = self._volume.shape[0]
+            return np.zeros((0, 0, 4), dtype=np.uint8)
+        depth, height, width = self._volume.shape[:3]
         if index < 0 or index >= depth:
+            return np.zeros((0, 0, 4), dtype=np.uint8)
+
+        composite = np.zeros((height, width, 4), dtype=np.float32)
+        for layer in self._iter_renderable_overlay_layers():
+            layer_rgba = self._compose_overlay_layer_slice_rgba(
+                layer,
+                index=index,
+                height=height,
+                width=width,
+            )
+            if layer_rgba is None:
+                continue
+            self._alpha_blend_rgba_inplace(composite, layer_rgba)
+        return np.clip(np.rint(composite * 255.0), 0.0, 255.0).astype(np.uint8)
+
+    def _compose_overlay_layer_slice_rgba(
+        self,
+        layer: OverlayLayerData,
+        *,
+        index: int,
+        height: int,
+        width: int,
+    ) -> Optional[np.ndarray]:
+        overlay = layer.overlay
+        if overlay is None or overlay.mask_volume is None:
             return None
-        height = self._volume.shape[1]
-        width = self._volume.shape[2]
-
-        # 1. Extract slice from mask (H, W)
         try:
-             slice_indices = self._mask_volume[index]
-        except IndexError:
-             return None
+            slice_indices = np.asarray(overlay.mask_volume[index], dtype=np.uint8)
+        except Exception:
+            return None
+        if slice_indices.shape != (height, width):
+            return None
 
-        # 2. Build LUT (could be cached, but fast enough)
         lut = np.zeros((256, 4), dtype=np.uint8)
         labels_to_draw = (
-            self._visible_labels
-            if self._visible_labels is not None
-            else self._overlay_palette.keys()
+            set(int(label_id) for label_id in layer.visible_labels)
+            if layer.visible_labels is not None
+            else overlay.palette.keys()
+        )
+        alpha_scale = max(
+            0.0,
+            min(1.0, float(layer.opacity) * float(self._overlay_opacity)),
         )
         for label in labels_to_draw:
-            if not (0 < label < 256):
-                 continue
-            c = self._overlay_palette.get(label)
-            if c:
-                scaled_alpha = int(round(c[3] * self._overlay_opacity))
-                scaled_alpha = max(0, min(255, scaled_alpha))
-                lut[label] = [c[2], c[1], c[0], scaled_alpha] # BGRA -> RGBA?
-                # Palette is BGRA. VisPy Image might want RGBA or BGRA?
-                # Usually VisPy expects RGBA.
-                # EndviewView code used: r, g, b, a logic.
-                # My snippet above: c[2]=r, c[1]=g, c[0]=b. Correct.
+            label_int = int(label)
+            if not (0 < label_int < 256):
+                continue
+            color = overlay.palette.get(label_int)
+            if color is None:
+                continue
+            b, g, r, a = color
+            lut[label_int] = [
+                int(r),
+                int(g),
+                int(b),
+                int(max(0, min(255, round(float(a) * alpha_scale)))),
+            ]
+        return lut[slice_indices]
 
-        # 3. Apply LUT -> (H, W, 4)
-        rgba = lut[slice_indices]
-        return rgba
+    def _iter_renderable_overlay_layers(self) -> list[OverlayLayerData]:
+        """Return visible layers whose volumes match the active 3D volume."""
+        if self._overlay_stack is None or not self._overlay_stack.layers or self._volume is None:
+            return []
+        renderable_layers: list[OverlayLayerData] = []
+        expected_shape = self._volume.shape
+        for layer in self._overlay_stack.layers:
+            overlay = layer.overlay
+            if overlay is None or overlay.mask_volume is None:
+                continue
+            if tuple(overlay.mask_volume.shape) != tuple(expected_shape):
+                continue
+            if float(layer.opacity) <= 0.0:
+                continue
+            renderable_layers.append(layer)
+        return renderable_layers
+
+    @staticmethod
+    def _alpha_blend_rgba_inplace(base_rgba: np.ndarray, layer_rgba: np.ndarray) -> None:
+        """Alpha-blend one uint8 RGBA layer over a float32 RGBA accumulator."""
+        src = np.asarray(layer_rgba, dtype=np.float32) / 255.0
+        src_alpha = src[..., 3:4]
+        if not np.any(src_alpha > 0.0):
+            return
+        dst_alpha = base_rgba[..., 3:4]
+        base_rgba[..., :3] = src[..., :3] * src_alpha + base_rgba[..., :3] * (1.0 - src_alpha)
+        base_rgba[..., 3:4] = src_alpha + dst_alpha * (1.0 - src_alpha)
 
     def _add_overlay_volume(self) -> None:
         """Add the overlay as a translucent 3D volume."""
@@ -1132,9 +1251,10 @@ class VolumeView(QFrame):
         )
         if self._volume_visual is not None:
             self._volume_visual.transform = flip
-            
         if self._overlay_volume_visual is not None:
             self._overlay_volume_visual.transform = flip
+        for visual in self._layer_visuals.values():
+            visual.transform = flip
         if self._primary_slice_line is not None:
             self._primary_slice_line.transform = flip
         if self._secondary_slice_plane is not None:

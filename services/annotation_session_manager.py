@@ -9,7 +9,7 @@ import numpy as np
 
 from models.annotation_model import AnnotationModel
 from models.layer_stack_model import LayerStackModel, LayerState
-from models.overlay_data import OverlayData
+from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
 from models.roi_model import ROI, RoiModel
 from models.temp_mask_model import TempMaskModel
 from models.view_state_model import ViewStateModel
@@ -355,6 +355,38 @@ class AnnotationSessionManager:
             return None, {}, None, 0
         state = self._normalize_session_state(self._sessions[active_id])
         return self._compose_layer_stack(state.layer_stack)
+
+    def build_active_overlay_stack(self) -> Optional[OverlayStackData]:
+        """Build the visible active-session layers as a render stack payload."""
+        active_id = self._active_id
+        if active_id is None or active_id not in self._sessions:
+            return None
+        state = self._normalize_session_state(self._sessions[active_id])
+        stack_layers: list[OverlayLayerData] = []
+        for layer in state.layer_stack.list_visible_layers():
+            overlay = self._build_overlay_data_for_layer(layer)
+            if overlay is None:
+                continue
+            visible_labels = self._visible_label_ids_for_layer(layer)
+            stack_layers.append(
+                OverlayLayerData(
+                    layer_id=str(layer.id),
+                    name=str(layer.name),
+                    overlay=overlay,
+                    visible_labels=(
+                        frozenset(int(label_id) for label_id in visible_labels)
+                        if visible_labels is not None
+                        else None
+                    ),
+                    opacity=max(0.0, min(1.0, float(layer.opacity))),
+                )
+            )
+        if not stack_layers:
+            return None
+        return OverlayStackData(
+            layers=tuple(stack_layers),
+            active_layer_id=state.layer_stack.active_layer_id,
+        )
 
     def rename_session(self, session_id: str, name: str) -> None:
         """Update a session name without touching its contents."""
@@ -1031,6 +1063,22 @@ class AnnotationSessionManager:
             for label_id, is_visible in layer.label_visibility.items()
             if bool(is_visible)
         }
+
+    @staticmethod
+    def _build_overlay_data_for_layer(layer: LayerState) -> Optional[OverlayData]:
+        """Build one overlay payload from a layer state, reusing cached volumes when available."""
+        if layer.mask_volume is None:
+            return None
+        cached = layer.overlay_cache
+        label_volumes = cached.label_volumes if cached is not None else {}
+        return OverlayData(
+            mask_volume=np.asarray(layer.mask_volume, dtype=np.uint8),
+            palette={
+                int(label_id): tuple(int(channel) for channel in color)
+                for label_id, color in layer.label_palette.items()
+            },
+            label_volumes=label_volumes,
+        )
 
     @classmethod
     def _copy_view_state_mapping(cls, payload: dict[str, Any]) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Mapping, Tuple
+from typing import Dict, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -14,3 +14,22 @@ class OverlayData:
 
     # DEPRECATED: Kept for temporary compatibility if needed, but we aim to remove.
     label_volumes: Mapping[int, np.ndarray] = None  # label -> float32 alpha volume
+
+
+@dataclass(frozen=True)
+class OverlayLayerData:
+    """One renderable overlay layer with its own opacity and visible labels."""
+
+    layer_id: str
+    name: str
+    overlay: Optional[OverlayData]
+    visible_labels: Optional[frozenset[int]] = None
+    opacity: float = 1.0
+
+
+@dataclass(frozen=True)
+class OverlayStackData:
+    """Ordered overlay stack pushed to 2D/3D views."""
+
+    layers: tuple[OverlayLayerData, ...]
+    active_layer_id: Optional[str] = None

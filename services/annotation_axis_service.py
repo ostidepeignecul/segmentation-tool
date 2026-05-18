@@ -9,7 +9,7 @@ import numpy as np
 
 from config.constants import MASK_COLORS_BGRA
 from models.nde_model import NdeModel
-from models.overlay_data import OverlayData
+from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
 
 
 @dataclass(frozen=True)
@@ -223,6 +223,35 @@ class AnnotationAxisService:
             mask_volume=secondary_mask,
             palette=dict(overlay_data.palette),
             label_volumes=None,
+        )
+
+    @classmethod
+    def build_secondary_overlay_stack_data(
+        cls,
+        overlay_stack: Optional[OverlayStackData],
+    ) -> Optional[OverlayStackData]:
+        """Build a transposed overlay stack for the secondary orthogonal view."""
+        if overlay_stack is None:
+            return None
+        secondary_layers: list[OverlayLayerData] = []
+        for layer in overlay_stack.layers:
+            secondary_overlay = cls.build_secondary_overlay_data(layer.overlay)
+            if secondary_overlay is None:
+                continue
+            secondary_layers.append(
+                OverlayLayerData(
+                    layer_id=str(layer.layer_id),
+                    name=str(layer.name),
+                    overlay=secondary_overlay,
+                    visible_labels=layer.visible_labels,
+                    opacity=float(layer.opacity),
+                )
+            )
+        if not secondary_layers:
+            return None
+        return OverlayStackData(
+            layers=tuple(secondary_layers),
+            active_layer_id=overlay_stack.active_layer_id,
         )
 
     @staticmethod

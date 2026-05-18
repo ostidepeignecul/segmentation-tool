@@ -20,7 +20,7 @@ from models.annotation_model import AnnotationModel
 from models.applied_annotation_history_model import AppliedAnnotationHistoryModel
 from models.roi_model import RoiModel
 from models.temp_mask_model import TempMaskModel
-from models.overlay_data import OverlayData
+from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
 from models.view_state_model import ViewStateModel
 from services.annotation_axis_service import AnnotationAxisService
 from services.annotation_session_manager import AnnotationSessionManager
@@ -179,24 +179,107 @@ class AnnotationController:
         show_volume_view_overlay = self.view_state_model.show_volume_view_overlay
         if not show_overlay:
             self.logger.info("Overlay hidden by toggle; clearing 2D/3D views.")
-            self.annotation_view.set_overlay(None)
+            self.annotation_view.set_overlay_stack(None)
             if self.annotation_secondary_view is not None:
-                self.annotation_secondary_view.set_overlay(None)
+                self.annotation_secondary_view.set_overlay_stack(None)
             if self.annotation_secondary_corrosion_view is not None:
-                self.annotation_secondary_corrosion_view.set_overlay(None)
+                self.annotation_secondary_corrosion_view.set_overlay_stack(None)
             if self.annotation_corrosion_view is not None:
-                self.annotation_corrosion_view.set_overlay(None)
-            self.volume_view.set_overlay(None)
+                self.annotation_corrosion_view.set_overlay_stack(None)
+            self.volume_view.set_overlay_stack(None)
             self._notify_overlay_updated()
             return
 
         self._sync_active_layer_runtime_state()
-        mask_volume, palette, visible_labels, cached, use_active_layer_cache = (
-            self._resolve_overlay_render_inputs()
+        overlay_stack = self._resolve_overlay_render_stack(
+            rebuild=rebuild,
+            changed_slice=changed_slice,
         )
 
+        if overlay_stack is None or not overlay_stack.layers:
+            self.logger.info("No overlay stack available to push; clearing views.")
+            self.annotation_view.set_overlay_stack(None)
+            if self.annotation_secondary_view is not None:
+                self.annotation_secondary_view.set_overlay_stack(None)
+            if self.annotation_secondary_corrosion_view is not None:
+                self.annotation_secondary_corrosion_view.set_overlay_stack(None)
+            if self.annotation_corrosion_view is not None:
+                self.annotation_corrosion_view.set_overlay_stack(None)
+            self.volume_view.set_overlay_stack(None)
+            self._notify_overlay_updated()
+            return
+
+        palette_count = sum(
+            len(layer.overlay.palette)
+            for layer in overlay_stack.layers
+            if layer.overlay is not None
+        )
+        self.logger.info(
+            "Pushing overlay stack to views | layers=%d | palette_entries=%d",
+            len(overlay_stack.layers),
+            palette_count,
+        )
+
+        self.annotation_view.set_overlay_stack(overlay_stack)
+        secondary_overlay = self.annotation_axis_service.build_secondary_overlay_stack_data(
+            overlay_stack
+        )
+        if self.annotation_secondary_view is not None:
+            self.annotation_secondary_view.set_overlay_stack(secondary_overlay)
+        if self.annotation_secondary_corrosion_view is not None:
+            self.annotation_secondary_corrosion_view.set_overlay_stack(secondary_overlay)
+        if self.annotation_corrosion_view is not None:
+            self.annotation_corrosion_view.set_overlay_stack(overlay_stack)
+        if show_volume_view_overlay:
+            self.volume_view.set_overlay_stack(
+                overlay_stack,
+                defer_3d=defer_volume,
+                changed_slice=changed_slice,
+                changed_labels=None,
+            )
+        else:
+            self.volume_view.set_overlay_stack(None)
+        self._notify_overlay_updated()
+        return
+
+    def _resolve_overlay_render_stack(
+        self,
+        *,
+        rebuild: bool,
+        changed_slice: Optional[int],
+    ) -> Optional[OverlayStackData]:
+        """Return a stack payload built from the active session or the live annotation model."""
+        active_overlay = self._build_active_layer_overlay_data(
+            rebuild=rebuild,
+            changed_slice=changed_slice,
+        )
+        if self.session_manager is None:
+            return self._build_single_overlay_stack(
+                overlay_data=active_overlay,
+                visible_labels=self.annotation_model.get_visible_labels(),
+            )
+
+        active_stack = self.session_manager.get_active_layer_stack()
+        if active_stack is None:
+            return self._build_single_overlay_stack(
+                overlay_data=active_overlay,
+                visible_labels=self.annotation_model.get_visible_labels(),
+            )
+        return self.session_manager.build_active_overlay_stack()
+
+    def _build_active_layer_overlay_data(
+        self,
+        *,
+        rebuild: bool,
+        changed_slice: Optional[int],
+    ) -> Optional[OverlayData]:
+        """Build or update the active editable layer overlay and mirror it into the runtime cache."""
+        mask_volume = self.annotation_model.get_mask_volume()
+        palette = self.annotation_model.get_label_palette()
+        cached = self.annotation_model.get_overlay_cache()
+
         overlay_data = None
-        if changed_slice is not None and use_active_layer_cache:
+        if changed_slice is not None:
             overlay_data = self.overlay_service.update_overlay_slice(
                 mask_volume=mask_volume,
                 label_palette=palette,
@@ -205,116 +288,42 @@ class AnnotationController:
             )
         elif not rebuild and cached is not None:
             overlay_data = OverlayData(
-                mask_volume=mask_volume,  # Added missing required field
+                mask_volume=mask_volume,
                 label_volumes=cached.label_volumes,
                 palette=palette,
             )
         if overlay_data is None:
             overlay_data = self.overlay_service.build_overlay_data(mask_volume, palette)
 
-        changed_labels = None
-        # if changed_slice is not None: ... (removed optimization)
+        self.annotation_model.set_overlay_cache(overlay_data)
+        self._sync_active_layer_runtime_state()
+        return overlay_data
 
-        if use_active_layer_cache:
-            self.annotation_model.set_overlay_cache(overlay_data)
-            self._sync_active_layer_runtime_state()
-
+    @staticmethod
+    def _build_single_overlay_stack(
+        *,
+        overlay_data: Optional[OverlayData],
+        visible_labels: Optional[set[int]],
+    ) -> Optional[OverlayStackData]:
+        """Wrap a legacy single overlay payload in a one-layer render stack."""
         if overlay_data is None:
-            self.logger.info("No overlay available to push; clearing views.")
-            self.annotation_view.set_overlay(None)
-            if self.annotation_secondary_view is not None:
-                self.annotation_secondary_view.set_overlay(None)
-            if self.annotation_secondary_corrosion_view is not None:
-                self.annotation_secondary_corrosion_view.set_overlay(None)
-            if self.annotation_corrosion_view is not None:
-                self.annotation_corrosion_view.set_overlay(None)
-            self.volume_view.set_overlay(None)
-            self._notify_overlay_updated()
-            return
-
-        mask_label_count = len(palette) # approximate
-        palette_count = len(palette)
-        visible_count = len(visible_labels) if visible_labels is not None else palette_count
-        self.logger.info(
-            "Pushing overlay to views | mask_labels=%d | palette=%d | visible=%s",
-            mask_label_count,
-            palette_count,
-            visible_count if visible_labels is not None else "all",
+            return None
+        return OverlayStackData(
+            layers=(
+                OverlayLayerData(
+                    layer_id="legacy-overlay",
+                    name="Overlay",
+                    overlay=overlay_data,
+                    visible_labels=(
+                        frozenset(int(label_id) for label_id in visible_labels)
+                        if visible_labels is not None
+                        else None
+                    ),
+                    opacity=1.0,
+                ),
+            ),
+            active_layer_id="legacy-overlay",
         )
-
-        if show_overlay:
-            self.annotation_view.set_overlay(overlay_data, visible_labels=visible_labels)
-            secondary_overlay = self.annotation_axis_service.build_secondary_overlay_data(overlay_data)
-            if self.annotation_secondary_view is not None:
-                self.annotation_secondary_view.set_overlay(
-                    secondary_overlay,
-                    visible_labels=visible_labels,
-                )
-            if self.annotation_secondary_corrosion_view is not None:
-                self.annotation_secondary_corrosion_view.set_overlay(
-                    secondary_overlay,
-                    visible_labels=visible_labels,
-                )
-            if self.annotation_corrosion_view is not None:
-                self.annotation_corrosion_view.set_overlay(overlay_data, visible_labels=visible_labels)
-            if show_volume_view_overlay:
-                self.volume_view.set_overlay(
-                    overlay_data,
-                    visible_labels=visible_labels,
-                    defer_3d=defer_volume,
-                    changed_slice=changed_slice,
-                    changed_labels=changed_labels,
-                )
-            else:
-                self.volume_view.set_overlay(None)
-        self._notify_overlay_updated()
-
-    def _resolve_overlay_render_inputs(
-        self,
-    ) -> tuple[
-        Optional[np.ndarray],
-        dict[int, tuple[int, int, int, int]],
-        Optional[set[int]],
-        Optional[OverlayData],
-        bool,
-    ]:
-        """Return overlay inputs for either the active layer or the composed stack."""
-        if self.session_manager is None:
-            return (
-                self.annotation_model.get_mask_volume(),
-                self.annotation_model.get_label_palette(),
-                self.annotation_model.get_visible_labels(),
-                self.annotation_model.get_overlay_cache(),
-                True,
-            )
-
-        active_stack = self.session_manager.get_active_layer_stack()
-        if active_stack is None:
-            return (
-                self.annotation_model.get_mask_volume(),
-                self.annotation_model.get_label_palette(),
-                self.annotation_model.get_visible_labels(),
-                self.annotation_model.get_overlay_cache(),
-                True,
-            )
-        active_layer = active_stack.get_active_layer()
-        visible_layers = [
-            layer
-            for layer in active_stack.list_visible_layers()
-            if layer.mask_volume is not None
-        ]
-        if len(visible_layers) == 1 and active_layer is visible_layers[0]:
-            return (
-                self.annotation_model.get_mask_volume(),
-                self.annotation_model.get_label_palette(),
-                self.annotation_model.get_visible_labels(),
-                self.annotation_model.get_overlay_cache(),
-                True,
-            )
-        mask_volume, palette, visible_labels, _visible_layer_count = (
-            self.session_manager.compose_active_layers()
-        )
-        return mask_volume, palette, visible_labels, None, False
 
     def _sync_active_layer_runtime_state(self) -> None:
         """Mirror runtime-only overlay cache from the live model back to the active layer."""
@@ -339,19 +348,19 @@ class AnnotationController:
         self.clear_apply_history()
         self.annotation_model.clear_overlay_cache()
         self._sync_active_layer_runtime_state()
-        self.annotation_view.set_overlay(None)
+        self.annotation_view.set_overlay_stack(None)
         if self.annotation_secondary_view is not None:
-            self.annotation_secondary_view.set_overlay(None)
+            self.annotation_secondary_view.set_overlay_stack(None)
         if self.annotation_secondary_corrosion_view is not None:
-            self.annotation_secondary_corrosion_view.set_overlay(None)
+            self.annotation_secondary_corrosion_view.set_overlay_stack(None)
         if self.annotation_corrosion_view is not None:
-            self.annotation_corrosion_view.set_overlay(None)
+            self.annotation_corrosion_view.set_overlay_stack(None)
         self.annotation_view.clear_roi_overlay()
         self.annotation_view.clear_temp_shapes()
         if self.annotation_secondary_view is not None:
             self.annotation_secondary_view.clear_roi_overlay()
             self.annotation_secondary_view.clear_temp_shapes()
-        self.volume_view.set_overlay(None)
+        self.volume_view.set_overlay_stack(None)
         if not preserve_labels:
             self.overlay_settings_view.clear_labels()
         self.temp_mask_model.clear()
