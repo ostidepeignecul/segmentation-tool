@@ -208,6 +208,7 @@ class MasterController:
             overlay_settings_view=self.overlay_settings_view,
             applied_annotation_history_model=self.applied_annotation_history_model,
             logger=self.logger,
+            session_manager=self.session_manager,
             get_volume=self._current_volume,
             on_overlay_updated=self._update_ascan_trace,
         )

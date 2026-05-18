@@ -71,6 +71,18 @@ class LayerStackModel:
         self.ensure_active_layer()
         return self.get_layer(self.active_layer_id)
 
+    def list_visible_layers(self) -> list[LayerState]:
+        """Return visible layers while preserving stack order."""
+        return [layer for layer in self.layers if bool(layer.visible)]
+
+    def set_active_layer(self, layer_id: Optional[str]) -> bool:
+        """Select one existing layer as the active editable layer."""
+        target = self.get_layer(layer_id)
+        if target is None:
+            return False
+        self.active_layer_id = str(target.id)
+        return True
+
     def ensure_active_layer(self) -> Optional[str]:
         """Keep `active_layer_id` consistent with the current layer list."""
         if self.get_layer(self.active_layer_id) is not None:
@@ -80,4 +92,3 @@ class LayerStackModel:
             return None
         self.active_layer_id = str(self.layers[0].id)
         return self.active_layer_id
-

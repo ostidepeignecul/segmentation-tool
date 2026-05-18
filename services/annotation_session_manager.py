@@ -124,6 +124,69 @@ class AnnotationSessionManager:
             return None
         return self.get_session_layer_stack(active_id)
 
+    def get_active_layer(self, session_id: Optional[str] = None) -> Optional[LayerState]:
+        """Expose the active editable layer for one session."""
+        target_id = str(session_id or self._active_id or "").strip()
+        if not target_id:
+            return None
+        stack = self.get_session_layer_stack(target_id)
+        if stack is None:
+            return None
+        return stack.get_active_layer()
+
+    def switch_active_layer(
+        self,
+        layer_id: str,
+        *,
+        annotation_model: AnnotationModel,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Select a different active layer and rebind the live annotation model."""
+        target_id = str(session_id or self._active_id or "").strip()
+        if not target_id or target_id not in self._sessions:
+            return False
+        state = self._normalize_session_state(self._sessions[target_id])
+        if not state.layer_stack.set_active_layer(layer_id):
+            return False
+        active_layer = state.layer_stack.get_active_layer()
+        self._sync_session_legacy_fields_from_active_layer(state, active_layer)
+        if target_id == self._active_id:
+            self._apply_annotation_layer_to_model(annotation_model, active_layer)
+        return True
+
+    def set_layer_visibility(
+        self,
+        layer_id: str,
+        visible: bool,
+        *,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Toggle one layer visibility inside a session stack."""
+        target_id = str(session_id or self._active_id or "").strip()
+        if not target_id or target_id not in self._sessions:
+            return False
+        state = self._normalize_session_state(self._sessions[target_id])
+        layer = state.layer_stack.get_layer(layer_id)
+        if layer is None:
+            return False
+        layer.visible = bool(visible)
+        return True
+
+    def compose_active_layers(
+        self,
+    ) -> tuple[
+        Optional[np.ndarray],
+        Dict[int, tuple[int, int, int, int]],
+        Optional[set[int]],
+        int,
+    ]:
+        """Compose visible layers of the active session into one render payload."""
+        active_id = self._active_id
+        if active_id is None or active_id not in self._sessions:
+            return None, {}, None, 0
+        state = self._normalize_session_state(self._sessions[active_id])
+        return self._compose_layer_stack(state.layer_stack)
+
     def rename_session(self, session_id: str, name: str) -> None:
         """Update a session name without touching its contents."""
         state = self._sessions.get(session_id)
@@ -508,23 +571,8 @@ class AnnotationSessionManager:
         state = self._normalize_session_state(state)
         active_layer = state.layer_stack.get_active_layer()
 
-        annotation_model.clear()
-        if active_layer is not None and active_layer.mask_volume is not None:
-            annotation_model.mask_volume = active_layer.mask_volume  # type: ignore[assignment]
-        annotation_model.label_palette = (
-            copy.deepcopy(active_layer.label_palette)
-            if active_layer is not None
-            else copy.deepcopy(state.label_palette)
-        )
-        annotation_model.label_visibility = (
-            copy.deepcopy(active_layer.label_visibility)
-            if active_layer is not None
-            else copy.deepcopy(state.label_visibility)
-        )
-        annotation_model.overlay_cache = (
-            active_layer.overlay_cache if active_layer is not None else state.overlay_cache
-        )
-        annotation_model.ensure_persistent_labels()
+        self._sync_session_legacy_fields_from_active_layer(state, active_layer)
+        self._apply_annotation_layer_to_model(annotation_model, active_layer)
 
         temp_mask_model.clear()
         if state.temp_mask_volume is not None:
@@ -713,6 +761,107 @@ class AnnotationSessionManager:
         )
         persistable.ensure_active_layer()
         return persistable
+
+    @staticmethod
+    def _sync_session_legacy_fields_from_active_layer(
+        state: AnnotationSessionState,
+        active_layer: Optional[LayerState],
+    ) -> None:
+        """Keep legacy single-layer fields aligned with the selected active layer."""
+        if active_layer is None:
+            state.mask_volume = None
+            state.label_palette = {}
+            state.label_visibility = {}
+            state.overlay_cache = None
+            return
+        state.mask_volume = active_layer.mask_volume
+        state.label_palette = copy.deepcopy(active_layer.label_palette)
+        state.label_visibility = copy.deepcopy(active_layer.label_visibility)
+        state.overlay_cache = active_layer.overlay_cache
+
+    @staticmethod
+    def _apply_annotation_layer_to_model(
+        annotation_model: AnnotationModel,
+        active_layer: Optional[LayerState],
+    ) -> None:
+        """Rebind the live annotation model to the current editable layer."""
+        annotation_model.clear()
+        if active_layer is None:
+            return
+        annotation_model.mask_volume = active_layer.mask_volume  # type: ignore[assignment]
+        annotation_model.label_palette = active_layer.label_palette
+        annotation_model.label_visibility = active_layer.label_visibility
+        annotation_model.overlay_cache = active_layer.overlay_cache
+        if active_layer.mask_volume is None:
+            annotation_model.detected_label_ids = (0,)
+        else:
+            annotation_model.detected_label_ids = tuple(
+                int(value) for value in np.unique(active_layer.mask_volume).tolist()
+            )
+        annotation_model.ensure_persistent_labels()
+
+    def _compose_layer_stack(
+        self,
+        layer_stack: LayerStackModel,
+    ) -> tuple[
+        Optional[np.ndarray],
+        Dict[int, tuple[int, int, int, int]],
+        Optional[set[int]],
+        int,
+    ]:
+        """Flatten visible layers into one mask/palette payload for legacy views."""
+        visible_layers = [
+            layer
+            for layer in layer_stack.list_visible_layers()
+            if layer.mask_volume is not None
+        ]
+        if not visible_layers:
+            return None, {}, None, 0
+
+        base_shape = tuple(int(dim) for dim in np.asarray(visible_layers[0].mask_volume).shape)
+        composite_mask = np.zeros(base_shape, dtype=np.uint8)
+        composite_palette: Dict[int, tuple[int, int, int, int]] = {}
+
+        for layer in visible_layers:
+            layer_mask = np.asarray(layer.mask_volume, dtype=np.uint8)
+            if tuple(int(dim) for dim in layer_mask.shape) != base_shape:
+                continue
+            visible_label_ids = self._visible_label_ids_for_layer(layer)
+            if visible_label_ids is None:
+                draw_mask = layer_mask > 0
+                palette_source = layer.label_palette.items()
+            else:
+                visible_array = np.fromiter(sorted(visible_label_ids), dtype=np.uint8)
+                if visible_array.size == 0:
+                    continue
+                draw_mask = np.isin(layer_mask, visible_array)
+                palette_source = (
+                    (label, color)
+                    for label, color in layer.label_palette.items()
+                    if int(label) in visible_label_ids
+                )
+            if np.any(draw_mask):
+                composite_mask[draw_mask] = layer_mask[draw_mask]
+            for label, color in palette_source:
+                label_int = int(label)
+                if label_int == 0:
+                    continue
+                composite_palette[label_int] = tuple(int(channel) for channel in color)
+
+        return composite_mask, composite_palette, None, len(visible_layers)
+
+    @staticmethod
+    def _visible_label_ids_for_layer(layer: LayerState) -> Optional[set[int]]:
+        """Resolve per-layer visible label ids for composition."""
+        if not layer.label_visibility:
+            return None
+        if all(layer.label_visibility.values()):
+            return None
+        return {
+            int(label_id)
+            for label_id, is_visible in layer.label_visibility.items()
+            if bool(is_visible)
+        }
 
     @classmethod
     def _copy_view_state_mapping(cls, payload: dict[str, Any]) -> dict[str, Any]:

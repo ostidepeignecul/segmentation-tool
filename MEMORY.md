@@ -4301,3 +4301,23 @@ La branche `feature/layer-system-v2` repart sur une base plus simple que les ten
 1. Introduire le stack dans le `session_manager` des la phase A, mais conserver des champs miroir (`mask_volume`, `label_palette`, `label_visibility`, `overlay_cache`) pour maintenir la compatibilite avec le reste du code.
 2. Garder un mode transitoire mono-layer : le stack devient la source de verite de session, mais seul le layer actif est reapplique dans `AnnotationModel` tant que `AnnotationController` et les vues ne consomment pas encore le stack complet.
 3. Normaliser les etats legacy a l ouverture et au restore plutot que d imposer une migration immediate du format `.session`, afin de reduire le risque pendant la transition vers le vrai systeme de layers.
+
+### 2026-05-18 - Phase B du systeme de layers dans les sessions
+**Tags :** `#branch:feature/layer-system-v2`, `#services/annotation_session_manager.py`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/layer_stack_model.py`, `#layer-stack`, `#session`, `#overlay`, `#composition`, `#mvc`
+
+**Actions effectuees :**
+- Etendu `LayerStackModel` avec `list_visible_layers()` et `set_active_layer()` pour supporter la selection du layer editable et l enumeration des layers visibles.
+- Ajoute dans `AnnotationSessionManager` les helpers runtime de phase B : `get_active_layer()`, `switch_active_layer()`, `set_layer_visibility()` et `compose_active_layers()`.
+- Refactor l application de session pour rebinder `AnnotationModel` directement sur le layer actif vivant, via `_apply_annotation_layer_to_model()`, au lieu de recopier uniquement des valeurs legacy.
+- Ajoute la composition legacy du stack visible dans `_compose_layer_stack()` avec prise en compte de la visibilite par layer et par label, afin de produire un overlay unique compatible avec les vues actuelles.
+- Branche `AnnotationController` sur le `session_manager` pour choisir entre le cache du layer actif seul et la composition multi-layer, puis synchronise le `overlay_cache` runtime du modele live vers le layer actif.
+- Injecte `session_manager` dans `MasterController` lors de la creation de `AnnotationController`.
+- Verifie la phase B par compilation Python et par deux scenarios cibles : un test de `AnnotationSessionManager` multi-layer et un test de `AnnotationController` pour le basculement automatique vers la composition quand le rendu ne correspond plus au seul layer actif.
+
+**Contexte :**
+La phase A avait pose la structure `session -> stack -> layer` sans modifier le flux d edition ni le rendu. La phase B devait rendre cette structure utile sans encore refondre les vues : l edition doit suivre le layer actif vivant, et le rendu doit pouvoir composer plusieurs layers visibles dans un overlay unique. Au moment du `brew`, `git diff --cached` etait vide ; cette entree documente donc l etat courant du worktree pour la branche `feature/layer-system-v2`.
+
+**Decisions techniques :**
+1. Garder les vues 2D/3D sur un payload overlay unique pour cette phase, et faire la composition dans `AnnotationSessionManager`/`AnnotationController`, afin de limiter le scope avant une vraie UI de layers.
+2. Utiliser le cache overlay uniquement quand le rendu correspond exactement au layer actif visible seul ; en rendu compose, reconstruire l overlay pour eviter de melanger le cache du layer actif et la sortie multi-layer.
+3. Rebinder `AnnotationModel` sur les dictionnaires et volumes du layer actif vivant, afin que les edits de masque, palette et visibilite s appliquent directement au bon layer sans attendre un nouveau snapshot de session.
