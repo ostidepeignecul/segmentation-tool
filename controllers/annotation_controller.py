@@ -1765,6 +1765,11 @@ class AnnotationController:
 
     def _sync_overlay_settings_with_model(self) -> None:
         """Remplit la fenêtre de paramètres overlay avec la palette/visibilité actuelle du modèle."""
+        if self.session_manager is not None:
+            self.overlay_settings_view.set_layers(self.session_manager.list_active_layers())
+        else:
+            self.overlay_settings_view.clear_layers()
+
         entries = []
         palette = self.annotation_model.label_palette
         visibility = self.annotation_model.label_visibility

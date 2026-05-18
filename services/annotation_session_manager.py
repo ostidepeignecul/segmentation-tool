@@ -134,6 +134,44 @@ class AnnotationSessionManager:
             return None
         return stack.get_active_layer()
 
+    def sync_active_layer_from_model(
+        self,
+        *,
+        annotation_model: AnnotationModel,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Rebind the active session layer to the current live annotation model payload."""
+        target_id = str(session_id or self._active_id or "").strip()
+        if not target_id or target_id not in self._sessions:
+            return False
+        state = self._normalize_session_state(self._sessions[target_id])
+        active_layer = state.layer_stack.get_active_layer()
+        if active_layer is None:
+            return False
+        active_layer.mask_volume = annotation_model.get_mask_volume()
+        active_layer.label_palette = annotation_model.label_palette
+        active_layer.label_visibility = annotation_model.label_visibility
+        active_layer.overlay_cache = annotation_model.overlay_cache
+        self._sync_session_legacy_fields_from_active_layer(state, active_layer)
+        return True
+
+    def list_active_layers(self) -> List[tuple[str, str, bool, bool]]:
+        """Expose active-session layers as `(id, name, visible, is_active)`."""
+        active_id = self._active_id
+        if active_id is None or active_id not in self._sessions:
+            return []
+        state = self._normalize_session_state(self._sessions[active_id])
+        active_layer_id = state.layer_stack.ensure_active_layer()
+        return [
+            (
+                str(layer.id),
+                str(layer.name),
+                bool(layer.visible),
+                str(layer.id) == str(active_layer_id),
+            )
+            for layer in state.layer_stack.layers
+        ]
+
     def switch_active_layer(
         self,
         layer_id: str,
@@ -145,6 +183,10 @@ class AnnotationSessionManager:
         target_id = str(session_id or self._active_id or "").strip()
         if not target_id or target_id not in self._sessions:
             return False
+        self.sync_active_layer_from_model(
+            annotation_model=annotation_model,
+            session_id=target_id,
+        )
         state = self._normalize_session_state(self._sessions[target_id])
         if not state.layer_stack.set_active_layer(layer_id):
             return False
@@ -170,6 +212,133 @@ class AnnotationSessionManager:
         if layer is None:
             return False
         layer.visible = bool(visible)
+        return True
+
+    def create_empty_layer(
+        self,
+        *,
+        annotation_model: AnnotationModel,
+        session_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Append a new empty layer to one session and make it active."""
+        target_id = str(session_id or self._active_id or "").strip()
+        if not target_id or target_id not in self._sessions:
+            return None
+        self.sync_active_layer_from_model(
+            annotation_model=annotation_model,
+            session_id=target_id,
+        )
+        state = self._normalize_session_state(self._sessions[target_id])
+        active_layer = state.layer_stack.get_active_layer()
+        source_mask = (
+            active_layer.mask_volume
+            if active_layer is not None
+            else annotation_model.get_mask_volume()
+        )
+        palette = copy.deepcopy(
+            active_layer.label_palette
+            if active_layer is not None
+            else annotation_model.label_palette
+        )
+        visibility = copy.deepcopy(
+            active_layer.label_visibility
+            if active_layer is not None
+            else annotation_model.label_visibility
+        )
+        new_layer = LayerState.create(
+            name=self._next_layer_name(state.layer_stack),
+            mask_volume=self._empty_mask_like(source_mask),
+            label_palette=palette,
+            label_visibility=visibility,
+            overlay_cache=None,
+        )
+        state.layer_stack.layers.append(new_layer)
+        state.layer_stack.set_active_layer(new_layer.id)
+        self._sync_session_legacy_fields_from_active_layer(state, new_layer)
+        if target_id == self._active_id:
+            self._apply_annotation_layer_to_model(annotation_model, new_layer)
+        return str(new_layer.id)
+
+    def duplicate_active_layer(
+        self,
+        *,
+        annotation_model: AnnotationModel,
+        session_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Duplicate the active layer inside one session and make the copy active."""
+        target_id = str(session_id or self._active_id or "").strip()
+        if not target_id or target_id not in self._sessions:
+            return None
+        self.sync_active_layer_from_model(
+            annotation_model=annotation_model,
+            session_id=target_id,
+        )
+        state = self._normalize_session_state(self._sessions[target_id])
+        active_layer = state.layer_stack.get_active_layer()
+        if active_layer is None:
+            return None
+        duplicated_layer = LayerState.create(
+            name=self._next_layer_name(state.layer_stack),
+            mask_volume=self._copy_mask_volume(active_layer.mask_volume),
+            label_palette=copy.deepcopy(active_layer.label_palette),
+            label_visibility=copy.deepcopy(active_layer.label_visibility),
+            visible=active_layer.visible,
+            locked=active_layer.locked,
+            opacity=active_layer.opacity,
+            overlay_cache=None,
+        )
+        state.layer_stack.layers.append(duplicated_layer)
+        state.layer_stack.set_active_layer(duplicated_layer.id)
+        self._sync_session_legacy_fields_from_active_layer(state, duplicated_layer)
+        if target_id == self._active_id:
+            self._apply_annotation_layer_to_model(annotation_model, duplicated_layer)
+        return str(duplicated_layer.id)
+
+    def delete_layer(
+        self,
+        layer_id: str,
+        *,
+        annotation_model: AnnotationModel,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Delete one layer while keeping at least one editable layer in the session."""
+        target_id = str(session_id or self._active_id or "").strip()
+        if not target_id or target_id not in self._sessions:
+            return False
+        self.sync_active_layer_from_model(
+            annotation_model=annotation_model,
+            session_id=target_id,
+        )
+        state = self._normalize_session_state(self._sessions[target_id])
+        if len(state.layer_stack.layers) <= 1:
+            return False
+        normalized_layer_id = str(layer_id or "").strip()
+        if not normalized_layer_id:
+            return False
+        delete_index = next(
+            (
+                index
+                for index, layer in enumerate(state.layer_stack.layers)
+                if str(layer.id) == normalized_layer_id
+            ),
+            -1,
+        )
+        if delete_index < 0:
+            return False
+
+        was_active = str(state.layer_stack.active_layer_id) == normalized_layer_id
+        state.layer_stack.layers.pop(delete_index)
+        if was_active:
+            replacement_index = min(delete_index, len(state.layer_stack.layers) - 1)
+            replacement_layer = state.layer_stack.layers[replacement_index]
+            state.layer_stack.active_layer_id = str(replacement_layer.id)
+        else:
+            state.layer_stack.ensure_active_layer()
+
+        active_layer = state.layer_stack.get_active_layer()
+        self._sync_session_legacy_fields_from_active_layer(state, active_layer)
+        if target_id == self._active_id:
+            self._apply_annotation_layer_to_model(annotation_model, active_layer)
         return True
 
     def compose_active_layers(
@@ -891,6 +1060,30 @@ class AnnotationSessionManager:
     def _normalize_session_name(name: str, *, fallback: str = "New session") -> str:
         normalized = str(name or "").strip()
         return normalized or fallback
+
+    @staticmethod
+    def _copy_mask_volume(mask_volume: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if mask_volume is None:
+            return None
+        return np.asarray(mask_volume, dtype=np.uint8).copy()
+
+    @classmethod
+    def _empty_mask_like(cls, mask_volume: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        copied = cls._copy_mask_volume(mask_volume)
+        if copied is None:
+            return None
+        copied.fill(0)
+        return copied
+
+    @staticmethod
+    def _next_layer_name(layer_stack: LayerStackModel) -> str:
+        existing_names = {str(layer.name or "").strip() for layer in layer_stack.layers}
+        index = 1
+        while True:
+            candidate = f"Layer {index}"
+            if candidate not in existing_names:
+                return candidate
+            index += 1
 
     @staticmethod
     def _resolve_volume_shape(

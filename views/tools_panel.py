@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QColorDialog,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QRadioButton as QBtn,
@@ -44,6 +45,11 @@ class ToolsPanel(QFrame):
     selection_cancel_requested = pyqtSignal()
     label_selected = pyqtSignal(int)
     label_color_changed = pyqtSignal(int, QColor)
+    layer_selected = pyqtSignal(str)
+    layer_visibility_changed = pyqtSignal(str, bool)
+    layer_created = pyqtSignal()
+    layer_duplicated = pyqtSignal()
+    layer_deleted = pyqtSignal(str)
     paint_size_changed = pyqtSignal(int)
     overlay_opacity_changed = pyqtSignal(float)
     nde_opacity_changed = pyqtSignal(float)
@@ -110,10 +116,24 @@ class ToolsPanel(QFrame):
         self._label_color_container: Optional[QWidget] = None
         self._label_text_layout: Optional[QVBoxLayout] = None
         self._label_color_layout: Optional[QVBoxLayout] = None
+        self._layer_text_layout: Optional[QVBoxLayout] = None
+        self._layer_color_layout: Optional[QVBoxLayout] = None
+        self._label_rows_text_layout: Optional[QVBoxLayout] = None
+        self._label_rows_color_layout: Optional[QVBoxLayout] = None
         self._label_group: Optional[QButtonGroup] = None
         self._label_buttons: Dict[int, QBtn] = {}
         self._label_color_buttons: Dict[int, QPushButton] = {}
         self._label_colors: Dict[int, QColor] = {}
+        self._layer_group: Optional[QButtonGroup] = None
+        self._layer_buttons: Dict[str, QBtn] = {}
+        self._layer_visibility_buttons: Dict[str, QCheckBox] = {}
+        self._layer_add_button: Optional[QPushButton] = None
+        self._layer_duplicate_button: Optional[QPushButton] = None
+        self._layer_delete_button: Optional[QPushButton] = None
+        self._layer_placeholder_one: Optional[QWidget] = None
+        self._layer_placeholder_two: Optional[QWidget] = None
+        self._layer_placeholder_three: Optional[QWidget] = None
+        self._active_layer_id: Optional[str] = None
 
         self._primary_min: int = 0
         self._primary_max: int = 0
@@ -324,9 +344,78 @@ class ToolsPanel(QFrame):
                 self._label_color_layout = QVBoxLayout(self._label_color_container)
             self._label_color_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
+        if self._layer_text_layout is None and self._label_text_layout is not None:
+            layers_title = QLabel("Layers", self._label_text_container)
+            self._label_text_layout.addWidget(layers_title)
+            self._layer_text_layout = QVBoxLayout()
+            self._layer_text_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            self._label_text_layout.addLayout(self._layer_text_layout)
+
+            self._layer_add_button = QPushButton("Add layer", self._label_text_container)
+            self._layer_add_button.clicked.connect(lambda: self.layer_created.emit())
+            self._label_text_layout.addWidget(self._layer_add_button)
+
+            self._layer_duplicate_button = QPushButton("Duplicate", self._label_text_container)
+            self._layer_duplicate_button.clicked.connect(lambda: self.layer_duplicated.emit())
+            self._label_text_layout.addWidget(self._layer_duplicate_button)
+
+            self._layer_delete_button = QPushButton("Delete", self._label_text_container)
+            self._layer_delete_button.clicked.connect(self._on_delete_active_layer)
+            self._label_text_layout.addWidget(self._layer_delete_button)
+
+            labels_title = QLabel("Labels", self._label_text_container)
+            self._label_text_layout.addWidget(labels_title)
+            self._label_rows_text_layout = QVBoxLayout()
+            self._label_rows_text_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            self._label_text_layout.addLayout(self._label_rows_text_layout)
+
+        if self._layer_color_layout is None and self._label_color_layout is not None:
+            visible_title = QLabel("Visible", self._label_color_container)
+            self._label_color_layout.addWidget(visible_title)
+            self._layer_color_layout = QVBoxLayout()
+            self._layer_color_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            self._label_color_layout.addLayout(self._layer_color_layout)
+
+            self._layer_placeholder_one = QWidget(self._label_color_container)
+            self._label_color_layout.addWidget(self._layer_placeholder_one)
+            self._layer_placeholder_two = QWidget(self._label_color_container)
+            self._label_color_layout.addWidget(self._layer_placeholder_two)
+            self._layer_placeholder_three = QWidget(self._label_color_container)
+            self._label_color_layout.addWidget(self._layer_placeholder_three)
+
+            colors_title = QLabel("Colors", self._label_color_container)
+            self._label_color_layout.addWidget(colors_title)
+            self._label_rows_color_layout = QVBoxLayout()
+            self._label_rows_color_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            self._label_color_layout.addLayout(self._label_rows_color_layout)
+
+            self._sync_layer_button_placeholders()
+
         if self._label_group is None:
             self._label_group = QButtonGroup(self)
             self._label_group.idClicked.connect(self.label_selected.emit)
+
+        if self._layer_group is None:
+            self._layer_group = QButtonGroup(self)
+            self._layer_group.setExclusive(True)
+
+    def _sync_layer_button_placeholders(self) -> None:
+        button_height = max(
+            int(self._layer_add_button.sizeHint().height()) if self._layer_add_button is not None else 0,
+            int(self._layer_duplicate_button.sizeHint().height())
+            if self._layer_duplicate_button is not None
+            else 0,
+            int(self._layer_delete_button.sizeHint().height()) if self._layer_delete_button is not None else 0,
+        )
+        if button_height <= 0:
+            return
+        for placeholder in (
+            self._layer_placeholder_one,
+            self._layer_placeholder_two,
+            self._layer_placeholder_three,
+        ):
+            if placeholder is not None:
+                placeholder.setFixedHeight(button_height)
 
     def _clear_label_widgets(self) -> None:
         if self._label_group is not None:
@@ -343,6 +432,97 @@ class ToolsPanel(QFrame):
         self._label_color_buttons.clear()
         self._label_colors.clear()
 
+    def clear_layers(self) -> None:
+        """Remove all layer widgets from the tools panel."""
+        self._active_layer_id = None
+        if self._layer_group is not None:
+            for btn in self._layer_buttons.values():
+                self._layer_group.removeButton(btn)
+                btn.setParent(None)
+                btn.deleteLater()
+        for checkbox in self._layer_visibility_buttons.values():
+            checkbox.setParent(None)
+            checkbox.deleteLater()
+        self._layer_buttons.clear()
+        self._layer_visibility_buttons.clear()
+        self._update_layer_buttons_enabled()
+
+    def set_layers(self, entries: Iterable[Tuple[str, str, bool, bool]]) -> None:
+        """Populate the tools-panel layer section above the labels."""
+        self._ensure_label_layouts()
+        if (
+            self._layer_text_layout is None
+            or self._layer_color_layout is None
+            or self._layer_group is None
+        ):
+            return
+
+        self.clear_layers()
+
+        row_heights: list[int] = []
+        ordered_ids: list[str] = []
+        for layer_id, name, visible, is_active in entries:
+            normalized_id = str(layer_id or "").strip()
+            if not normalized_id:
+                continue
+
+            layer_button = QBtn(str(name or "Layer"), self._label_text_container)
+            layer_button.setCheckable(True)
+            layer_button.setChecked(bool(is_active))
+            layer_button.toggled.connect(
+                lambda checked, target_id=normalized_id: self._on_layer_selected(target_id, checked)
+            )
+            self._layer_group.addButton(layer_button)
+            self._layer_text_layout.addWidget(layer_button)
+
+            visibility_box = QCheckBox("Visible", self._label_color_container)
+            visibility_box.setChecked(bool(visible))
+            visibility_box.toggled.connect(
+                lambda checked, target_id=normalized_id: self.layer_visibility_changed.emit(target_id, checked)
+            )
+            self._layer_color_layout.addWidget(visibility_box)
+
+            self._layer_buttons[normalized_id] = layer_button
+            self._layer_visibility_buttons[normalized_id] = visibility_box
+            ordered_ids.append(normalized_id)
+            if is_active:
+                self._active_layer_id = normalized_id
+            row_heights.append(
+                max(layer_button.sizeHint().height(), visibility_box.sizeHint().height())
+            )
+
+        max_height = max(row_heights) if row_heights else 0
+        if max_height > 0:
+            for layer_id in ordered_ids:
+                self._layer_buttons[layer_id].setFixedHeight(max_height)
+                self._layer_visibility_buttons[layer_id].setFixedHeight(max_height)
+
+        self._update_layer_buttons_enabled()
+
+    def _on_layer_selected(self, layer_id: str, checked: bool) -> None:
+        if not checked:
+            return
+        normalized_id = str(layer_id or "").strip()
+        if not normalized_id:
+            return
+        self._active_layer_id = normalized_id
+        self._update_layer_buttons_enabled()
+        self.layer_selected.emit(normalized_id)
+
+    def _on_delete_active_layer(self) -> None:
+        active_id = str(self._active_layer_id or "").strip()
+        if not active_id:
+            return
+        self.layer_deleted.emit(active_id)
+
+    def _update_layer_buttons_enabled(self) -> None:
+        has_active = bool(self._active_layer_id)
+        layer_count = len(self._layer_buttons)
+        if self._layer_duplicate_button is not None:
+            self._layer_duplicate_button.setEnabled(has_active)
+        if self._layer_delete_button is not None:
+            self._layer_delete_button.setEnabled(has_active and layer_count > 1)
+
     def set_labels(
         self,
         entries: Iterable[Tuple[int, QColor]],
@@ -352,8 +532,8 @@ class ToolsPanel(QFrame):
         """Populate the label list with editable colors and restore selection."""
         self._ensure_label_layouts()
         if (
-            self._label_text_layout is None
-            or self._label_color_layout is None
+            self._label_rows_text_layout is None
+            or self._label_rows_color_layout is None
             or self._label_group is None
         ):
             return
@@ -371,7 +551,7 @@ class ToolsPanel(QFrame):
             label_button = QBtn(format_label_text(lbl), self._label_text_container)
             label_button.setCheckable(True)
             self._label_group.addButton(label_button, lbl)
-            self._label_text_layout.addWidget(
+            self._label_rows_text_layout.addWidget(
                 label_button,
                 0,
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -382,7 +562,7 @@ class ToolsPanel(QFrame):
             color_button.clicked.connect(
                 lambda _checked=False, label_id=lbl: self._on_pick_label_color(label_id)
             )
-            self._label_color_layout.addWidget(
+            self._label_rows_color_layout.addWidget(
                 color_button,
                 0,
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,

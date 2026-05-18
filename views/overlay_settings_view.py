@@ -5,12 +5,15 @@ from typing import Dict, Iterable, Optional, Tuple
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QColorDialog,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSlider,
     QVBoxLayout,
@@ -28,6 +31,11 @@ from config.constants import (
 class OverlaySettingsView(QDialog):
     """Floating window to manage overlay label visibility and colors."""
 
+    layer_selected = pyqtSignal(str)
+    layer_visibility_changed = pyqtSignal(str, bool)
+    layer_created = pyqtSignal()
+    layer_duplicated = pyqtSignal()
+    layer_deleted = pyqtSignal(str)
     label_visibility_changed = pyqtSignal(int, bool)
     label_color_changed = pyqtSignal(int, QColor)
     label_added = pyqtSignal(int, QColor)
@@ -40,7 +48,11 @@ class OverlaySettingsView(QDialog):
         self.setModal(False)
         self.setMinimumWidth(340)
 
+        self._active_layer_id: Optional[str] = None
+        self._layers: Dict[str, _LayerRow] = {}
         self._labels: Dict[int, _LabelRow] = {}
+        self._layer_group = QButtonGroup(self)
+        self._layer_group.setExclusive(True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -50,6 +62,40 @@ class OverlaySettingsView(QDialog):
         self._container = QWidget()
         self._list_layout = QVBoxLayout(self._container)
         self._list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self._layers_title = QLabel("Layers", self._container)
+        self._layers_title.setStyleSheet("font-weight: bold;")
+        self._list_layout.addWidget(self._layers_title)
+        self._layers_layout = QVBoxLayout()
+        self._layers_layout.setContentsMargins(0, 0, 0, 0)
+        self._layers_layout.setSpacing(4)
+        self._list_layout.addLayout(self._layers_layout)
+
+        self._layer_buttons_row = QHBoxLayout()
+        self._layer_add_button = QPushButton("Add layer", self._container)
+        self._layer_duplicate_button = QPushButton("Duplicate", self._container)
+        self._layer_delete_button = QPushButton("Delete", self._container)
+        self._layer_add_button.clicked.connect(lambda: self.layer_created.emit())
+        self._layer_duplicate_button.clicked.connect(lambda: self.layer_duplicated.emit())
+        self._layer_delete_button.clicked.connect(self._on_delete_active_layer)
+        self._layer_buttons_row.addWidget(self._layer_add_button, 1)
+        self._layer_buttons_row.addWidget(self._layer_duplicate_button, 1)
+        self._layer_buttons_row.addWidget(self._layer_delete_button, 1)
+        self._list_layout.addLayout(self._layer_buttons_row)
+
+        self._separator = QFrame(self._container)
+        self._separator.setFrameShape(QFrame.Shape.HLine)
+        self._separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self._list_layout.addWidget(self._separator)
+
+        self._labels_title = QLabel("Labels", self._container)
+        self._labels_title.setStyleSheet("font-weight: bold;")
+        self._list_layout.addWidget(self._labels_title)
+        self._labels_layout = QVBoxLayout()
+        self._labels_layout.setContentsMargins(0, 0, 0, 0)
+        self._labels_layout.setSpacing(4)
+        self._list_layout.addLayout(self._labels_layout)
+
         self._scroll.setWidget(self._container)
         layout.addWidget(self._scroll, 1)
 
@@ -81,7 +127,20 @@ class OverlaySettingsView(QDialog):
         """Remove all label rows."""
         for row in self._labels.values():
             row.setParent(None)
+            row.deleteLater()
         self._labels.clear()
+
+    def clear_layers(self) -> None:
+        """Remove all layer rows."""
+        self._active_layer_id = None
+        self._layer_group.setExclusive(False)
+        for row in self._layers.values():
+            self._layer_group.removeButton(row.active_button())
+            row.setParent(None)
+            row.deleteLater()
+        self._layer_group.setExclusive(True)
+        self._layers.clear()
+        self._update_layer_buttons_enabled()
 
     def ensure_label(self, label_id: int, color: QColor, *, visible: bool = True) -> None:
         """Add the label row if absent, or refresh its color/visibility."""
@@ -101,13 +160,58 @@ class OverlaySettingsView(QDialog):
         row.color_changed.connect(self.label_color_changed)
         row.deleted.connect(self._on_label_deleted)
         self._labels[label_id] = row
-        self._list_layout.addWidget(row)
+        self._labels_layout.addWidget(row)
 
     def set_labels(self, entries: Iterable[Tuple[int, QColor, bool]]) -> None:
         """Sync the view from an external list of (id, color, visible)."""
         self.clear_labels()
         for label_id, color, visible in entries:
             self.ensure_label(label_id, color, visible=visible)
+
+    def set_layers(self, entries: Iterable[Tuple[str, str, bool, bool]]) -> None:
+        """Sync the view from an external list of (id, name, visible, is_active)."""
+        self.clear_layers()
+        for layer_id, name, visible, is_active in entries:
+            self.ensure_layer(layer_id, name, visible=visible, active=is_active)
+        self._update_layer_buttons_enabled()
+
+    def ensure_layer(
+        self,
+        layer_id: str,
+        name: str,
+        *,
+        visible: bool = True,
+        active: bool = False,
+    ) -> None:
+        """Add one layer row if absent, or refresh its state."""
+        normalized_id = str(layer_id or "").strip()
+        if not normalized_id:
+            return
+        if normalized_id in self._layers:
+            row = self._layers[normalized_id]
+            row.set_name(name)
+            row.set_visible_checked(visible)
+            row.set_active_checked(active)
+            if active:
+                self._active_layer_id = normalized_id
+            self._update_layer_buttons_enabled()
+            return
+
+        row = _LayerRow(
+            layer_id=normalized_id,
+            name=name,
+            visible=visible,
+            active=active,
+            parent=self._container,
+        )
+        row.active_selected.connect(self._on_layer_selected)
+        row.visibility_toggled.connect(self.layer_visibility_changed)
+        self._layers[normalized_id] = row
+        self._layer_group.addButton(row.active_button())
+        self._layers_layout.addWidget(row)
+        if active:
+            self._active_layer_id = normalized_id
+        self._update_layer_buttons_enabled()
 
     def set_overlay_opacity(self, value: float) -> None:
         """Set the overlay opacity slider (0.0 - 1.0)."""
@@ -128,6 +232,20 @@ class OverlaySettingsView(QDialog):
             row.setParent(None)
             row.deleteLater()
         self.label_deleted.emit(lbl)
+
+    def _on_layer_selected(self, layer_id: str) -> None:
+        normalized_id = str(layer_id or "").strip()
+        if not normalized_id:
+            return
+        self._active_layer_id = normalized_id
+        self._update_layer_buttons_enabled()
+        self.layer_selected.emit(normalized_id)
+
+    def _on_delete_active_layer(self) -> None:
+        active_id = str(self._active_layer_id or "").strip()
+        if not active_id:
+            return
+        self.layer_deleted.emit(active_id)
 
     # ------------------------------------------------------------------ #
     # Color helpers
@@ -182,6 +300,71 @@ class OverlaySettingsView(QDialog):
 
     def _update_opacity_label(self, value: int) -> None:
         self._opacity_value.setText(f"{int(value)}%")
+
+    def _update_layer_buttons_enabled(self) -> None:
+        has_active = bool(self._active_layer_id)
+        layer_count = len(self._layers)
+        self._layer_duplicate_button.setEnabled(has_active)
+        self._layer_delete_button.setEnabled(has_active and layer_count > 1)
+
+
+class _LayerRow(QWidget):
+    """Row widget holding active selection and visibility for one layer."""
+
+    active_selected = pyqtSignal(str)
+    visibility_toggled = pyqtSignal(str, bool)
+
+    def __init__(
+        self,
+        *,
+        layer_id: str,
+        name: str,
+        visible: bool,
+        active: bool,
+        parent: Optional[QWidget],
+    ) -> None:
+        super().__init__(parent)
+        self.layer_id = str(layer_id)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self._active = QRadioButton(self)
+        self._active.setChecked(bool(active))
+        self._active.toggled.connect(self._on_active_toggled)
+        layout.addWidget(self._active, 0)
+
+        self._name = QLabel(str(name or "Layer"), self)
+        self._name.setMinimumWidth(120)
+        layout.addWidget(self._name, 1)
+
+        self._visible = QCheckBox("Visible", self)
+        self._visible.setChecked(bool(visible))
+        self._visible.toggled.connect(self._on_visible_toggled)
+        layout.addWidget(self._visible, 0)
+
+    def active_button(self) -> QRadioButton:
+        return self._active
+
+    def set_name(self, name: str) -> None:
+        self._name.setText(str(name or "Layer"))
+
+    def set_active_checked(self, checked: bool) -> None:
+        self._active.blockSignals(True)
+        self._active.setChecked(bool(checked))
+        self._active.blockSignals(False)
+
+    def set_visible_checked(self, checked: bool) -> None:
+        self._visible.blockSignals(True)
+        self._visible.setChecked(bool(checked))
+        self._visible.blockSignals(False)
+
+    def _on_active_toggled(self, checked: bool) -> None:
+        if checked:
+            self.active_selected.emit(self.layer_id)
+
+    def _on_visible_toggled(self, checked: bool) -> None:
+        self.visibility_toggled.emit(self.layer_id, checked)
 
 
 class _LabelRow(QWidget):

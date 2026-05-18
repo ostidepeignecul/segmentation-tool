@@ -494,6 +494,11 @@ class MasterController:
         self.tools_panel.apply_roi_requested.connect(
             self.corrosion_profile_controller.on_apply_roi_requested
         )
+        self.tools_panel.layer_selected.connect(self._on_layer_selected)
+        self.tools_panel.layer_visibility_changed.connect(self._on_layer_visibility_changed)
+        self.tools_panel.layer_created.connect(self._on_layer_created)
+        self.tools_panel.layer_duplicated.connect(self._on_layer_duplicated)
+        self.tools_panel.layer_deleted.connect(self._on_layer_deleted)
         self.tools_panel.label_selected.connect(self.annotation_controller.on_label_selected)
         self.tools_panel.label_color_changed.connect(self._on_label_color_changed)
         self.tools_panel.label_selected.connect(
@@ -571,6 +576,13 @@ class MasterController:
         self.volume_view.volume_needs_update.connect(self._on_volume_needs_update)
         self.volume_view.secondary_slice_changed.connect(self._on_secondary_slice_changed)
         self.volume_view.camera_changed.connect(self._on_camera_changed)
+        self.overlay_settings_view.layer_selected.connect(self._on_layer_selected)
+        self.overlay_settings_view.layer_visibility_changed.connect(
+            self._on_layer_visibility_changed
+        )
+        self.overlay_settings_view.layer_created.connect(self._on_layer_created)
+        self.overlay_settings_view.layer_duplicated.connect(self._on_layer_duplicated)
+        self.overlay_settings_view.layer_deleted.connect(self._on_layer_deleted)
         self.overlay_settings_view.label_visibility_changed.connect(
             self.annotation_controller.on_label_visibility_changed
         )
@@ -1411,6 +1423,9 @@ class MasterController:
         )
 
     def _on_corrosion_session_changed(self) -> None:
+        self.session_manager.sync_active_layer_from_model(
+            annotation_model=self.annotation_model
+        )
         self._mark_active_session_dirty()
         self._restore_piece3d_state_from_view_state(sync_action=False)
 
@@ -1870,8 +1885,78 @@ class MasterController:
             self.view_state_model.set_active_label(None)
         self._sync_tools_labels(select_label_id=None)
 
+    def _on_layer_selected(self, layer_id: str) -> None:
+        """Switch the editable layer and rebuild UI state around it."""
+        if not self.session_manager.switch_active_layer(
+            layer_id,
+            annotation_model=self.annotation_model,
+        ):
+            self.annotation_controller.sync_overlay_settings()
+            return
+        self._clear_active_layer_runtime_edits()
+        self._after_layer_stack_changed()
+
+    def _on_layer_visibility_changed(self, layer_id: str, visible: bool) -> None:
+        """Toggle layer visibility and refresh the composed overlay."""
+        if not self.session_manager.set_layer_visibility(layer_id, visible):
+            self.annotation_controller.sync_overlay_settings()
+            return
+        self.annotation_controller.sync_overlay_settings()
+        self.annotation_controller.refresh_overlay(rebuild=False)
+        self._mark_active_session_dirty()
+
+    def _on_layer_created(self) -> None:
+        """Create a new empty layer above the current label list."""
+        created_layer_id = self.session_manager.create_empty_layer(
+            annotation_model=self.annotation_model
+        )
+        if created_layer_id is None:
+            self.annotation_controller.sync_overlay_settings()
+            return
+        self._clear_active_layer_runtime_edits()
+        self._after_layer_stack_changed()
+
+    def _on_layer_duplicated(self) -> None:
+        """Duplicate the active layer and switch editing to the copy."""
+        duplicated_layer_id = self.session_manager.duplicate_active_layer(
+            annotation_model=self.annotation_model
+        )
+        if duplicated_layer_id is None:
+            self.annotation_controller.sync_overlay_settings()
+            return
+        self._clear_active_layer_runtime_edits()
+        self._after_layer_stack_changed()
+
+    def _on_layer_deleted(self, layer_id: str) -> None:
+        """Delete one layer while keeping the session stack consistent."""
+        if not self.session_manager.delete_layer(
+            layer_id,
+            annotation_model=self.annotation_model,
+        ):
+            self.annotation_controller.sync_overlay_settings()
+            return
+        self._clear_active_layer_runtime_edits()
+        self._after_layer_stack_changed()
+
+    def _clear_active_layer_runtime_edits(self) -> None:
+        """Discard temporary previews and per-layer apply history after a layer switch."""
+        self.annotation_controller.clear_apply_history()
+        self.mask_modification_controller.reset()
+        self.temp_mask_model.clear()
+        if self.annotation_view is not None:
+            self.annotation_view.clear_temp_shapes()
+        self.annotation_controller.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
+
+    def _after_layer_stack_changed(self) -> None:
+        """Resync overlay UI, rendered overlay and active-label selectors after a layer change."""
+        self.annotation_controller.sync_overlay_settings()
+        self.annotation_controller.refresh_overlay(rebuild=False)
+        self._sync_tools_labels(select_label_id=self.view_state_model.active_label)
+        self._mark_active_session_dirty()
+
     def _sync_tools_labels(self, select_label_id: Optional[int] = None) -> None:
         """Sync the label list in the tools panel with the annotation model."""
+        self.tools_panel.set_layers(self.session_manager.list_active_layers())
         self.annotation_model.ensure_persistent_labels()
         self.temp_mask_model.ensure_persistent_labels()
         palette = self.annotation_model.get_label_palette()
@@ -2387,6 +2472,9 @@ class MasterController:
         self.temp_mask_model.initialize(volume.shape)
         self.roi_model.clear()
         self.annotation_model.set_mask_volume(mask_volume, preserve_labels=preserve_labels)
+        self.session_manager.sync_active_layer_from_model(
+            annotation_model=self.annotation_model
+        )
         self.cscan_controller.reset_corrosion()
         self._reset_piece3d_state(sync_action=True)
         self.mask_modification_controller.reset()
@@ -2957,6 +3045,7 @@ class MasterController:
 
         self._apply_annotation_action(getattr(self.view_state_model, "annotation_action", "draw"))
         self.annotation_controller.sync_overlay_settings()
+        self._sync_tools_labels(select_label_id=self.view_state_model.active_label)
         self.annotation_controller.apply_overlay_opacity()
         self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)

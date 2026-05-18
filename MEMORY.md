@@ -4321,3 +4321,22 @@ La phase A avait pose la structure `session -> stack -> layer` sans modifier le 
 1. Garder les vues 2D/3D sur un payload overlay unique pour cette phase, et faire la composition dans `AnnotationSessionManager`/`AnnotationController`, afin de limiter le scope avant une vraie UI de layers.
 2. Utiliser le cache overlay uniquement quand le rendu correspond exactement au layer actif visible seul ; en rendu compose, reconstruire l overlay pour eviter de melanger le cache du layer actif et la sortie multi-layer.
 3. Rebinder `AnnotationModel` sur les dictionnaires et volumes du layer actif vivant, afin que les edits de masque, palette et visibilite s appliquent directement au bon layer sans attendre un nouveau snapshot de session.
+
+### 2026-05-18 - Phase C du systeme de layers dans les sessions
+**Tags :** `#branch:feature/layer-system-v2`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#services/annotation_session_manager.py`, `#views/overlay_settings_view.py`, `#views/tools_panel.py`, `#layer-stack`, `#session`, `#overlay`, `#ui`, `#npz-import`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute une UI de layers dans `views/overlay_settings_view.py` avec selection du layer actif, visibilite, creation, duplication et suppression au-dessus de la liste de labels.
+- Etend `views/tools_panel.py` avec la meme UI de layers dans le `scrollArea` existant, placee au-dessus des labels, pour garder une edition directe depuis le dock principal.
+- Branche `controllers/master_controller.py` sur les signaux layers des deux vues et centralise le post-traitement runtime apres switch/create/duplicate/delete : clear des previews, resync overlay, resync labels et marquage dirty de la session active.
+- Etend `services/annotation_session_manager.py` avec `list_active_layers()`, `create_empty_layer()`, `duplicate_active_layer()`, `delete_layer()` et `sync_active_layer_from_model()`.
+- Met a jour `controllers/annotation_controller.py` pour resynchroniser la liste des layers dans la fenetre overlay lors du refresh des parametres.
+- Corrige le cas des overlays NPZ importes en resynchronisant explicitement le layer actif depuis `AnnotationModel` apres un `set_mask_volume()`, afin qu un `add layer` n efface plus l overlay charge.
+
+**Contexte :**
+La phase B permettait deja de composer plusieurs layers visibles mais sans UI dediee. La phase C devait exposer le stack a l utilisateur, d abord dans la fenetre overlay puis aussi dans le `ToolsPanel`, tout en corrigeant un bug de synchronisation ou un overlay importe (NPZ, corrosion ou autre `set_mask_volume`) restait hors du stack runtime et disparaissait lors de la creation d un nouveau layer.
+
+**Decisions techniques :**
+1. Garder deux points d entree UI pour les layers, `OverlaySettingsView` et `ToolsPanel`, en reutilisant les memes handlers de `MasterController`, afin de rester coherent avec le traitement deja duplique pour les labels.
+2. Resynchroniser le layer actif depuis le modele live avant les operations de stack et apres les imports d overlay, plutot que de supposer que le pointeur `mask_volume` du layer actif reste valide apres chaque `set_mask_volume()`.
+3. Conserver pour cette phase un rendu compose legacy en overlay unique, et limiter la phase C a l orchestration UI/runtime sans encore pousser un vrai `OverlayStackData` dans les vues 2D/3D.
