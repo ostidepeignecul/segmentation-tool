@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from models.annotation_model import AnnotationModel
+from models.layer_stack_model import LayerStackModel, LayerState
 from models.overlay_data import OverlayData
 from models.roi_model import ROI, RoiModel
 from models.temp_mask_model import TempMaskModel
@@ -16,9 +17,10 @@ from models.view_state_model import ViewStateModel
 
 @dataclass
 class AnnotationSessionState:
-    """Snapshot complet d'une session d'annotation."""
+    """Complete annotation session snapshot."""
 
     name: str
+    layer_stack: LayerStackModel
     mask_volume: Optional[np.ndarray]
     label_palette: Dict[int, tuple[int, int, int, int]]
     label_visibility: Dict[int, bool]
@@ -33,7 +35,7 @@ class AnnotationSessionState:
 
 
 class AnnotationSessionManager:
-    """Gère plusieurs sessions d'annotation en mémoire et permet de basculer entre elles."""
+    """Manage multiple annotation sessions in memory."""
 
     def __init__(self) -> None:
         self._sessions: Dict[str, AnnotationSessionState] = {}
@@ -50,7 +52,7 @@ class AnnotationSessionManager:
         roi_model: RoiModel,
         view_state_model: ViewStateModel,
     ) -> str:
-        """Crée une session par défaut si aucune n'existe."""
+        """Create a default session if none exists."""
         if self._active_id is not None:
             return self._active_id
         return self.create_from_models(
@@ -70,7 +72,7 @@ class AnnotationSessionManager:
         roi_model: RoiModel,
         view_state_model: ViewStateModel,
     ) -> str:
-        """Réinitialise toutes les sessions lors du chargement d'un nouveau NDE."""
+        """Reset all sessions when loading a new dataset."""
         self._sessions.clear()
         self._active_id = None
         return self.ensure_default(
@@ -81,35 +83,49 @@ class AnnotationSessionManager:
         )
 
     def list_sessions(self) -> List[tuple[str, str, bool]]:
-        """Retourne la liste des sessions (id, nom, is_active)."""
+        """Return session list as (id, name, is_active)."""
         return [
             (sid, state.name, sid == self._active_id)
             for sid, state in self._sessions.items()
         ]
 
     def has_session(self, session_id: str) -> bool:
-        """Indique si une session existe en memoire."""
+        """Return whether a session exists in memory."""
         return session_id in self._sessions
 
     def get_active_session_id(self) -> Optional[str]:
-        """Expose l'id de la session active."""
+        """Expose the active session id."""
         return self._active_id
 
     def get_session_name(self, session_id: str) -> Optional[str]:
-        """Retourne le nom d'une session si elle existe."""
+        """Return a session name when it exists."""
         state = self._sessions.get(session_id)
         if state is None:
             return None
         return state.name
 
     def get_active_session_name(self) -> Optional[str]:
-        """Expose le nom de la session active."""
+        """Expose the active session name."""
         if self._active_id is None:
             return None
         return self.get_session_name(self._active_id)
 
+    def get_session_layer_stack(self, session_id: str) -> Optional[LayerStackModel]:
+        """Expose one session layer stack after normalizing legacy state."""
+        state = self._sessions.get(session_id)
+        if state is None:
+            return None
+        return self._normalize_session_state(state).layer_stack
+
+    def get_active_layer_stack(self) -> Optional[LayerStackModel]:
+        """Expose the active session layer stack."""
+        active_id = self._active_id
+        if active_id is None:
+            return None
+        return self.get_session_layer_stack(active_id)
+
     def rename_session(self, session_id: str, name: str) -> None:
-        """Met a jour le nom d'une session sans modifier son contenu."""
+        """Update a session name without touching its contents."""
         state = self._sessions.get(session_id)
         if state is None:
             return
@@ -126,16 +142,22 @@ class AnnotationSessionManager:
         set_active: bool = True,
         save_active: bool = True,
     ) -> str:
-        """Capture les modèles courants dans une nouvelle session."""
+        """Capture current models into a new session."""
+        source_state: Optional[AnnotationSessionState] = None
         if save_active and self._active_id is not None:
-            # Sauvegarde l'état actuel avant de créer une nouvelle session
+            source_state = self._sessions[self._active_id]
             self._sessions[self._active_id] = self._snapshot(
                 name=self._sessions[self._active_id].name,
                 annotation_model=annotation_model,
                 temp_mask_model=temp_mask_model,
                 roi_model=roi_model,
                 view_state_model=view_state_model,
+                existing_state=source_state,
             )
+            source_state = self._sessions[self._active_id]
+        elif self._active_id is not None:
+            source_state = self._sessions.get(self._active_id)
+
         session_id = uuid.uuid4().hex
         state = self._snapshot(
             name=name,
@@ -143,6 +165,7 @@ class AnnotationSessionManager:
             temp_mask_model=temp_mask_model,
             roi_model=roi_model,
             view_state_model=view_state_model,
+            existing_state=source_state,
         )
         self._sessions[session_id] = state
         if set_active:
@@ -160,7 +183,7 @@ class AnnotationSessionManager:
         set_active: bool = True,
         save_active: bool = True,
     ) -> str:
-        """Cree une session vide sur le dataset courant sans dupliquer les annotations."""
+        """Create an empty session on the current dataset."""
         if save_active and self._active_id is not None:
             self._sessions[self._active_id] = self._snapshot(
                 name=self._sessions[self._active_id].name,
@@ -168,6 +191,7 @@ class AnnotationSessionManager:
                 temp_mask_model=temp_mask_model,
                 roi_model=roi_model,
                 view_state_model=view_state_model,
+                existing_state=self._sessions[self._active_id],
             )
 
         session_id = uuid.uuid4().hex
@@ -199,14 +223,13 @@ class AnnotationSessionManager:
         view_state_model: ViewStateModel,
     ) -> Optional[str]:
         """
-        Supprime une session. Si on supprime l'actuelle, bascule sur une autre.
-        Retourne la nouvelle session active.
+        Delete a session. If the active one is removed, switch to another one.
+        Returns the new active session id.
         """
         if session_id not in self._sessions or len(self._sessions) <= 1:
             return self._active_id
         del self._sessions[session_id]
         if self._active_id == session_id:
-            # Choisir arbitrairement la première restante
             new_id = next(iter(self._sessions.keys()))
             self.switch_session(
                 new_id,
@@ -228,7 +251,7 @@ class AnnotationSessionManager:
         view_state_model: ViewStateModel,
         save_current: bool = True,
     ) -> None:
-        """Sauvegarde la session active, charge la session cible dans les modèles."""
+        """Save the active session and load the target into live models."""
         if session_id not in self._sessions:
             return
         if save_current and self._active_id is not None:
@@ -238,6 +261,7 @@ class AnnotationSessionManager:
                 temp_mask_model=temp_mask_model,
                 roi_model=roi_model,
                 view_state_model=view_state_model,
+                existing_state=self._sessions[self._active_id],
             )
         target = self._sessions[session_id]
         self._apply(
@@ -257,7 +281,7 @@ class AnnotationSessionManager:
         roi_model: RoiModel,
         view_state_model: ViewStateModel,
     ) -> dict[str, Any]:
-        """Capture l'etat courant et retourne un dump serialisable du gestionnaire."""
+        """Capture current state and return a serializable manager dump."""
         if self._active_id is not None and self._active_id in self._sessions:
             self._sessions[self._active_id] = self._snapshot(
                 name=self._sessions[self._active_id].name,
@@ -265,6 +289,7 @@ class AnnotationSessionManager:
                 temp_mask_model=temp_mask_model,
                 roi_model=roi_model,
                 view_state_model=view_state_model,
+                existing_state=self._sessions[self._active_id],
             )
         return {
             "sessions": self._sessions,
@@ -279,7 +304,7 @@ class AnnotationSessionManager:
         roi_model: RoiModel,
         view_state_model: ViewStateModel,
     ) -> dict[str, Any]:
-        """Capture et retourne uniquement la session active."""
+        """Capture and return only the active session."""
         active_id = self._active_id
         if not isinstance(active_id, str):
             raise ValueError("Aucune session active a sauvegarder.")
@@ -308,7 +333,7 @@ class AnnotationSessionManager:
         roi_model: RoiModel,
         view_state_model: ViewStateModel,
     ) -> dict[str, Any]:
-        """Capture et retourne une session unique par son identifiant."""
+        """Capture and return one session by id."""
         target_id = str(session_id).strip()
         if self._active_id is not None and self._active_id in self._sessions:
             self._sessions[self._active_id] = self._snapshot(
@@ -317,6 +342,7 @@ class AnnotationSessionManager:
                 temp_mask_model=temp_mask_model,
                 roi_model=roi_model,
                 view_state_model=view_state_model,
+                existing_state=self._sessions[self._active_id],
             )
         if not target_id or target_id not in self._sessions:
             raise ValueError("Session introuvable pour la sauvegarde.")
@@ -328,7 +354,7 @@ class AnnotationSessionManager:
         }
 
     def restore_dump(self, payload: dict[str, Any]) -> Optional[str]:
-        """Replace les sessions en memoire par un dump precedemment sauvegarde."""
+        """Replace in-memory sessions with a previously saved dump."""
         sessions = payload.get("sessions")
         if not isinstance(sessions, dict) or not sessions:
             raise ValueError("Dump de sessions invalide ou vide.")
@@ -337,7 +363,7 @@ class AnnotationSessionManager:
         for session_id, state in sessions.items():
             if not isinstance(session_id, str) or not isinstance(state, AnnotationSessionState):
                 raise ValueError("Dump de sessions corrompu.")
-            restored[session_id] = state
+            restored[session_id] = self._normalize_session_state(state)
 
         active_id = payload.get("active_id")
         if not isinstance(active_id, str) or active_id not in restored:
@@ -358,11 +384,23 @@ class AnnotationSessionManager:
         temp_mask_model: TempMaskModel,
         roi_model: RoiModel,
         view_state_model: ViewStateModel,
+        existing_state: Optional[AnnotationSessionState] = None,
     ) -> AnnotationSessionState:
+        if existing_state is None and self._active_id is not None:
+            existing_state = self._sessions.get(self._active_id)
+
         mask_volume = annotation_model.mask_volume
         label_palette = copy.deepcopy(annotation_model.label_palette)
         label_visibility = copy.deepcopy(annotation_model.label_visibility)
         overlay_cache = annotation_model.get_overlay_cache()
+        layer_stack = self._snapshot_layer_stack(
+            mask_volume=mask_volume,
+            label_palette=label_palette,
+            label_visibility=label_visibility,
+            overlay_cache=overlay_cache,
+            existing_state=existing_state,
+        )
+        active_layer = layer_stack.get_active_layer()
 
         temp_mask_volume = temp_mask_model.mask_volume
         temp_coverage_volume = temp_mask_model.coverage_volume
@@ -371,14 +409,18 @@ class AnnotationSessionManager:
 
         rois = copy.deepcopy(roi_model._rois)  # noqa: SLF001
         next_roi_id = roi_model._next_id  # noqa: SLF001
-
         view_state = self._copy_view_state_mapping(vars(view_state_model))
 
         return AnnotationSessionState(
             name=self._normalize_session_name(name),
-            mask_volume=mask_volume,
-            label_palette=label_palette,
-            label_visibility=label_visibility,
+            layer_stack=layer_stack,
+            mask_volume=active_layer.mask_volume if active_layer is not None else mask_volume,
+            label_palette=copy.deepcopy(active_layer.label_palette)
+            if active_layer is not None
+            else label_palette,
+            label_visibility=copy.deepcopy(active_layer.label_visibility)
+            if active_layer is not None
+            else label_visibility,
             temp_mask_volume=temp_mask_volume,
             temp_coverage_volume=temp_coverage_volume,
             temp_palette=temp_palette,
@@ -386,7 +428,7 @@ class AnnotationSessionManager:
             rois=rois,
             next_roi_id=next_roi_id,
             view_state=view_state,
-            overlay_cache=overlay_cache,
+            overlay_cache=active_layer.overlay_cache if active_layer is not None else overlay_cache,
         )
 
     def _empty_state(
@@ -426,11 +468,24 @@ class AnnotationSessionManager:
         view_state["corrosion_piece_show_interpolated"] = True
         view_state["corrosion_piece_view_enabled"] = False
 
-        return AnnotationSessionState(
-            name=self._normalize_session_name(name),
+        layer_stack = self._build_single_layer_stack(
             mask_volume=mask_volume,
             label_palette=copy.deepcopy(annotation_model.label_palette),
             label_visibility=copy.deepcopy(annotation_model.label_visibility),
+            overlay_cache=None,
+        )
+        active_layer = layer_stack.get_active_layer()
+
+        return AnnotationSessionState(
+            name=self._normalize_session_name(name),
+            layer_stack=layer_stack,
+            mask_volume=active_layer.mask_volume if active_layer is not None else mask_volume,
+            label_palette=copy.deepcopy(active_layer.label_palette)
+            if active_layer is not None
+            else copy.deepcopy(annotation_model.label_palette),
+            label_visibility=copy.deepcopy(active_layer.label_visibility)
+            if active_layer is not None
+            else copy.deepcopy(annotation_model.label_visibility),
             temp_mask_volume=temp_mask_volume,
             temp_coverage_volume=temp_coverage_volume,
             temp_palette=copy.deepcopy(temp_mask_model.label_palette),
@@ -450,16 +505,27 @@ class AnnotationSessionManager:
         roi_model: RoiModel,
         view_state_model: ViewStateModel,
     ) -> None:
-        # Annotation model
+        state = self._normalize_session_state(state)
+        active_layer = state.layer_stack.get_active_layer()
+
         annotation_model.clear()
-        if state.mask_volume is not None:
-            annotation_model.mask_volume = state.mask_volume  # type: ignore[assignment]
-        annotation_model.label_palette = copy.deepcopy(state.label_palette)
-        annotation_model.label_visibility = copy.deepcopy(state.label_visibility)
-        annotation_model.overlay_cache = state.overlay_cache
+        if active_layer is not None and active_layer.mask_volume is not None:
+            annotation_model.mask_volume = active_layer.mask_volume  # type: ignore[assignment]
+        annotation_model.label_palette = (
+            copy.deepcopy(active_layer.label_palette)
+            if active_layer is not None
+            else copy.deepcopy(state.label_palette)
+        )
+        annotation_model.label_visibility = (
+            copy.deepcopy(active_layer.label_visibility)
+            if active_layer is not None
+            else copy.deepcopy(state.label_visibility)
+        )
+        annotation_model.overlay_cache = (
+            active_layer.overlay_cache if active_layer is not None else state.overlay_cache
+        )
         annotation_model.ensure_persistent_labels()
 
-        # Temp masks
         temp_mask_model.clear()
         if state.temp_mask_volume is not None:
             temp_mask_model.initialize(state.temp_mask_volume.shape)
@@ -470,11 +536,9 @@ class AnnotationSessionManager:
         temp_mask_model.label_visibility = copy.deepcopy(state.temp_visibility)
         temp_mask_model.ensure_persistent_labels()
 
-        # ROIs
         roi_model._rois = copy.deepcopy(state.rois)  # noqa: SLF001
         roi_model._next_id = state.next_roi_id  # noqa: SLF001
 
-        # View state
         default_view_state = vars(ViewStateModel())
         for key, val in default_view_state.items():
             if key not in state.view_state:
@@ -486,21 +550,169 @@ class AnnotationSessionManager:
         self,
         state: AnnotationSessionState,
     ) -> AnnotationSessionState:
-        """Return a disk-oriented clone without derived runtime caches."""
+        """Return a disk-oriented clone without runtime overlay caches."""
+        normalized_state = self._normalize_session_state(state)
+        persistable_stack = self._build_persistable_layer_stack(normalized_state.layer_stack)
+        active_layer = persistable_stack.get_active_layer()
         return AnnotationSessionState(
-            name=self._normalize_session_name(state.name),
-            mask_volume=state.mask_volume,
-            label_palette=copy.deepcopy(state.label_palette),
-            label_visibility=copy.deepcopy(state.label_visibility),
-            temp_mask_volume=state.temp_mask_volume,
-            temp_coverage_volume=state.temp_coverage_volume,
-            temp_palette=copy.deepcopy(state.temp_palette),
-            temp_visibility=copy.deepcopy(state.temp_visibility),
-            rois=copy.deepcopy(state.rois),
-            next_roi_id=state.next_roi_id,
-            view_state=self._copy_view_state_mapping(state.view_state),
+            name=self._normalize_session_name(normalized_state.name),
+            layer_stack=persistable_stack,
+            mask_volume=active_layer.mask_volume if active_layer is not None else normalized_state.mask_volume,
+            label_palette=copy.deepcopy(active_layer.label_palette)
+            if active_layer is not None
+            else copy.deepcopy(normalized_state.label_palette),
+            label_visibility=copy.deepcopy(active_layer.label_visibility)
+            if active_layer is not None
+            else copy.deepcopy(normalized_state.label_visibility),
+            temp_mask_volume=normalized_state.temp_mask_volume,
+            temp_coverage_volume=normalized_state.temp_coverage_volume,
+            temp_palette=copy.deepcopy(normalized_state.temp_palette),
+            temp_visibility=copy.deepcopy(normalized_state.temp_visibility),
+            rois=copy.deepcopy(normalized_state.rois),
+            next_roi_id=normalized_state.next_roi_id,
+            view_state=self._copy_view_state_mapping(normalized_state.view_state),
             overlay_cache=None,
         )
+
+    def _normalize_session_state(
+        self,
+        state: AnnotationSessionState,
+    ) -> AnnotationSessionState:
+        """Promote legacy single-overlay state to a stack-backed session."""
+        state.name = self._normalize_session_name(getattr(state, "name", ""))
+
+        layer_stack = getattr(state, "layer_stack", None)
+        if not isinstance(layer_stack, LayerStackModel) or not layer_stack.layers:
+            layer_stack = self._build_single_layer_stack(
+                mask_volume=getattr(state, "mask_volume", None),
+                label_palette=copy.deepcopy(getattr(state, "label_palette", {})),
+                label_visibility=copy.deepcopy(getattr(state, "label_visibility", {})),
+                overlay_cache=getattr(state, "overlay_cache", None),
+            )
+        else:
+            layer_stack.ensure_active_layer()
+
+        active_layer = layer_stack.get_active_layer()
+        if active_layer is None:
+            layer_stack = self._build_single_layer_stack(
+                mask_volume=getattr(state, "mask_volume", None),
+                label_palette=copy.deepcopy(getattr(state, "label_palette", {})),
+                label_visibility=copy.deepcopy(getattr(state, "label_visibility", {})),
+                overlay_cache=getattr(state, "overlay_cache", None),
+            )
+            active_layer = layer_stack.get_active_layer()
+
+        state.layer_stack = layer_stack
+        state.mask_volume = active_layer.mask_volume if active_layer is not None else None
+        state.label_palette = copy.deepcopy(active_layer.label_palette) if active_layer is not None else {}
+        state.label_visibility = (
+            copy.deepcopy(active_layer.label_visibility)
+            if active_layer is not None
+            else {}
+        )
+        state.overlay_cache = active_layer.overlay_cache if active_layer is not None else None
+        return state
+
+    def _snapshot_layer_stack(
+        self,
+        *,
+        mask_volume: Optional[np.ndarray],
+        label_palette: Dict[int, tuple[int, int, int, int]],
+        label_visibility: Dict[int, bool],
+        overlay_cache: Optional[OverlayData],
+        existing_state: Optional[AnnotationSessionState],
+    ) -> LayerStackModel:
+        normalized_existing = (
+            self._normalize_session_state(existing_state)
+            if existing_state is not None
+            else None
+        )
+        source_stack = normalized_existing.layer_stack if normalized_existing is not None else None
+        if source_stack is None or not source_stack.layers:
+            return self._build_single_layer_stack(
+                mask_volume=mask_volume,
+                label_palette=label_palette,
+                label_visibility=label_visibility,
+                overlay_cache=overlay_cache,
+            )
+
+        active_layer_id = source_stack.ensure_active_layer()
+        cloned_layers: list[LayerState] = []
+        for source_layer in source_stack.layers:
+            if str(source_layer.id) == str(active_layer_id):
+                cloned_layers.append(
+                    LayerState.create(
+                        layer_id=source_layer.id,
+                        name=source_layer.name,
+                        mask_volume=mask_volume,
+                        label_palette=label_palette,
+                        label_visibility=label_visibility,
+                        visible=source_layer.visible,
+                        locked=source_layer.locked,
+                        opacity=source_layer.opacity,
+                        overlay_cache=overlay_cache,
+                    )
+                )
+            else:
+                cloned_layers.append(
+                    LayerState.create(
+                        layer_id=source_layer.id,
+                        name=source_layer.name,
+                        mask_volume=source_layer.mask_volume,
+                        label_palette=copy.deepcopy(source_layer.label_palette),
+                        label_visibility=copy.deepcopy(source_layer.label_visibility),
+                        visible=source_layer.visible,
+                        locked=source_layer.locked,
+                        opacity=source_layer.opacity,
+                        overlay_cache=source_layer.overlay_cache,
+                    )
+                )
+        return LayerStackModel(layers=cloned_layers, active_layer_id=active_layer_id)
+
+    def _build_single_layer_stack(
+        self,
+        *,
+        mask_volume: Optional[np.ndarray],
+        label_palette: Dict[int, tuple[int, int, int, int]],
+        label_visibility: Dict[int, bool],
+        overlay_cache: Optional[OverlayData],
+    ) -> LayerStackModel:
+        """Wrap the current annotation payload in a one-layer stack."""
+        layer = LayerState.create(
+            name="Layer 1",
+            mask_volume=mask_volume,
+            label_palette=label_palette,
+            label_visibility=label_visibility,
+            overlay_cache=overlay_cache,
+        )
+        return LayerStackModel(layers=[layer], active_layer_id=layer.id)
+
+    def _build_persistable_layer_stack(
+        self,
+        layer_stack: LayerStackModel,
+    ) -> LayerStackModel:
+        """Clone one layer stack while dropping runtime caches."""
+        layer_stack.ensure_active_layer()
+        layers = [
+            LayerState.create(
+                layer_id=layer.id,
+                name=layer.name,
+                mask_volume=layer.mask_volume,
+                label_palette=copy.deepcopy(layer.label_palette),
+                label_visibility=copy.deepcopy(layer.label_visibility),
+                visible=layer.visible,
+                locked=layer.locked,
+                opacity=layer.opacity,
+                overlay_cache=None,
+            )
+            for layer in layer_stack.layers
+        ]
+        persistable = LayerStackModel(
+            layers=layers,
+            active_layer_id=layer_stack.active_layer_id,
+        )
+        persistable.ensure_active_layer()
+        return persistable
 
     @classmethod
     def _copy_view_state_mapping(cls, payload: dict[str, Any]) -> dict[str, Any]:

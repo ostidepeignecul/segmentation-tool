@@ -4283,3 +4283,21 @@ L'axe vertical de l'A-Scan représente l'amplitude. Visuellement, le 100 % doit 
 **Décisions techniques :**
 1. Passer `axis_inverted` en paramètre explicite à `_position_for_value` plutôt que de lire `self._axis_inverted` directement, pour isoler la logique de calcul de position de l'état de l'objet (testabilité, clarté).
 2. Conserver `_axis_inverted` comme état de l'instance plutôt qu'un paramètre de `set_view_range`, car l'inversion est une propriété de la vue et non de la plage de données.
+
+### 2026-05-18 - Phase A du systeme de layers dans les sessions
+**Tags :** `#branch:feature/layer-system-v2`, `#services/annotation_session_manager.py`, `#models/layer_stack_model.py`, `#layer-stack`, `#session`, `#overlay`, `#compatibility`, `#mvc`
+
+**Actions effectuees :**
+- Ajout de `LayerState` et `LayerStackModel` dans `models/layer_stack_model.py` pour introduire un vrai conteneur de layers avec `active_layer_id`.
+- Refactor de `AnnotationSessionState` pour stocker un `layer_stack` en plus des champs legacy, afin de preparer la migration sans casser le pipeline actuel.
+- Modification de `AnnotationSessionManager` pour snapshotter, restaurer et persister les sessions a partir du stack de layers tout en reappliquant uniquement le layer actif dans `AnnotationModel`.
+- Ajout d une normalisation automatique des anciens etats mono-overlay vers un stack mono-layer, et suppression des `overlay_cache` runtime lors de la persistance.
+- Verification de la phase A par compilation Python et par un scenario cible `ensure_default -> build_session_dump -> restore_dump`, incluant la promotion d un etat legacy sans `layer_stack`.
+
+**Contexte :**
+La branche `feature/layer-system-v2` repart sur une base plus simple que les tentatives precedentes V1/V2. L objectif de cette phase A est de poser la structure metier `session -> stack -> layer` sans encore modifier les vues ni le pipeline d edition. Au moment du `brew`, `git diff --cached` etait vide ; cette entree documente donc l etat courant du worktree de la phase A avant de poursuivre.
+
+**Decisions techniques :**
+1. Introduire le stack dans le `session_manager` des la phase A, mais conserver des champs miroir (`mask_volume`, `label_palette`, `label_visibility`, `overlay_cache`) pour maintenir la compatibilite avec le reste du code.
+2. Garder un mode transitoire mono-layer : le stack devient la source de verite de session, mais seul le layer actif est reapplique dans `AnnotationModel` tant que `AnnotationController` et les vues ne consomment pas encore le stack complet.
+3. Normaliser les etats legacy a l ouverture et au restore plutot que d imposer une migration immediate du format `.session`, afin de reduire le risque pendant la transition vers le vrai systeme de layers.
