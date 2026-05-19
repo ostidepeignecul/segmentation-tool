@@ -151,7 +151,7 @@ class AScanController:
         if self.corrosion_view is None:
             return
 
-        overlay = self.view_state_model.corrosion_overlay_volume
+        overlay = self.annotation_model.get_mask_volume()
         label_ids = self.view_state_model.corrosion_overlay_label_ids
         if overlay is None or label_ids is None:
             self.corrosion_view.clear_measurement()

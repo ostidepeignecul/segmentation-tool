@@ -8,7 +8,12 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from models.annotation_model import AnnotationModel
-from models.layer_stack_model import CorrosionLayerState, LayerStackModel, LayerState
+from models.layer_stack_model import (
+    CorrosionLayerState,
+    CorrosionRuntimeCache,
+    LayerStackModel,
+    LayerState,
+)
 from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
 from models.roi_model import ROI, RoiModel
 from models.temp_mask_model import TempMaskModel
@@ -16,16 +21,12 @@ from models.view_state_model import ViewStateModel
 
 
 CORROSION_LAYER_VIEW_STATE_KEYS = (
-    "corrosion_projection",
-    "corrosion_interpolated_projection",
-    "corrosion_overlay_volume",
     "corrosion_overlay_palette",
     "corrosion_overlay_label_ids",
     "corrosion_peak_index_map_a",
     "corrosion_peak_index_map_b",
     "corrosion_raw_peak_index_map_a",
     "corrosion_raw_peak_index_map_b",
-    "corrosion_raw_distance_map",
     "corrosion_ascan_support_map",
     "corrosion_interpolation_algo",
     "corrosion_peak_selection_mode",
@@ -34,6 +35,12 @@ CORROSION_LAYER_VIEW_STATE_KEYS = (
     "corrosion_label_a",
     "corrosion_label_b",
     "corrosion_session_stage",
+)
+
+CORROSION_RUNTIME_VIEW_STATE_KEYS = (
+    "corrosion_projection",
+    "corrosion_interpolated_projection",
+    "corrosion_raw_distance_map",
     "corrosion_piece_volume_raw",
     "corrosion_piece_volume_interpolated",
     "corrosion_piece_volume_legacy_raw",
@@ -41,6 +48,13 @@ CORROSION_LAYER_VIEW_STATE_KEYS = (
     "corrosion_piece_anchor",
     "corrosion_piece_show_interpolated",
     "corrosion_piece_view_enabled",
+)
+
+CORROSION_SESSION_VIEW_STATE_KEYS = (
+    "corrosion_active",
+    "corrosion_overlay_volume",
+    *CORROSION_LAYER_VIEW_STATE_KEYS,
+    *CORROSION_RUNTIME_VIEW_STATE_KEYS,
 )
 
 
@@ -186,6 +200,11 @@ class AnnotationSessionManager:
             active_layer.layer_kind = self._layer_kind_from_view_state(view_state_model)
             active_layer.corrosion_state = self._build_corrosion_layer_state_from_view_state(
                 view_state_model
+            )
+            active_layer.corrosion_runtime_cache = (
+                self._build_corrosion_runtime_cache_from_view_state(view_state_model)
+                if active_layer.layer_kind == "corrosion"
+                else None
             )
         self._sync_session_legacy_fields_from_active_layer(state, active_layer)
         return True
@@ -334,6 +353,9 @@ class AnnotationSessionManager:
             overlay_cache=None,
             layer_kind=active_layer.layer_kind,
             corrosion_state=self._copy_corrosion_layer_state(active_layer.corrosion_state),
+            corrosion_runtime_cache=self._copy_corrosion_runtime_cache(
+                active_layer.corrosion_runtime_cache
+            ),
         )
         state.layer_stack.layers.append(duplicated_layer)
         state.layer_stack.set_active_layer(duplicated_layer.id)
@@ -434,6 +456,11 @@ class AnnotationSessionManager:
             layer_kind=normalized_kind,
             corrosion_state=(
                 self._build_corrosion_layer_state_from_view_state(view_state_model)
+                if normalized_kind == "corrosion"
+                else None
+            ),
+            corrosion_runtime_cache=(
+                self._build_corrosion_runtime_cache_from_view_state(view_state_model)
                 if normalized_kind == "corrosion"
                 else None
             ),
@@ -662,7 +689,10 @@ class AnnotationSessionManager:
                 existing_state=self._sessions[self._active_id],
             )
         return {
-            "sessions": self._sessions,
+            "sessions": {
+                session_id: self._build_persistable_session_state(state)
+                for session_id, state in self._sessions.items()
+            },
             "active_id": self._active_id,
         }
 
@@ -780,7 +810,7 @@ class AnnotationSessionManager:
 
         rois = copy.deepcopy(roi_model._rois)  # noqa: SLF001
         next_roi_id = roi_model._next_id  # noqa: SLF001
-        view_state = self._copy_view_state_mapping(vars(view_state_model))
+        view_state = self._copy_session_view_state_mapping(vars(view_state_model))
 
         return AnnotationSessionState(
             name=self._normalize_session_name(name),
@@ -817,28 +847,7 @@ class AnnotationSessionManager:
         mask_volume = np.zeros(shape, dtype=np.uint8) if shape is not None else None
         temp_mask_volume = np.zeros(shape, dtype=np.uint8) if shape is not None else None
         temp_coverage_volume = np.zeros(shape, dtype=bool) if shape is not None else None
-        view_state = self._copy_view_state_mapping(vars(view_state_model))
-        view_state["corrosion_active"] = False
-        view_state["corrosion_projection"] = None
-        view_state["corrosion_interpolated_projection"] = None
-        view_state["corrosion_overlay_volume"] = None
-        view_state["corrosion_overlay_palette"] = None
-        view_state["corrosion_overlay_label_ids"] = None
-        view_state["corrosion_peak_index_map_a"] = None
-        view_state["corrosion_peak_index_map_b"] = None
-        view_state["corrosion_raw_peak_index_map_a"] = None
-        view_state["corrosion_raw_peak_index_map_b"] = None
-        view_state["corrosion_raw_distance_map"] = None
-        view_state["corrosion_ascan_support_map"] = None
-        view_state["corrosion_session_stage"] = "base"
-        view_state["corrosion_piece_volume_raw"] = None
-        view_state["corrosion_piece_volume_interpolated"] = None
-        view_state["corrosion_piece_volume_legacy_raw"] = None
-        view_state["corrosion_piece_volume_legacy_interpolated"] = None
-        view_state["corrosion_piece_anchor"] = None
-        view_state["corrosion_piece_show_interpolated"] = True
-        view_state["corrosion_piece_view_enabled"] = False
-
+        view_state = self._copy_session_view_state_mapping(vars(view_state_model))
         layer_stack = self._build_single_layer_stack(
             mask_volume=mask_volume,
             label_palette=copy.deepcopy(annotation_model.label_palette),
@@ -927,7 +936,7 @@ class AnnotationSessionManager:
             temp_visibility=copy.deepcopy(normalized_state.temp_visibility),
             rois=copy.deepcopy(normalized_state.rois),
             next_roi_id=normalized_state.next_roi_id,
-            view_state=self._copy_view_state_mapping(normalized_state.view_state),
+            view_state=self._copy_session_view_state_mapping(normalized_state.view_state),
             overlay_cache=None,
         )
 
@@ -1009,6 +1018,9 @@ class AnnotationSessionManager:
                         corrosion_state=self._build_corrosion_layer_state_from_view_state(
                             view_state_model
                         ),
+                        corrosion_runtime_cache=self._build_corrosion_runtime_cache_from_view_state(
+                            view_state_model
+                        ),
                     )
                 )
             else:
@@ -1026,6 +1038,9 @@ class AnnotationSessionManager:
                         layer_kind=source_layer.layer_kind,
                         corrosion_state=self._copy_corrosion_layer_state(
                             source_layer.corrosion_state
+                        ),
+                        corrosion_runtime_cache=self._copy_corrosion_runtime_cache(
+                            source_layer.corrosion_runtime_cache
                         ),
                     )
                 )
@@ -1068,6 +1083,7 @@ class AnnotationSessionManager:
                 overlay_cache=None,
                 layer_kind=layer.layer_kind,
                 corrosion_state=self._copy_corrosion_layer_state(layer.corrosion_state),
+                corrosion_runtime_cache=None,
             )
             for layer in layer_stack.layers
         ]
@@ -1241,26 +1257,85 @@ class AnnotationSessionManager:
         return CorrosionLayerState(stage=stage, payload=payload)
 
     @classmethod
+    def _build_corrosion_runtime_cache_from_view_state(
+        cls,
+        view_state_model: ViewStateModel,
+    ) -> Optional[CorrosionRuntimeCache]:
+        if not bool(getattr(view_state_model, "corrosion_active", False)):
+            return None
+        return CorrosionRuntimeCache(
+            projection=cls._copy_view_state_value(
+                getattr(view_state_model, "corrosion_projection", None)
+            ),
+            interpolated_projection=cls._copy_view_state_value(
+                getattr(view_state_model, "corrosion_interpolated_projection", None)
+            ),
+            raw_distance_map=cls._copy_view_state_value(
+                getattr(view_state_model, "corrosion_raw_distance_map", None)
+            ),
+            piece_volume_raw=cls._copy_view_state_value(
+                getattr(view_state_model, "corrosion_piece_volume_raw", None)
+            ),
+            piece_volume_interpolated=cls._copy_view_state_value(
+                getattr(view_state_model, "corrosion_piece_volume_interpolated", None)
+            ),
+            piece_volume_legacy_raw=cls._copy_view_state_value(
+                getattr(view_state_model, "corrosion_piece_volume_legacy_raw", None)
+            ),
+            piece_volume_legacy_interpolated=cls._copy_view_state_value(
+                getattr(view_state_model, "corrosion_piece_volume_legacy_interpolated", None)
+            ),
+            piece_anchor=cls._copy_view_state_value(
+                getattr(view_state_model, "corrosion_piece_anchor", None)
+            ),
+            piece_show_interpolated=bool(
+                getattr(view_state_model, "corrosion_piece_show_interpolated", True)
+            ),
+            piece_view_enabled=bool(
+                getattr(view_state_model, "corrosion_piece_view_enabled", False)
+            ),
+        )
+
+    @classmethod
     def _normalize_corrosion_layer_state(cls, payload: Any) -> Optional[CorrosionLayerState]:
         if payload is None:
             return None
         if isinstance(payload, CorrosionLayerState):
-            raw_stage = payload.stage
-            raw_mapping = payload.payload
-        elif isinstance(payload, dict):
-            raw_stage = payload.get("stage") or payload.get("corrosion_session_stage")
-            raw_mapping = payload.get("payload", payload)
-        else:
-            return None
-        if not isinstance(raw_mapping, dict):
-            raw_mapping = {}
-        normalized_payload = {
-            str(key): cls._copy_view_state_value(value)
-            for key, value in raw_mapping.items()
-        }
-        stage = ViewStateModel.normalize_corrosion_session_stage(raw_stage)
-        normalized_payload["corrosion_session_stage"] = stage
-        return CorrosionLayerState(stage=stage, payload=normalized_payload)
+            stage = ViewStateModel.normalize_corrosion_session_stage(payload.stage)
+            normalized_payload = {
+                str(key): cls._copy_view_state_value(payload.payload.get(key))
+                for key in CORROSION_LAYER_VIEW_STATE_KEYS
+                if isinstance(payload.payload, dict) and key in payload.payload
+            }
+            normalized_payload["corrosion_session_stage"] = stage
+            return CorrosionLayerState(stage=stage, payload=normalized_payload)
+        return None
+
+    @classmethod
+    def _normalize_corrosion_runtime_cache(
+        cls,
+        cache: Any,
+    ) -> Optional[CorrosionRuntimeCache]:
+        if isinstance(cache, CorrosionRuntimeCache):
+            return CorrosionRuntimeCache(
+                projection=cls._copy_view_state_value(cache.projection),
+                interpolated_projection=cls._copy_view_state_value(cache.interpolated_projection),
+                raw_distance_map=cls._copy_view_state_value(cache.raw_distance_map),
+                piece_volume_raw=cls._copy_view_state_value(cache.piece_volume_raw),
+                piece_volume_interpolated=cls._copy_view_state_value(
+                    cache.piece_volume_interpolated
+                ),
+                piece_volume_legacy_raw=cls._copy_view_state_value(
+                    cache.piece_volume_legacy_raw
+                ),
+                piece_volume_legacy_interpolated=cls._copy_view_state_value(
+                    cache.piece_volume_legacy_interpolated
+                ),
+                piece_anchor=cls._copy_view_state_value(cache.piece_anchor),
+                piece_show_interpolated=bool(cache.piece_show_interpolated),
+                piece_view_enabled=bool(cache.piece_view_enabled),
+            )
+        return None
 
     @classmethod
     def _copy_corrosion_layer_state(
@@ -1268,6 +1343,13 @@ class AnnotationSessionManager:
         corrosion_state: Optional[CorrosionLayerState],
     ) -> Optional[CorrosionLayerState]:
         return cls._normalize_corrosion_layer_state(corrosion_state)
+
+    @classmethod
+    def _copy_corrosion_runtime_cache(
+        cls,
+        cache: Optional[CorrosionRuntimeCache],
+    ) -> Optional[CorrosionRuntimeCache]:
+        return cls._normalize_corrosion_runtime_cache(cache)
 
     @classmethod
     def _apply_layer_corrosion_state_to_view_state(
@@ -1289,6 +1371,41 @@ class AnnotationSessionManager:
             if key == "corrosion_active":
                 continue
             setattr(view_state_model, key, cls._copy_view_state_value(value))
+        view_state_model.corrosion_overlay_volume = getattr(layer, "mask_volume", None)
+        runtime_cache = cls._normalize_corrosion_runtime_cache(
+            getattr(layer, "corrosion_runtime_cache", None)
+        )
+        if runtime_cache is not None:
+            view_state_model.corrosion_projection = cls._copy_view_state_value(
+                runtime_cache.projection
+            )
+            view_state_model.corrosion_interpolated_projection = cls._copy_view_state_value(
+                runtime_cache.interpolated_projection
+            )
+            view_state_model.corrosion_raw_distance_map = cls._copy_view_state_value(
+                runtime_cache.raw_distance_map
+            )
+            view_state_model.corrosion_piece_volume_raw = cls._copy_view_state_value(
+                runtime_cache.piece_volume_raw
+            )
+            view_state_model.corrosion_piece_volume_interpolated = cls._copy_view_state_value(
+                runtime_cache.piece_volume_interpolated
+            )
+            view_state_model.corrosion_piece_volume_legacy_raw = cls._copy_view_state_value(
+                runtime_cache.piece_volume_legacy_raw
+            )
+            view_state_model.corrosion_piece_volume_legacy_interpolated = (
+                cls._copy_view_state_value(runtime_cache.piece_volume_legacy_interpolated)
+            )
+            view_state_model.corrosion_piece_anchor = cls._copy_view_state_value(
+                runtime_cache.piece_anchor
+            )
+            view_state_model.corrosion_piece_show_interpolated = bool(
+                runtime_cache.piece_show_interpolated
+            )
+            view_state_model.corrosion_piece_view_enabled = bool(
+                runtime_cache.piece_view_enabled
+            )
         view_state_model.corrosion_active = True
         view_state_model.set_corrosion_session_stage(corrosion_state.stage)
 
@@ -1309,6 +1426,9 @@ class AnnotationSessionManager:
             layer_kind=cls._normalize_layer_kind(getattr(layer, "layer_kind", "annotation")),
             corrosion_state=cls._normalize_corrosion_layer_state(
                 getattr(layer, "corrosion_state", None)
+            ),
+            corrosion_runtime_cache=cls._normalize_corrosion_runtime_cache(
+                getattr(layer, "corrosion_runtime_cache", None)
             ),
         )
 
@@ -1341,6 +1461,15 @@ class AnnotationSessionManager:
         return {
             str(key): cls._copy_view_state_value(value)
             for key, value in payload.items()
+        }
+
+    @classmethod
+    def _copy_session_view_state_mapping(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        """Copy session-level UI state while leaving corrosion layer data on layers."""
+        return {
+            str(key): cls._copy_view_state_value(value)
+            for key, value in payload.items()
+            if str(key) not in CORROSION_SESSION_VIEW_STATE_KEYS
         }
 
     @classmethod

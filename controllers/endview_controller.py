@@ -312,6 +312,11 @@ class EndviewController:
 
     def clear_corrosion_profile_anchors(self) -> None:
         """Hide corrosion profile anchors when the view supports them."""
+        view = self.standard_view
+        clear_mod_anchors = getattr(view, "clear_mod_anchor_points", None)
+        if callable(clear_mod_anchors):
+            clear_mod_anchors()
+            return
         view = self.corrosion_view
         if view is None:
             return
@@ -326,6 +331,11 @@ class EndviewController:
         active: bool,
     ) -> None:
         """Show corrosion profile anchors when the view supports them."""
+        view = self.standard_view
+        set_mod_anchors = getattr(view, "set_mod_anchor_points", None)
+        if callable(set_mod_anchors):
+            set_mod_anchors(list(points), active=bool(active))
+            return
         view = self.corrosion_view
         if view is None:
             return

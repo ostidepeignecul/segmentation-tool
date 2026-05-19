@@ -4399,3 +4399,23 @@ Le systeme de layers etait devenu sensiblement plus lent au changement de layer 
 1. Separer strictement le chemin `layer switch` du chemin `session switch`, afin de conserver l orchestration MVC existante tout en supprimant le refresh global inutile sur le cas le plus frequent.
 2. Traiter le layer actif comme un etat runtime vivant et partager ses references utiles (`mask_volume`, `label_palette`, `label_visibility`, `overlay_cache`) tant que l on reste dans la session active, afin d eviter les recopies et rescans volumetriques inutiles.
 3. Conserver le rendu multi-layer existant, mais ne forcer les reuploads GPU et les rebuilds UI complets que quand la structure ou le contenu du stack change vraiment, pas sur un simple changement de selection active.
+
+### 2026-05-19 - Outil mod corrosion standard et separation source-cache
+**Tags :** `#branch:feature/tool-mod-upgrade`, `#controllers/annotation_controller.py`, `#controllers/ascan_controller.py`, `#controllers/corrosion_profile_controller.py`, `#controllers/endview_controller.py`, `#controllers/mask_modification_controller.py`, `#controllers/master_controller.py`, `#models/layer_stack_model.py`, `#services/annotation_session_manager.py`, `#services/corrosion_profile_edit_service.py`, `#services/cscan_corrosion_service.py`, `#corrosion`, `#mod-tool`, `#raw`, `#interpolated`, `#runtime-cache`, `#layer-stack`, `#mvc`
+
+**Actions effectuées :**
+- Ajout d une preview temporaire du layer actif dans `controllers/annotation_controller.py`, afin que l edition corrosion par anchors passe dans le rendu overlay standard sans muter le masque avant Apply.
+- Rebranchement du mode `mod` dans `controllers/master_controller.py` pour router les interactions vers `CorrosionProfileController` sur les layers corrosion et vers `MaskModificationController` sur les layers annotation classiques.
+- Adaptation de `controllers/corrosion_profile_controller.py` pour permettre l edition des stages `raw` et `interpolated`, committer le raw sans interpolation globale, et synchroniser la session avant le refresh overlay.
+- Mise a jour de `services/corrosion_profile_edit_service.py` pour exposer `interpolate=False`, retourner la distance map brute, conserver les trous du raw pendant l edition par anchors, et garder le comportement interpole sur les layers `interpolated`.
+- Extension de `services/cscan_corrosion_service.py` avec un parametre `max_gap_px` sur la reconstruction d overlay depuis peak maps, afin de dessiner le raw sans reconnecter les gaps.
+- Ajout de `CorrosionRuntimeCache` dans `models/layer_stack_model.py` et refactor de `services/annotation_session_manager.py` pour separer les sources corrosion persistees des caches runtime lourds.
+- Nettoyage des chemins legacy non necessaires: les caches runtime ne sont plus persistables, `corrosion_overlay_volume` n est plus une source de verite, et les controllers lisent prioritairement le masque actif du layer.
+
+**Contexte :**
+L utilisateur voulait supprimer la dependance a la vue Endview corrosion dediee et utiliser le tool `mod` dans la vue Endview standard pour modifier les profils corrosion. Pendant les essais, le raw semblait s interpoler car l edition par anchors reconstruisait une ligne continue entre points et parce que certains caches overlay/peak maps pouvaient diverger. Le refactor clarifie donc le workflow: le masque du layer est la source visuelle, les peak maps sont la source numerique corrosion, et les projections/pieces 3D sont des caches runtime.
+
+**Décisions techniques :**
+1. Garder `LayerState.mask_volume` comme source de verite du masque de layer, et stocker les peak maps/metadata corrosion dans `CorrosionLayerState`.
+2. Isoler les donnees lourdes recalculables dans `CorrosionRuntimeCache`, exclu du dump persistable, afin de reduire les duplications et le risque de desynchronisation.
+3. Differencier l edition raw et interpolated: le raw conserve les colonnes invalides et ne lance pas d interpolation globale au commit, tandis que l interpolated conserve le comportement de ligne complete/interpolee.

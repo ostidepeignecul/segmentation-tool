@@ -462,11 +462,9 @@ class MasterController:
         initial_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
         if initial_tool_mode:
             self.tools_panel.select_tool_mode(initial_tool_mode)
-            self.annotation_controller.on_tool_mode_changed(initial_tool_mode)
-            self.mask_modification_controller.on_tool_mode_changed(initial_tool_mode)
+            self._on_tool_mode_changed(initial_tool_mode)
 
-        self.tools_panel.tool_mode_changed.connect(self.annotation_controller.on_tool_mode_changed)
-        self.tools_panel.tool_mode_changed.connect(self.mask_modification_controller.on_tool_mode_changed)
+        self.tools_panel.tool_mode_changed.connect(self._on_tool_mode_changed)
         self.tools_panel.annotation_action_changed.connect(self._apply_annotation_action)
         self.tools_panel.paint_size_changed.connect(self.annotation_controller.on_paint_size_changed)
         self.tools_panel.threshold_changed.connect(self.annotation_controller.on_threshold_changed)
@@ -527,10 +525,10 @@ class MasterController:
         self.annotation_view.freehand_completed.connect(self._on_annotation_freehand_completed)
         self.annotation_view.line_drawn.connect(self._on_annotation_line_drawn)
         self.annotation_view.box_drawn.connect(self._on_annotation_box_drawn)
-        self.annotation_view.mod_drag_started.connect(self.mask_modification_controller.on_drag_started)
-        self.annotation_view.mod_drag_moved.connect(self.mask_modification_controller.on_drag_moved)
+        self.annotation_view.mod_drag_started.connect(self._on_mod_drag_started)
+        self.annotation_view.mod_drag_moved.connect(self._on_mod_drag_moved)
         self.annotation_view.mod_drag_finished.connect(self._on_mod_drag_finished)
-        self.annotation_view.mod_double_clicked.connect(self.mask_modification_controller.on_double_clicked)
+        self.annotation_view.mod_double_clicked.connect(self._on_mod_double_clicked)
         self.annotation_view.restriction_rect_changed.connect(
             self.annotation_controller.on_restriction_rect_changed
         )
@@ -1582,6 +1580,8 @@ class MasterController:
 
     def _on_selection_cancel_requested(self) -> None:
         """Cancel mod pending edits first, then fallback to ROI/temp cancel."""
+        if self.corrosion_profile_controller.on_selection_cancel_requested():
+            return
         if self.mask_modification_controller.on_selection_cancel_requested():
             return
         self.annotation_controller.on_selection_cancel_requested()
@@ -1745,6 +1745,37 @@ class MasterController:
         )
         self.status_message(f"Ruler display: {active_unit}", 2000)
 
+    def _on_tool_mode_changed(self, mode: str) -> None:
+        """Route the shared tool mode to the controller that owns the current context."""
+        self.annotation_controller.on_tool_mode_changed(mode)
+        if self.corrosion_profile_controller.is_profile_mod_active():
+            self.mask_modification_controller.on_tool_mode_changed(mode)
+            self.corrosion_profile_controller.on_tool_mode_changed(mode)
+            return
+        self.corrosion_profile_controller.on_tool_mode_changed(mode)
+        self.mask_modification_controller.on_tool_mode_changed(mode)
+
+    def _on_mod_drag_started(self, pos: Any) -> None:
+        """Start either contour mod or raw corrosion profile mod."""
+        if self.corrosion_profile_controller.is_profile_mod_active():
+            self.corrosion_profile_controller.on_drag_started(pos)
+            return
+        self.mask_modification_controller.on_drag_started(pos)
+
+    def _on_mod_drag_moved(self, pos: Any) -> None:
+        """Move either contour mod or raw corrosion profile mod."""
+        if self.corrosion_profile_controller.is_profile_mod_active():
+            self.corrosion_profile_controller.on_drag_moved(pos)
+            return
+        self.mask_modification_controller.on_drag_moved(pos)
+
+    def _on_mod_double_clicked(self, pos: Any) -> None:
+        """Add an anchor to either the selected contour or selected corrosion line."""
+        if self.corrosion_profile_controller.is_profile_mod_active():
+            self.corrosion_profile_controller.on_double_clicked(pos)
+            return
+        self.mask_modification_controller.on_double_clicked(pos)
+
     def _on_annotation_freehand_completed(self, points: Any) -> None:
         """Create the ROI preview, then optionally apply it immediately."""
         preview_created = self.annotation_controller.on_annotation_freehand_completed(points)
@@ -1772,6 +1803,9 @@ class MasterController:
 
     def _on_mod_drag_finished(self, pos: Any) -> None:
         """Finish mod drag and auto-apply its pending temp preview when requested."""
+        if self.corrosion_profile_controller.is_profile_mod_active():
+            self.corrosion_profile_controller.on_drag_finished(pos)
+            return
         self.mask_modification_controller.on_drag_finished(pos)
         if not self.mask_modification_controller.has_pending_edits():
             return
@@ -1928,6 +1962,7 @@ class MasterController:
         """Discard temporary previews and per-layer apply history after a layer switch."""
         self.annotation_controller.clear_apply_history()
         self.mask_modification_controller.reset()
+        self.corrosion_profile_edit_service.reset()
         self.temp_mask_model.clear()
         if self.annotation_view is not None:
             self.annotation_view.clear_temp_shapes()
@@ -2614,6 +2649,145 @@ class MasterController:
     def _current_corrosion_session_stage(self) -> str:
         return self.view_state_model.get_corrosion_session_stage()
 
+    def _ensure_corrosion_runtime_cache(self, *, include_piece: bool = False) -> None:
+        """Rebuild missing corrosion caches from the active layer sources."""
+        if not bool(getattr(self.view_state_model, "corrosion_active", False)):
+            return
+        stage = self.view_state_model.get_corrosion_session_stage()
+        if stage not in {CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED}:
+            return
+
+        has_projection = self.view_state_model.corrosion_projection is not None
+        has_piece = self._workflow_result_has_piece3d_data(
+            CorrosionWorkflowResult(
+                ok=True,
+                piece_volume_raw=getattr(self.view_state_model, "corrosion_piece_volume_raw", None),
+                piece_volume_interpolated=getattr(
+                    self.view_state_model,
+                    "corrosion_piece_volume_interpolated",
+                    None,
+                ),
+                piece_volume_legacy_raw=getattr(
+                    self.view_state_model,
+                    "corrosion_piece_volume_legacy_raw",
+                    None,
+                ),
+                piece_volume_legacy_interpolated=getattr(
+                    self.view_state_model,
+                    "corrosion_piece_volume_legacy_interpolated",
+                    None,
+                ),
+            )
+        )
+        wants_piece = bool(
+            include_piece or getattr(self.view_state_model, "corrosion_piece_view_enabled", False)
+        )
+        if has_projection and (has_piece or not wants_piece):
+            return
+
+        peak_a = self.view_state_model.corrosion_peak_index_map_a
+        peak_b = self.view_state_model.corrosion_peak_index_map_b
+        if peak_a is None or peak_b is None:
+            peak_a = self.view_state_model.corrosion_raw_peak_index_map_a
+            peak_b = self.view_state_model.corrosion_raw_peak_index_map_b
+        if peak_a is None or peak_b is None:
+            return
+
+        try:
+            distance_map = self.cscan_corrosion_service.build_distance_map_from_peak_maps(
+                peak_map_a=peak_a,
+                peak_map_b=peak_b,
+                use_mm=False,
+                resolution_ultrasound_mm=1.0,
+            )
+            projection, value_range = self.cscan_corrosion_service.compute_corrosion_projection(
+                distance_map
+            )
+        except Exception:
+            return
+
+        self.view_state_model.corrosion_projection = (projection, value_range)
+        if stage == CORROSION_STAGE_INTERPOLATED:
+            self.view_state_model.corrosion_interpolated_projection = (
+                projection,
+                value_range,
+            )
+        else:
+            self.view_state_model.corrosion_interpolated_projection = None
+
+        raw_peak_a = self.view_state_model.corrosion_raw_peak_index_map_a
+        raw_peak_b = self.view_state_model.corrosion_raw_peak_index_map_b
+        raw_distance_map = None
+        if raw_peak_a is not None and raw_peak_b is not None:
+            try:
+                raw_distance_map = self.cscan_corrosion_service.build_distance_map_from_peak_maps(
+                    peak_map_a=raw_peak_a,
+                    peak_map_b=raw_peak_b,
+                    use_mm=False,
+                    resolution_ultrasound_mm=1.0,
+                )
+            except Exception:
+                raw_distance_map = None
+        if raw_distance_map is None and stage == CORROSION_STAGE_RAW:
+            raw_distance_map = distance_map
+        self.view_state_model.corrosion_raw_distance_map = raw_distance_map
+
+        if wants_piece and not has_piece:
+            overlay_volume = self.annotation_model.get_mask_volume()
+            label_ids = self.view_state_model.corrosion_overlay_label_ids
+            try:
+                piece_volume_current = (
+                    self.cscan_corrosion_service.build_piece_volume_from_distance_map(
+                        distance_map
+                    )
+                )
+                piece_volume_raw = (
+                    self.cscan_corrosion_service.build_piece_volume_from_distance_map(
+                        raw_distance_map
+                    )
+                    if raw_distance_map is not None
+                    else None
+                )
+                legacy_current = None
+                if (
+                    overlay_volume is not None
+                    and getattr(overlay_volume, "ndim", 0) == 3
+                    and label_ids is not None
+                ):
+                    legacy_current = self.cscan_corrosion_service.build_legacy_piece_volume(
+                        mask_stack=overlay_volume,
+                        class_A_id=int(label_ids[0]),
+                        class_B_id=int(label_ids[1]),
+                    )
+            except Exception:
+                piece_volume_current = None
+                piece_volume_raw = None
+                legacy_current = None
+
+            if stage == CORROSION_STAGE_RAW:
+                self.view_state_model.corrosion_piece_volume_raw = piece_volume_raw
+                self.view_state_model.corrosion_piece_volume_interpolated = None
+                self.view_state_model.corrosion_piece_volume_legacy_raw = legacy_current
+                self.view_state_model.corrosion_piece_volume_legacy_interpolated = None
+            else:
+                self.view_state_model.corrosion_piece_volume_raw = piece_volume_raw
+                self.view_state_model.corrosion_piece_volume_interpolated = piece_volume_current
+                self.view_state_model.corrosion_piece_volume_legacy_interpolated = legacy_current
+            self.view_state_model.corrosion_piece_anchor = (
+                self.cscan_corrosion_service.compute_piece_anchor(
+                    self.view_state_model.corrosion_piece_volume_interpolated,
+                    self.view_state_model.corrosion_piece_volume_raw,
+                    self.view_state_model.corrosion_piece_volume_legacy_interpolated,
+                    self.view_state_model.corrosion_piece_volume_legacy_raw,
+                )
+            )
+
+        self.view_state_model.corrosion_overlay_volume = self.annotation_model.get_mask_volume()
+        self.session_manager.sync_active_layer_from_model(
+            annotation_model=self.annotation_model,
+            view_state_model=self.view_state_model,
+        )
+
     def _sync_corrosion_workflow_controls(self) -> None:
         stage = self._current_corrosion_session_stage()
         analyze_enabled = stage == CORROSION_STAGE_BASE
@@ -2727,8 +2901,6 @@ class MasterController:
 
         overlay_volume = self.annotation_model.get_mask_volume()
         if overlay_volume is None or getattr(overlay_volume, "ndim", 0) != 3:
-            overlay_volume = self.view_state_model.corrosion_overlay_volume
-        if overlay_volume is None or getattr(overlay_volume, "ndim", 0) != 3:
             return None
 
         try:
@@ -2774,7 +2946,6 @@ class MasterController:
         self.view_state_model.corrosion_raw_peak_index_map_a = raw_peak_a
         self.view_state_model.corrosion_raw_peak_index_map_b = raw_peak_b
         self.view_state_model.corrosion_raw_distance_map = raw_distance_map
-        self.view_state_model.corrosion_overlay_volume = overlay_volume
         self.view_state_model.corrosion_piece_volume_raw = self._copy_piece_volume(piece_volume_raw)
         self.view_state_model.corrosion_piece_volume_legacy_raw = self._copy_piece_volume(
             piece_volume_legacy_raw
@@ -2823,17 +2994,10 @@ class MasterController:
         ):
             return None
 
-        mask_height: Optional[int] = None
-        overlay_volume = self.view_state_model.corrosion_overlay_volume
-        if overlay_volume is not None and getattr(overlay_volume, "ndim", 0) == 3:
-            mask_height = int(overlay_volume.shape[1])
-        elif (
-            self.annotation_model.mask_volume is not None
-            and getattr(self.annotation_model.mask_volume, "ndim", 0) == 3
-        ):
-            mask_height = int(self.annotation_model.mask_volume.shape[1])
-        if mask_height is None:
+        overlay_volume = self.annotation_model.get_mask_volume()
+        if overlay_volume is None or getattr(overlay_volume, "ndim", 0) != 3:
             return None
+        mask_height = int(overlay_volume.shape[1])
 
         projection = None
         value_range = None
@@ -2898,7 +3062,6 @@ class MasterController:
                 result.interpolated_value_range,
             )
 
-        self.view_state_model.corrosion_overlay_volume = result.overlay_volume
         self.view_state_model.corrosion_overlay_palette = result.overlay_palette
         self.view_state_model.corrosion_overlay_label_ids = result.overlay_label_ids
         self.view_state_model.corrosion_peak_index_map_a = result.peak_index_map_a
@@ -2935,6 +3098,7 @@ class MasterController:
 
         if result.overlay_volume is not None:
             self.annotation_model.set_mask_volume(result.overlay_volume)
+            self.view_state_model.corrosion_overlay_volume = self.annotation_model.get_mask_volume()
             palette = result.overlay_palette or {}
             self.annotation_model.label_palette = dict(palette)
             self.annotation_model.label_visibility = {lbl: True for lbl in palette.keys()}
@@ -3081,6 +3245,7 @@ class MasterController:
     def _after_layer_switch(self, *, defer_volume: bool) -> None:
         """Synchronize only the UI state affected by an intra-session layer change."""
         volume = self._current_volume()
+        self._ensure_corrosion_runtime_cache()
         if volume is not None:
             self.cscan_controller.update_views(volume)
         self._sync_cscan_labels()
@@ -3097,6 +3262,7 @@ class MasterController:
     def _after_session_switch(self) -> None:
         """Synchronise l'état du modèle actif vers les vues."""
         self.annotation_controller.clear_apply_history()
+        self._ensure_corrosion_runtime_cache()
         if self.view_state_model.threshold is not None:
             self.tools_panel.set_threshold_value(int(self.view_state_model.threshold))
         self.tools_panel.set_force_threshold_erase_checked(
@@ -3121,8 +3287,7 @@ class MasterController:
         current_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
         if current_tool_mode:
             self.tools_panel.select_tool_mode(current_tool_mode)
-            self.annotation_controller.on_tool_mode_changed(current_tool_mode)
-            self.mask_modification_controller.on_tool_mode_changed(current_tool_mode)
+            self._on_tool_mode_changed(current_tool_mode)
         self.mask_modification_controller.reset()
         self.endview_controller.set_cross_visible(self.view_state_model.show_cross)
         self.cscan_controller.set_cross_visible(self.view_state_model.show_cross)
@@ -3397,6 +3562,8 @@ class MasterController:
         """Show/hide the embedded piece3D view inside the Volume dock."""
         self.view_state_model.corrosion_piece_view_enabled = bool(checked)
         if checked:
+            self._ensure_corrosion_runtime_cache(include_piece=True)
+            self._restore_piece3d_state_from_view_state(sync_action=False)
             if not self._has_piece3d_data():
                 self.status_message("No corrosion 3D solid available.", 3000)
                 self._show_standard_volume_view(sync_action=True)

@@ -18,6 +18,22 @@ class CorrosionLayerState:
 
 
 @dataclass
+class CorrosionRuntimeCache:
+    """Runtime-only corrosion data that can be rebuilt from layer sources."""
+
+    projection: Optional[Tuple[Any, Tuple[float, float]]] = None
+    interpolated_projection: Optional[Tuple[Any, Tuple[float, float]]] = None
+    raw_distance_map: Optional[Any] = None
+    piece_volume_raw: Optional[Any] = None
+    piece_volume_interpolated: Optional[Any] = None
+    piece_volume_legacy_raw: Optional[Any] = None
+    piece_volume_legacy_interpolated: Optional[Any] = None
+    piece_anchor: Optional[Tuple[float, float, float]] = None
+    piece_show_interpolated: bool = True
+    piece_view_enabled: bool = False
+
+
+@dataclass
 class LayerState:
     """Single annotation layer stored inside a session document."""
 
@@ -32,6 +48,7 @@ class LayerState:
     overlay_cache: Optional[OverlayData] = None
     layer_kind: str = "annotation"
     corrosion_state: Optional[CorrosionLayerState] = None
+    corrosion_runtime_cache: Optional[CorrosionRuntimeCache] = None
 
     @classmethod
     def create(
@@ -47,6 +64,7 @@ class LayerState:
         overlay_cache: Optional[OverlayData] = None,
         layer_kind: str = "annotation",
         corrosion_state: Optional[CorrosionLayerState] = None,
+        corrosion_runtime_cache: Optional[CorrosionRuntimeCache] = None,
         layer_id: Optional[str] = None,
     ) -> "LayerState":
         """Build a layer while normalizing runtime metadata."""
@@ -54,6 +72,7 @@ class LayerState:
         if normalized_kind != "corrosion":
             normalized_kind = "annotation"
             corrosion_state = None
+            corrosion_runtime_cache = None
         return cls(
             id=str(layer_id or uuid.uuid4().hex),
             name=str(name or "Layer 1").strip() or "Layer 1",
@@ -66,6 +85,7 @@ class LayerState:
             overlay_cache=overlay_cache,
             layer_kind=normalized_kind,
             corrosion_state=corrosion_state,
+            corrosion_runtime_cache=corrosion_runtime_cache,
         )
 
 

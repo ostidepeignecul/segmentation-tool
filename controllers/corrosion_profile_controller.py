@@ -1,4 +1,4 @@
-"""Controller for corrosion profile editing flow in corrosion Endview."""
+"""Controller for corrosion profile editing flow in the shared Endview mod tool."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
+from config.constants import CORROSION_STAGE_INTERPOLATED, CORROSION_STAGE_RAW
 from models.annotation_model import AnnotationModel
 from models.view_state_model import ViewStateModel
 from services.corrosion_profile_edit_service import CorrosionProfileEditService
@@ -45,6 +46,18 @@ class CorrosionProfileController:
         self._apply_roi_fallback = apply_roi_fallback
         self._on_session_changed = on_session_changed
 
+    def is_profile_mod_active(self) -> bool:
+        """Return whether the shared mod tool should edit corrosion profile lines."""
+        return (
+            str(getattr(self.view_state_model, "tool_mode", "") or "") == "mod"
+            and bool(getattr(self.view_state_model, "corrosion_active", False))
+            and self.view_state_model.get_corrosion_session_stage()
+            in {CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED}
+        )
+
+    def on_tool_mode_changed(self, _mode: str) -> None:
+        self.sync_anchors()
+
     def on_active_label_changed(self, _label_id: int) -> None:
         self.sync_anchors()
 
@@ -56,7 +69,7 @@ class CorrosionProfileController:
         self._apply_roi_fallback()
 
     def on_drag_started(self, pos: Any) -> None:
-        if not self.view_state_model.corrosion_active:
+        if not self.is_profile_mod_active():
             return
         point = self._parse_pos(pos)
         if point is None:
@@ -82,7 +95,7 @@ class CorrosionProfileController:
         self.sync_anchors()
 
     def on_drag_moved(self, pos: Any) -> None:
-        if not self.view_state_model.corrosion_active:
+        if not self.is_profile_mod_active():
             return
         point = self._parse_pos(pos)
         if point is None:
@@ -106,7 +119,7 @@ class CorrosionProfileController:
         self.sync_anchors()
 
     def on_double_clicked(self, pos: Any) -> None:
-        if not self.view_state_model.corrosion_active:
+        if not self.is_profile_mod_active():
             return
         point = self._parse_pos(pos)
         if point is None:
@@ -154,24 +167,33 @@ class CorrosionProfileController:
             label_ids=label_ids,
             image_shape=(int(volume.shape[1]), int(volume.shape[2])),
             cscan_corrosion_service=self.cscan_corrosion_service,
+            preserve_existing_gaps=(
+                self.view_state_model.get_corrosion_session_stage() == CORROSION_STAGE_RAW
+            ),
         )
 
     def refresh_preview(self) -> None:
-        """Show temporary corrosion profile edits in corrosion endview only."""
+        """Show temporary corrosion profile edits through the normal overlay stack."""
         overlay = self.corrosion_profile_edit_service.preview_overlay()
         if overlay is None:
             return
         palette = self.view_state_model.corrosion_overlay_palette or self.annotation_model.get_label_palette()
         visible_labels = self.annotation_model.get_visible_labels()
-        self.endview_controller.set_corrosion_profile_preview_overlay(
+        self.annotation_controller.show_active_layer_overlay_preview(
             overlay,
             palette=dict(palette),
             visible_labels=visible_labels,
+            changed_slice=int(self.view_state_model.current_slice),
+            defer_volume=True,
         )
 
     def sync_anchors(self) -> None:
-        if not self.view_state_model.corrosion_active:
-            self.endview_controller.clear_corrosion_profile_anchors()
+        if not self.is_profile_mod_active():
+            if (
+                str(getattr(self.view_state_model, "tool_mode", "") or "") != "mod"
+                or bool(getattr(self.view_state_model, "corrosion_active", False))
+            ):
+                self.endview_controller.clear_corrosion_profile_anchors()
             return
         if not self.ensure_context():
             self.endview_controller.clear_corrosion_profile_anchors()
@@ -188,18 +210,30 @@ class CorrosionProfileController:
         )
         self.endview_controller.set_corrosion_profile_anchors(points, active=True)
 
+    def on_selection_cancel_requested(self) -> bool:
+        if not self.is_profile_mod_active() and not self.corrosion_profile_edit_service.has_pending_edits():
+            return False
+        had_pending = self.corrosion_profile_edit_service.has_pending_edits()
+        self.corrosion_profile_edit_service.reset()
+        self.endview_controller.clear_corrosion_profile_anchors()
+        self.annotation_controller.refresh_overlay(defer_volume=True, rebuild=False)
+        self.sync_anchors()
+        if had_pending:
+            self._status_message("Corrosion profile edits canceled.", timeout_ms=1800)
+        return True
+
     def commit_pending_edits(self) -> bool:
         """Commit temporary corrosion profile edits (triggered by Apply ROI)."""
         if not self.ensure_context():
             return False
         stage = self.view_state_model.get_corrosion_session_stage()
         algo = getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")
-        if stage == "raw":
-            algo = "1d_dual_axis"
+        interpolate = stage != CORROSION_STAGE_RAW
         try:
             payload = self.corrosion_profile_edit_service.commit(
                 cscan_corrosion_service=self.cscan_corrosion_service,
                 algo=algo,
+                interpolate=interpolate,
                 rebuild_projection=True,
             )
         except ValueError as exc:
@@ -213,12 +247,11 @@ class CorrosionProfileController:
         if stage == "raw":
             self.view_state_model.corrosion_raw_peak_index_map_a = payload.peak_map_a
             self.view_state_model.corrosion_raw_peak_index_map_b = payload.peak_map_b
-        self.view_state_model.corrosion_overlay_volume = payload.overlay_volume
         if payload.projection is not None and payload.value_range is not None:
             self.view_state_model.corrosion_projection = (payload.projection, payload.value_range)
             self.view_state_model.corrosion_active = True
             if stage == "raw":
-                self.view_state_model.corrosion_raw_distance_map = payload.projection
+                self.view_state_model.corrosion_raw_distance_map = payload.distance_map
             if stage == "interpolated":
                 self.view_state_model.corrosion_interpolated_projection = (
                     payload.projection,
@@ -269,6 +302,7 @@ class CorrosionProfileController:
                     )
 
         self.annotation_model.set_mask_volume(payload.overlay_volume)
+        self.view_state_model.corrosion_overlay_volume = self.annotation_model.get_mask_volume()
         self.annotation_controller.clear_apply_history()
         palette = self.view_state_model.corrosion_overlay_palette or {}
         if palette:
@@ -276,13 +310,14 @@ class CorrosionProfileController:
             self.annotation_model.label_visibility = {int(lbl): True for lbl in palette.keys()}
             self.annotation_model.ensure_persistent_labels()
 
+        if self._on_session_changed is not None:
+            self._on_session_changed()
+
         volume = self._get_volume()
         if volume is not None:
             self.cscan_controller.update_views(volume)
         self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
         self.sync_anchors()
-        if self._on_session_changed is not None:
-            self._on_session_changed()
         self._status_message("Profil corrosion applique.", timeout_ms=2000)
         return True
 

@@ -277,6 +277,125 @@ class AnnotationController:
         self._notify_overlay_updated()
         return
 
+    def show_active_layer_overlay_preview(
+        self,
+        mask_volume: np.ndarray,
+        *,
+        palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
+        visible_labels: Optional[set[int]] = None,
+        changed_slice: Optional[int] = None,
+        defer_volume: bool = True,
+    ) -> None:
+        """Push a temporary active-layer mask through the normal overlay renderer."""
+        if not self.view_state_model.show_overlay:
+            return
+
+        preview_overlay = OverlayData(
+            mask_volume=np.asarray(mask_volume, dtype=np.uint8),
+            palette=dict(palette or self.annotation_model.get_label_palette()),
+            label_volumes=None,
+        )
+        preview_stack = self._build_active_layer_preview_stack(
+            preview_overlay=preview_overlay,
+            visible_labels=visible_labels,
+        )
+        if preview_stack is None or not preview_stack.layers:
+            return
+
+        self.annotation_view.set_overlay_stack(preview_stack)
+        secondary_overlay = None
+        if (
+            self.annotation_secondary_view is not None
+            or self.annotation_secondary_corrosion_view is not None
+        ):
+            secondary_overlay = self.annotation_axis_service.build_secondary_overlay_stack_data(
+                preview_stack
+            )
+        if self.annotation_secondary_view is not None:
+            self.annotation_secondary_view.set_overlay_stack(secondary_overlay)
+        if self.annotation_secondary_corrosion_view is not None:
+            self.annotation_secondary_corrosion_view.set_overlay_stack(secondary_overlay)
+        if self.annotation_corrosion_view is not None:
+            self.annotation_corrosion_view.set_overlay_stack(preview_stack)
+        if self.view_state_model.show_volume_view_overlay:
+            active_layer_id = preview_stack.active_layer_id
+            self.volume_view.set_overlay_stack(
+                preview_stack,
+                defer_3d=defer_volume,
+                changed_slice=changed_slice,
+                changed_labels=None,
+                force_upload_layer_ids=(
+                    {str(active_layer_id)} if active_layer_id is not None else None
+                ),
+            )
+        else:
+            self.volume_view.set_overlay_stack(None)
+        self._notify_overlay_updated()
+
+    def _build_active_layer_preview_stack(
+        self,
+        *,
+        preview_overlay: OverlayData,
+        visible_labels: Optional[set[int]],
+    ) -> Optional[OverlayStackData]:
+        """Return the current visible stack with the active layer replaced by a preview."""
+        preview_visible_labels = (
+            frozenset(int(label_id) for label_id in visible_labels)
+            if visible_labels is not None
+            else None
+        )
+        if self.session_manager is None:
+            return self._build_single_overlay_stack(
+                overlay_data=preview_overlay,
+                visible_labels=visible_labels,
+            )
+
+        base_stack = self.session_manager.build_active_overlay_stack()
+        if base_stack is None or not base_stack.layers:
+            return self._build_single_overlay_stack(
+                overlay_data=preview_overlay,
+                visible_labels=visible_labels,
+            )
+
+        active_layer_id = base_stack.active_layer_id
+        preview_layers: list[OverlayLayerData] = []
+        replaced = False
+        for layer in base_stack.layers:
+            if active_layer_id is not None and str(layer.layer_id) == str(active_layer_id):
+                preview_layers.append(
+                    OverlayLayerData(
+                        layer_id=layer.layer_id,
+                        name=layer.name,
+                        overlay=preview_overlay,
+                        visible_labels=(
+                            preview_visible_labels
+                            if preview_visible_labels is not None
+                            else layer.visible_labels
+                        ),
+                        opacity=layer.opacity,
+                    )
+                )
+                replaced = True
+            else:
+                preview_layers.append(layer)
+
+        if not replaced:
+            preview_layers.append(
+                OverlayLayerData(
+                    layer_id="active-preview",
+                    name="Preview",
+                    overlay=preview_overlay,
+                    visible_labels=preview_visible_labels,
+                    opacity=1.0,
+                )
+            )
+            active_layer_id = "active-preview"
+
+        return OverlayStackData(
+            layers=tuple(preview_layers),
+            active_layer_id=active_layer_id,
+        )
+
     def _resolve_overlay_render_stack(
         self,
         *,

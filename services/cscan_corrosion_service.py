@@ -1038,6 +1038,7 @@ class CScanCorrosionService(CScanService):
         class_A_id: int,
         class_B_id: int,
         line_thickness: int = 1,
+        max_gap_px: Optional[int] = None,
     ) -> np.ndarray:
         """Public wrapper to rebuild BW/FW overlay lines from peak maps."""
         return self._build_overlay_from_peak_maps(
@@ -1047,6 +1048,7 @@ class CScanCorrosionService(CScanService):
             class_A_id=class_A_id,
             class_B_id=class_B_id,
             line_thickness=line_thickness,
+            max_gap_px=max_gap_px,
         )
 
     def build_peak_maps_from_overlay_mask(
@@ -1174,6 +1176,7 @@ class CScanCorrosionService(CScanService):
         class_A_id: int,
         class_B_id: int,
         line_thickness: int = 1,
+        max_gap_px: Optional[int] = None,
     ) -> np.ndarray:
         """Construit un overlay de lignes BW/FW �f  partir des indices de pics (Y par X)."""
         if peak_map_a.ndim != 2 or peak_map_b.ndim != 2:
@@ -1186,7 +1189,7 @@ class CScanCorrosionService(CScanService):
         lines_volume = np.zeros((num_slices, height, width), dtype=np.uint8)
         color_A = int(class_A_id)
         color_B = int(class_B_id)
-        max_gap = self._get_max_interpolation_gap_px()
+        max_gap = self._get_max_interpolation_gap_px() if max_gap_px is None else max(0, int(max_gap_px))
 
         width_map = min(width, peak_map_a.shape[1], peak_map_b.shape[1])
         if width_map <= 0 or num_slices <= 0:

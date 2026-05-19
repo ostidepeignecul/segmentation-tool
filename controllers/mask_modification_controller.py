@@ -53,6 +53,9 @@ class MaskModificationController:
         if str(mode) != "mod":
             self.mask_modification_service.end_drag()
             return
+        if self._is_corrosion_layer_mode():
+            self.mask_modification_service.end_drag()
+            return
 
         if not self._ensure_context():
             self.annotation_view.clear_mod_anchor_points()
@@ -61,6 +64,9 @@ class MaskModificationController:
         self.refresh_preview()
 
     def on_active_label_changed(self, _label_id: int) -> None:
+        if self._is_corrosion_layer_mode():
+            self.mask_modification_service.clear_active_component()
+            return
         if not self._is_mod_mode():
             self.annotation_view.clear_mod_anchor_points()
             return
@@ -68,6 +74,9 @@ class MaskModificationController:
         self.sync_anchors()
 
     def on_slice_changed(self, _slice_idx: int) -> None:
+        if self._is_corrosion_layer_mode():
+            self.mask_modification_service.clear_active_component()
+            return
         if not self._is_mod_mode():
             self.annotation_view.clear_mod_anchor_points()
             return
@@ -380,7 +389,13 @@ class MaskModificationController:
         self._refresh_roi_overlay_for_slice(int(self.view_state_model.current_slice))
 
     def _is_mod_mode(self) -> bool:
-        return str(getattr(self.view_state_model, "tool_mode", "") or "") == "mod"
+        return (
+            str(getattr(self.view_state_model, "tool_mode", "") or "") == "mod"
+            and not self._is_corrosion_layer_mode()
+        )
+
+    def _is_corrosion_layer_mode(self) -> bool:
+        return bool(getattr(self.view_state_model, "corrosion_active", False))
 
     @staticmethod
     def _parse_pos(pos: Any) -> Optional[tuple[int, int]]:
