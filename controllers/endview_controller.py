@@ -51,9 +51,9 @@ class EndviewController:
                 self._secondary_stack.setCurrentWidget(self.secondary_view)
 
     def sync_mode(self) -> None:
-        if self.view_state_model.corrosion_active and self.corrosion_view is not None:
-            self.show_corrosion()
-            return
+        # Keep Endview on the standard stack even when corrosion data is active.
+        # Corrosion workflow state now lives in layers, but the UI should no longer
+        # swap the Endview widget automatically.
         self.show_standard()
 
     # --- View synchronization -------------------------------------------------------

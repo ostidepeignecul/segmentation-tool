@@ -8,11 +8,40 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from models.annotation_model import AnnotationModel
-from models.layer_stack_model import LayerStackModel, LayerState
+from models.layer_stack_model import CorrosionLayerState, LayerStackModel, LayerState
 from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
 from models.roi_model import ROI, RoiModel
 from models.temp_mask_model import TempMaskModel
 from models.view_state_model import ViewStateModel
+
+
+CORROSION_LAYER_VIEW_STATE_KEYS = (
+    "corrosion_projection",
+    "corrosion_interpolated_projection",
+    "corrosion_overlay_volume",
+    "corrosion_overlay_palette",
+    "corrosion_overlay_label_ids",
+    "corrosion_peak_index_map_a",
+    "corrosion_peak_index_map_b",
+    "corrosion_raw_peak_index_map_a",
+    "corrosion_raw_peak_index_map_b",
+    "corrosion_raw_distance_map",
+    "corrosion_ascan_support_map",
+    "corrosion_interpolation_algo",
+    "corrosion_peak_selection_mode",
+    "corrosion_peak_selection_mode_a",
+    "corrosion_peak_selection_mode_b",
+    "corrosion_label_a",
+    "corrosion_label_b",
+    "corrosion_session_stage",
+    "corrosion_piece_volume_raw",
+    "corrosion_piece_volume_interpolated",
+    "corrosion_piece_volume_legacy_raw",
+    "corrosion_piece_volume_legacy_interpolated",
+    "corrosion_piece_anchor",
+    "corrosion_piece_show_interpolated",
+    "corrosion_piece_view_enabled",
+)
 
 
 @dataclass
@@ -138,6 +167,7 @@ class AnnotationSessionManager:
         self,
         *,
         annotation_model: AnnotationModel,
+        view_state_model: Optional[ViewStateModel] = None,
         session_id: Optional[str] = None,
     ) -> bool:
         """Rebind the active session layer to the current live annotation model payload."""
@@ -152,6 +182,11 @@ class AnnotationSessionManager:
         active_layer.label_palette = annotation_model.label_palette
         active_layer.label_visibility = annotation_model.label_visibility
         active_layer.overlay_cache = annotation_model.overlay_cache
+        if view_state_model is not None:
+            active_layer.layer_kind = self._layer_kind_from_view_state(view_state_model)
+            active_layer.corrosion_state = self._build_corrosion_layer_state_from_view_state(
+                view_state_model
+            )
         self._sync_session_legacy_fields_from_active_layer(state, active_layer)
         return True
 
@@ -177,6 +212,7 @@ class AnnotationSessionManager:
         layer_id: str,
         *,
         annotation_model: AnnotationModel,
+        view_state_model: Optional[ViewStateModel] = None,
         session_id: Optional[str] = None,
     ) -> bool:
         """Select a different active layer and rebind the live annotation model."""
@@ -185,6 +221,7 @@ class AnnotationSessionManager:
             return False
         self.sync_active_layer_from_model(
             annotation_model=annotation_model,
+            view_state_model=view_state_model,
             session_id=target_id,
         )
         state = self._normalize_session_state(self._sessions[target_id])
@@ -194,6 +231,8 @@ class AnnotationSessionManager:
         self._sync_session_legacy_fields_from_active_layer(state, active_layer)
         if target_id == self._active_id:
             self._apply_annotation_layer_to_model(annotation_model, active_layer)
+            if view_state_model is not None:
+                self._apply_layer_corrosion_state_to_view_state(active_layer, view_state_model)
         return True
 
     def set_layer_visibility(
@@ -218,6 +257,7 @@ class AnnotationSessionManager:
         self,
         *,
         annotation_model: AnnotationModel,
+        view_state_model: Optional[ViewStateModel] = None,
         session_id: Optional[str] = None,
     ) -> Optional[str]:
         """Append a new empty layer to one session and make it active."""
@@ -226,6 +266,7 @@ class AnnotationSessionManager:
             return None
         self.sync_active_layer_from_model(
             annotation_model=annotation_model,
+            view_state_model=view_state_model,
             session_id=target_id,
         )
         state = self._normalize_session_state(self._sessions[target_id])
@@ -251,18 +292,22 @@ class AnnotationSessionManager:
             label_palette=palette,
             label_visibility=visibility,
             overlay_cache=None,
+            layer_kind="annotation",
         )
         state.layer_stack.layers.append(new_layer)
         state.layer_stack.set_active_layer(new_layer.id)
         self._sync_session_legacy_fields_from_active_layer(state, new_layer)
         if target_id == self._active_id:
             self._apply_annotation_layer_to_model(annotation_model, new_layer)
+            if view_state_model is not None:
+                self._apply_layer_corrosion_state_to_view_state(new_layer, view_state_model)
         return str(new_layer.id)
 
     def duplicate_active_layer(
         self,
         *,
         annotation_model: AnnotationModel,
+        view_state_model: Optional[ViewStateModel] = None,
         session_id: Optional[str] = None,
     ) -> Optional[str]:
         """Duplicate the active layer inside one session and make the copy active."""
@@ -271,6 +316,7 @@ class AnnotationSessionManager:
             return None
         self.sync_active_layer_from_model(
             annotation_model=annotation_model,
+            view_state_model=view_state_model,
             session_id=target_id,
         )
         state = self._normalize_session_state(self._sessions[target_id])
@@ -286,12 +332,19 @@ class AnnotationSessionManager:
             locked=active_layer.locked,
             opacity=active_layer.opacity,
             overlay_cache=None,
+            layer_kind=active_layer.layer_kind,
+            corrosion_state=self._copy_corrosion_layer_state(active_layer.corrosion_state),
         )
         state.layer_stack.layers.append(duplicated_layer)
         state.layer_stack.set_active_layer(duplicated_layer.id)
         self._sync_session_legacy_fields_from_active_layer(state, duplicated_layer)
         if target_id == self._active_id:
             self._apply_annotation_layer_to_model(annotation_model, duplicated_layer)
+            if view_state_model is not None:
+                self._apply_layer_corrosion_state_to_view_state(
+                    duplicated_layer,
+                    view_state_model,
+                )
         return str(duplicated_layer.id)
 
     def delete_layer(
@@ -299,6 +352,7 @@ class AnnotationSessionManager:
         layer_id: str,
         *,
         annotation_model: AnnotationModel,
+        view_state_model: Optional[ViewStateModel] = None,
         session_id: Optional[str] = None,
     ) -> bool:
         """Delete one layer while keeping at least one editable layer in the session."""
@@ -307,6 +361,7 @@ class AnnotationSessionManager:
             return False
         self.sync_active_layer_from_model(
             annotation_model=annotation_model,
+            view_state_model=view_state_model,
             session_id=target_id,
         )
         state = self._normalize_session_state(self._sessions[target_id])
@@ -339,7 +394,58 @@ class AnnotationSessionManager:
         self._sync_session_legacy_fields_from_active_layer(state, active_layer)
         if target_id == self._active_id:
             self._apply_annotation_layer_to_model(annotation_model, active_layer)
+            if view_state_model is not None:
+                self._apply_layer_corrosion_state_to_view_state(active_layer, view_state_model)
         return True
+
+    def create_layer_from_model_state(
+        self,
+        *,
+        name: str,
+        annotation_model: AnnotationModel,
+        view_state_model: ViewStateModel,
+        session_id: Optional[str] = None,
+        set_active: bool = True,
+        save_current: bool = True,
+        layer_kind: Optional[str] = None,
+    ) -> Optional[str]:
+        """Create a new layer from the current live model payload."""
+        target_id = str(session_id or self._active_id or "").strip()
+        if not target_id or target_id not in self._sessions:
+            return None
+        if save_current:
+            self.sync_active_layer_from_model(
+                annotation_model=annotation_model,
+                view_state_model=view_state_model,
+                session_id=target_id,
+            )
+
+        state = self._normalize_session_state(self._sessions[target_id])
+        normalized_kind = self._normalize_layer_kind(
+            layer_kind or self._layer_kind_from_view_state(view_state_model)
+        )
+        normalized_name = self._unique_layer_name(state.layer_stack, name)
+        new_layer = LayerState.create(
+            name=normalized_name,
+            mask_volume=self._copy_mask_volume(annotation_model.get_mask_volume()),
+            label_palette=copy.deepcopy(annotation_model.label_palette),
+            label_visibility=copy.deepcopy(annotation_model.label_visibility),
+            overlay_cache=None,
+            layer_kind=normalized_kind,
+            corrosion_state=(
+                self._build_corrosion_layer_state_from_view_state(view_state_model)
+                if normalized_kind == "corrosion"
+                else None
+            ),
+        )
+        state.layer_stack.layers.append(new_layer)
+        if set_active:
+            state.layer_stack.set_active_layer(new_layer.id)
+            self._sync_session_legacy_fields_from_active_layer(state, new_layer)
+            if target_id == self._active_id:
+                self._apply_annotation_layer_to_model(annotation_model, new_layer)
+                self._apply_layer_corrosion_state_to_view_state(new_layer, view_state_model)
+        return str(new_layer.id)
 
     def compose_active_layers(
         self,
@@ -662,6 +768,7 @@ class AnnotationSessionManager:
             label_palette=label_palette,
             label_visibility=label_visibility,
             overlay_cache=overlay_cache,
+            view_state_model=view_state_model,
             existing_state=existing_state,
         )
         active_layer = layer_stack.get_active_layer()
@@ -794,6 +901,7 @@ class AnnotationSessionManager:
                 setattr(view_state_model, key, self._copy_view_state_value(val))
         for key, val in state.view_state.items():
             setattr(view_state_model, key, self._copy_view_state_value(val))
+        self._apply_layer_corrosion_state_to_view_state(active_layer, view_state_model)
 
     def _build_persistable_session_state(
         self,
@@ -830,8 +938,8 @@ class AnnotationSessionManager:
         """Promote legacy single-overlay state to a stack-backed session."""
         state.name = self._normalize_session_name(getattr(state, "name", ""))
 
-        layer_stack = getattr(state, "layer_stack", None)
-        if not isinstance(layer_stack, LayerStackModel) or not layer_stack.layers:
+        layer_stack = self._normalize_layer_stack(getattr(state, "layer_stack", None))
+        if layer_stack is None or not layer_stack.layers:
             layer_stack = self._build_single_layer_stack(
                 mask_volume=getattr(state, "mask_volume", None),
                 label_palette=copy.deepcopy(getattr(state, "label_palette", {})),
@@ -869,6 +977,7 @@ class AnnotationSessionManager:
         label_palette: Dict[int, tuple[int, int, int, int]],
         label_visibility: Dict[int, bool],
         overlay_cache: Optional[OverlayData],
+        view_state_model: ViewStateModel,
         existing_state: Optional[AnnotationSessionState],
     ) -> LayerStackModel:
         normalized_existing = (
@@ -900,6 +1009,10 @@ class AnnotationSessionManager:
                         locked=source_layer.locked,
                         opacity=source_layer.opacity,
                         overlay_cache=overlay_cache,
+                        layer_kind=self._layer_kind_from_view_state(view_state_model),
+                        corrosion_state=self._build_corrosion_layer_state_from_view_state(
+                            view_state_model
+                        ),
                     )
                 )
             else:
@@ -914,6 +1027,10 @@ class AnnotationSessionManager:
                         locked=source_layer.locked,
                         opacity=source_layer.opacity,
                         overlay_cache=source_layer.overlay_cache,
+                        layer_kind=source_layer.layer_kind,
+                        corrosion_state=self._copy_corrosion_layer_state(
+                            source_layer.corrosion_state
+                        ),
                     )
                 )
         return LayerStackModel(layers=cloned_layers, active_layer_id=active_layer_id)
@@ -953,6 +1070,8 @@ class AnnotationSessionManager:
                 locked=layer.locked,
                 opacity=layer.opacity,
                 overlay_cache=None,
+                layer_kind=layer.layer_kind,
+                corrosion_state=self._copy_corrosion_layer_state(layer.corrosion_state),
             )
             for layer in layer_stack.layers
         ]
@@ -1081,6 +1200,124 @@ class AnnotationSessionManager:
         )
 
     @classmethod
+    def _normalize_layer_kind(cls, value: Optional[str]) -> str:
+        normalized = str(value or "annotation").strip().casefold()
+        return "corrosion" if normalized == "corrosion" else "annotation"
+
+    @classmethod
+    def _layer_kind_from_view_state(cls, view_state_model: ViewStateModel) -> str:
+        if bool(getattr(view_state_model, "corrosion_active", False)):
+            return "corrosion"
+        return "annotation"
+
+    @classmethod
+    def _build_corrosion_layer_state_from_view_state(
+        cls,
+        view_state_model: ViewStateModel,
+    ) -> Optional[CorrosionLayerState]:
+        if not bool(getattr(view_state_model, "corrosion_active", False)):
+            return None
+        payload = {
+            key: cls._copy_view_state_value(getattr(view_state_model, key, None))
+            for key in CORROSION_LAYER_VIEW_STATE_KEYS
+        }
+        stage = view_state_model.get_corrosion_session_stage()
+        payload["corrosion_session_stage"] = stage
+        return CorrosionLayerState(stage=stage, payload=payload)
+
+    @classmethod
+    def _normalize_corrosion_layer_state(cls, payload: Any) -> Optional[CorrosionLayerState]:
+        if payload is None:
+            return None
+        if isinstance(payload, CorrosionLayerState):
+            raw_stage = payload.stage
+            raw_mapping = payload.payload
+        elif isinstance(payload, dict):
+            raw_stage = payload.get("stage") or payload.get("corrosion_session_stage")
+            raw_mapping = payload.get("payload", payload)
+        else:
+            return None
+        if not isinstance(raw_mapping, dict):
+            raw_mapping = {}
+        normalized_payload = {
+            str(key): cls._copy_view_state_value(value)
+            for key, value in raw_mapping.items()
+        }
+        stage = ViewStateModel.normalize_corrosion_session_stage(raw_stage)
+        normalized_payload["corrosion_session_stage"] = stage
+        return CorrosionLayerState(stage=stage, payload=normalized_payload)
+
+    @classmethod
+    def _copy_corrosion_layer_state(
+        cls,
+        corrosion_state: Optional[CorrosionLayerState],
+    ) -> Optional[CorrosionLayerState]:
+        return cls._normalize_corrosion_layer_state(corrosion_state)
+
+    @classmethod
+    def _apply_layer_corrosion_state_to_view_state(
+        cls,
+        layer: Optional[LayerState],
+        view_state_model: ViewStateModel,
+    ) -> None:
+        view_state_model.deactivate_corrosion()
+        if layer is None:
+            return
+        if cls._normalize_layer_kind(getattr(layer, "layer_kind", None)) != "corrosion":
+            return
+        corrosion_state = cls._normalize_corrosion_layer_state(
+            getattr(layer, "corrosion_state", None)
+        )
+        if corrosion_state is None:
+            return
+        for key, value in corrosion_state.payload.items():
+            if key == "corrosion_active":
+                continue
+            setattr(view_state_model, key, cls._copy_view_state_value(value))
+        view_state_model.corrosion_active = True
+        view_state_model.set_corrosion_session_stage(corrosion_state.stage)
+
+    @classmethod
+    def _normalize_layer_state(cls, layer: Any) -> Optional[LayerState]:
+        if layer is None:
+            return None
+        return LayerState.create(
+            layer_id=getattr(layer, "id", None),
+            name=getattr(layer, "name", "Layer 1"),
+            mask_volume=getattr(layer, "mask_volume", None),
+            label_palette=copy.deepcopy(getattr(layer, "label_palette", {})),
+            label_visibility=copy.deepcopy(getattr(layer, "label_visibility", {})),
+            visible=getattr(layer, "visible", True),
+            locked=getattr(layer, "locked", False),
+            opacity=getattr(layer, "opacity", 1.0),
+            overlay_cache=getattr(layer, "overlay_cache", None),
+            layer_kind=cls._normalize_layer_kind(getattr(layer, "layer_kind", "annotation")),
+            corrosion_state=cls._normalize_corrosion_layer_state(
+                getattr(layer, "corrosion_state", None)
+            ),
+        )
+
+    @classmethod
+    def _normalize_layer_stack(cls, layer_stack: Any) -> Optional[LayerStackModel]:
+        if not isinstance(layer_stack, LayerStackModel):
+            return None
+        normalized_layers = [
+            normalized_layer
+            for normalized_layer in (
+                cls._normalize_layer_state(layer) for layer in getattr(layer_stack, "layers", [])
+            )
+            if normalized_layer is not None
+        ]
+        if not normalized_layers:
+            return None
+        normalized_stack = LayerStackModel(
+            layers=normalized_layers,
+            active_layer_id=str(getattr(layer_stack, "active_layer_id", "") or "") or None,
+        )
+        normalized_stack.ensure_active_layer()
+        return normalized_stack
+
+    @classmethod
     def _copy_view_state_mapping(cls, payload: dict[str, Any]) -> dict[str, Any]:
         return {
             str(key): cls._copy_view_state_value(value)
@@ -1129,6 +1366,21 @@ class AnnotationSessionManager:
         index = 1
         while True:
             candidate = f"Layer {index}"
+            if candidate not in existing_names:
+                return candidate
+            index += 1
+
+    @staticmethod
+    def _unique_layer_name(layer_stack: LayerStackModel, requested_name: str) -> str:
+        normalized = str(requested_name or "").strip()
+        if not normalized:
+            return AnnotationSessionManager._next_layer_name(layer_stack)
+        existing_names = {str(layer.name or "").strip() for layer in layer_stack.layers}
+        if normalized not in existing_names:
+            return normalized
+        index = 2
+        while True:
+            candidate = f"{normalized} ({index})"
             if candidate not in existing_names:
                 return candidate
             index += 1

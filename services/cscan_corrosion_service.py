@@ -1049,6 +1049,22 @@ class CScanCorrosionService(CScanService):
             line_thickness=line_thickness,
         )
 
+    def build_peak_maps_from_overlay_mask(
+        self,
+        *,
+        mask_stack: np.ndarray,
+        class_A_id: int,
+        class_B_id: int,
+        support_map: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Rebuild raw BW/FW peak maps from an edited overlay mask volume."""
+        return self._build_peak_maps_from_overlay_mask(
+            mask_stack=mask_stack,
+            class_A_id=class_A_id,
+            class_B_id=class_B_id,
+            support_map=support_map,
+        )
+
     def build_interpolated_distance_map(
         self,
         *,
@@ -1197,6 +1213,53 @@ class CScanCorrosionService(CScanService):
                 lines_volume[z, pts_b[0][1], pts_b[0][0]] = color_B
 
         return lines_volume
+
+    @staticmethod
+    def _build_peak_maps_from_overlay_mask(
+        *,
+        mask_stack: np.ndarray,
+        class_A_id: int,
+        class_B_id: int,
+        support_map: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Extract one Y peak per X column for both corrosion labels from a line overlay."""
+        volume = np.asarray(mask_stack, dtype=np.uint8)
+        if volume.ndim != 3:
+            raise ValueError(f"Overlay attendu 3D (Z,H,W), recu shape {volume.shape}")
+
+        num_slices, height, width = volume.shape
+        peak_map_a = np.full((num_slices, width), -1, dtype=np.int32)
+        peak_map_b = np.full((num_slices, width), -1, dtype=np.int32)
+
+        support: Optional[np.ndarray] = None
+        if support_map is not None:
+            support = np.asarray(support_map, dtype=bool)
+            if support.shape != (num_slices, width):
+                raise ValueError(
+                    f"Support map attendu en shape {(num_slices, width)}, recu {support.shape}"
+                )
+
+        def _fill_peak_map(class_id: int, peak_map: np.ndarray) -> None:
+            for z in range(num_slices):
+                y_coords, x_coords = np.nonzero(volume[z] == int(class_id))
+                if y_coords.size == 0:
+                    continue
+
+                sum_y = np.bincount(x_coords, weights=y_coords, minlength=width)
+                count_y = np.bincount(x_coords, minlength=width)
+                valid = count_y > 0
+                if support is not None:
+                    valid &= support[z]
+                if not np.any(valid):
+                    continue
+
+                x_valid = np.nonzero(valid)[0]
+                mean_y = np.rint(sum_y[x_valid] / count_y[x_valid]).astype(np.int32)
+                peak_map[z, x_valid] = np.clip(mean_y, 0, height - 1)
+
+        _fill_peak_map(class_A_id, peak_map_a)
+        _fill_peak_map(class_B_id, peak_map_b)
+        return peak_map_a, peak_map_b
 
     @classmethod
     def _get_max_interpolation_gap_px(cls) -> int:

@@ -4360,3 +4360,22 @@ La phase C exposait deja les layers dans l UI, mais le rendu etait encore aplati
 1. Conserver `OverlayData` comme payload de rendu unitaire et encapsuler le vrai rendu multi-layer dans `OverlayStackData`, afin de garder une compatibilite transitoire avec les appels legacy `set_overlay(...)` et les services qui construisent encore un overlay simple.
 2. Transposer les overlays secondaires layer par layer dans `AnnotationAxisService`, plutot que de recomposer puis transposer un masque aplati, afin de preserver l ordre, la visibilite et l opacite propres a chaque layer.
 3. Rendre la 3D avec un visual VisPy par layer visible dans `VolumeView`, plutot qu en synthese dans un seul volume etiquete, afin d obtenir des couleurs et opacites reelles par layer sans bricoler des `label_id` artificiels.
+
+### 2026-05-18 - Phase E du systeme de layers pour le workflow corrosion
+**Tags :** `#branch:feature/layer-system-v2`, `#controllers/annotation_controller.py`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#models/layer_stack_model.py`, `#services/annotation_session_manager.py`, `#services/cscan_corrosion_service.py`, `#layer-stack`, `#corrosion`, `#interpolation`, `#endview`, `#palette`, `#mvc`
+
+**Actions effectuees :**
+- Ajout de `CorrosionLayerState` et des metadonnees `layer_kind` / `corrosion_state` dans `models/layer_stack_model.py` pour stocker l etat `base/raw/interpolated` et le payload corrosion directement sur les layers.
+- Extension de `services/annotation_session_manager.py` pour snapshotter, dupliquer, restaurer et creer des layers corrosion a partir du `ViewStateModel`, avec reapplique du contexte corrosion lors des switches de layer.
+- Refactor de `controllers/master_controller.py` pour que `Analyze` cree un layer corrosion `raw` et que `Interpolate` cree un layer corrosion `interpolated` dans la session active, sans ouvrir de nouvelle session corrosion.
+- Stabilisation de l UI corrosion en forçant `controllers/endview_controller.py` a rester sur la vue Endview standard, meme quand un layer corrosion est actif.
+- Ajout dans `services/cscan_corrosion_service.py` d une reconstruction des peak maps BW/FW depuis le masque overlay edite, puis reutilisation dans `controllers/master_controller.py` avant la reinterpolation pour que le raw layer devienne la vraie source de verite.
+- Correction dans `controllers/annotation_controller.py` de la synchro immediate des palettes et visibilites vers le layer actif, afin que les changements de couleur de labels soient visibles sans devoir changer de layer.
+
+**Contexte :**
+La phase D avait termine le rendu multi-layer, mais le workflow corrosion restait encore hybride: l etat metier vivait dans la session, Endview changeait encore de widget en mode corrosion, et certaines operations relisaient des donnees memorisees plutot que l etat courant du layer actif. La phase E aligne donc le pipeline corrosion sur l architecture `session -> layers`, tout en corrigeant deux regressions visibles pendant l usage: la reinterpolation qui ignorait des modifications du raw layer et la couleur des labels qui ne se rafraichissait qu apres un switch de layer.
+
+**Decisions techniques :**
+1. Faire du layer corrosion la source de verite pour le stage et le payload corrosion, et ne garder l etat corrosion du `ViewStateModel` que comme miroir runtime derive du layer actif.
+2. Decoupler l etat corrosion du choix de widget Endview, afin de preparer la suppression future de la vue corrosion dediee et de laisser la vue standard porter les outils raw.
+3. Recalculer les peak maps bruts a partir du masque raw actif avant interpolation, plutot que de reutiliser uniquement les peak maps memorisees, afin que les edits utilisateurs sur le raw layer soient pris en compte immediatement.

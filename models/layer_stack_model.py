@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 import uuid
 
 import numpy as np
 
 from models.overlay_data import OverlayData
+
+
+@dataclass
+class CorrosionLayerState:
+    """Corrosion workflow payload persisted per layer."""
+
+    stage: str
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -22,6 +30,8 @@ class LayerState:
     locked: bool = False
     opacity: float = 1.0
     overlay_cache: Optional[OverlayData] = None
+    layer_kind: str = "annotation"
+    corrosion_state: Optional[CorrosionLayerState] = None
 
     @classmethod
     def create(
@@ -35,9 +45,15 @@ class LayerState:
         locked: bool = False,
         opacity: float = 1.0,
         overlay_cache: Optional[OverlayData] = None,
+        layer_kind: str = "annotation",
+        corrosion_state: Optional[CorrosionLayerState] = None,
         layer_id: Optional[str] = None,
     ) -> "LayerState":
         """Build a layer while normalizing runtime metadata."""
+        normalized_kind = str(layer_kind or "annotation").strip().casefold()
+        if normalized_kind != "corrosion":
+            normalized_kind = "annotation"
+            corrosion_state = None
         return cls(
             id=str(layer_id or uuid.uuid4().hex),
             name=str(name or "Layer 1").strip() or "Layer 1",
@@ -48,6 +64,8 @@ class LayerState:
             locked=bool(locked),
             opacity=max(0.0, min(1.0, float(opacity))),
             overlay_cache=overlay_cache,
+            layer_kind=normalized_kind,
+            corrosion_state=corrosion_state,
         )
 
 

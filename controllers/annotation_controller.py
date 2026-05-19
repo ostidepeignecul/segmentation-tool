@@ -104,6 +104,7 @@ class AnnotationController:
             default_color = MASK_COLORS_BGRA.get(label_id, (255, 0, 255, 160))
             self.annotation_model.ensure_label(label_id, default_color, visible=visible)
         self.annotation_model.set_label_visibility(label_id, visible)
+        self._sync_active_layer_label_state()
         self.refresh_overlay(defer_volume=True, rebuild=False)
 
     def on_label_color_changed(self, label_id: int, color: QColor) -> None:
@@ -112,6 +113,23 @@ class AnnotationController:
         self.annotation_model.set_label_color(label_id, bgra)
         self.annotation_model.set_label_visibility(label_id, True)
         self.temp_mask_model.set_label_color(label_id, bgra)
+        corrosion_palette = getattr(self.view_state_model, "corrosion_overlay_palette", None)
+        corrosion_labels = getattr(self.view_state_model, "corrosion_overlay_label_ids", None)
+        if isinstance(corrosion_palette, dict):
+            update_corrosion_palette = int(label_id) in corrosion_palette
+            if not update_corrosion_palette and isinstance(corrosion_labels, tuple):
+                try:
+                    update_corrosion_palette = int(label_id) in {
+                        int(corrosion_labels[0]),
+                        int(corrosion_labels[1]),
+                    }
+                except Exception:
+                    update_corrosion_palette = False
+            if update_corrosion_palette:
+                updated_palette = dict(corrosion_palette)
+                updated_palette[int(label_id)] = tuple(int(channel) for channel in bgra)
+                self.view_state_model.corrosion_overlay_palette = updated_palette
+        self._sync_active_layer_label_state()
         self.refresh_overlay(defer_volume=True, rebuild=False)
         # Rafraîchir la preview ROI si le label actif change de couleur
         self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
@@ -123,6 +141,7 @@ class AnnotationController:
         self.annotation_model.set_label_visibility(label_id, True)
         self.temp_mask_model.ensure_label(label_id, bgra, visible=True)
         self.view_state_model.set_active_label(label_id)
+        self._sync_active_layer_label_state()
         self.refresh_overlay(defer_volume=True, rebuild=False)
 
     def on_label_deleted(self, label_id: int) -> None:
@@ -138,6 +157,12 @@ class AnnotationController:
         self.roi_model.remove_label(lbl)
         if self.view_state_model.active_label == lbl:
             self.view_state_model.set_active_label(None)
+        corrosion_palette = getattr(self.view_state_model, "corrosion_overlay_palette", None)
+        if isinstance(corrosion_palette, dict) and lbl in corrosion_palette:
+            updated_palette = dict(corrosion_palette)
+            updated_palette.pop(lbl, None)
+            self.view_state_model.corrosion_overlay_palette = updated_palette
+        self._sync_active_layer_label_state()
         self.annotation_view.clear_temp_shapes()
         self.annotation_view.clear_roi_overlay()
         self.annotation_view.clear_roi_boxes()
@@ -333,6 +358,15 @@ class AnnotationController:
         if active_layer is None:
             return
         active_layer.overlay_cache = self.annotation_model.get_overlay_cache()
+
+    def _sync_active_layer_label_state(self) -> None:
+        """Persist label palette and visibility before rebuilding the render stack."""
+        if self.session_manager is None:
+            return
+        self.session_manager.sync_active_layer_from_model(
+            annotation_model=self.annotation_model,
+            view_state_model=self.view_state_model,
+        )
 
     def clear_labels(self) -> None:
         """Efface tous les labels de la vue de paramètres overlay."""
