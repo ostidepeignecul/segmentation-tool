@@ -93,7 +93,7 @@ class AnnotationController:
 
     def open_overlay_settings(self) -> None:
         """Ouvre la fenêtre de paramètres overlay et synchronise les labels actuels."""
-        self._sync_overlay_settings_with_model()
+        self.sync_overlay_settings(force=True)
         self.overlay_settings_view.show()
         self.overlay_settings_view.raise_()
         self.overlay_settings_view.activateWindow()
@@ -202,6 +202,10 @@ class AnnotationController:
         """Recalcule et pousse l'overlay vers les vues selon l'état actuel."""
         show_overlay = self.view_state_model.show_overlay
         show_volume_view_overlay = self.view_state_model.show_volume_view_overlay
+        force_upload_layer_ids = self._resolve_force_upload_layer_ids(
+            rebuild=rebuild,
+            changed_slice=changed_slice,
+        )
         if not show_overlay:
             self.logger.info("Overlay hidden by toggle; clearing 2D/3D views.")
             self.annotation_view.set_overlay_stack(None)
@@ -246,9 +250,14 @@ class AnnotationController:
         )
 
         self.annotation_view.set_overlay_stack(overlay_stack)
-        secondary_overlay = self.annotation_axis_service.build_secondary_overlay_stack_data(
-            overlay_stack
-        )
+        secondary_overlay = None
+        if (
+            self.annotation_secondary_view is not None
+            or self.annotation_secondary_corrosion_view is not None
+        ):
+            secondary_overlay = self.annotation_axis_service.build_secondary_overlay_stack_data(
+                overlay_stack
+            )
         if self.annotation_secondary_view is not None:
             self.annotation_secondary_view.set_overlay_stack(secondary_overlay)
         if self.annotation_secondary_corrosion_view is not None:
@@ -261,6 +270,7 @@ class AnnotationController:
                 defer_3d=defer_volume,
                 changed_slice=changed_slice,
                 changed_labels=None,
+                force_upload_layer_ids=force_upload_layer_ids,
             )
         else:
             self.volume_view.set_overlay_stack(None)
@@ -372,9 +382,27 @@ class AnnotationController:
         """Efface tous les labels de la vue de paramètres overlay."""
         self.overlay_settings_view.clear_labels()
 
-    def sync_overlay_settings(self) -> None:
+    def sync_overlay_settings(self, *, force: bool = False) -> None:
         """Synchronise la vue de paramètres overlay avec le modèle d'annotation."""
+        if not force and not self.overlay_settings_view.isVisible():
+            return
         self._sync_overlay_settings_with_model()
+
+    def _resolve_force_upload_layer_ids(
+        self,
+        *,
+        rebuild: bool,
+        changed_slice: Optional[int],
+    ) -> Optional[set[str]]:
+        """Return layer ids that need an explicit 3D volume re-upload."""
+        if changed_slice is None and not rebuild:
+            return None
+        if self.session_manager is None:
+            return {"legacy-overlay"}
+        active_layer = self.session_manager.get_active_layer()
+        if active_layer is None:
+            return None
+        return {str(active_layer.id)}
 
     def reset_overlay_state(self, *, preserve_labels: bool = False) -> None:
         """Réinitialise le cache et nettoie les overlays (ex: lors du chargement d'un nouveau NDE)."""

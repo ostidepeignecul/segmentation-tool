@@ -1877,7 +1877,7 @@ class MasterController:
             self.annotation_controller.sync_overlay_settings()
             return
         self._clear_active_layer_runtime_edits()
-        self._after_layer_stack_changed()
+        self._after_layer_stack_changed(defer_volume=True)
 
     def _on_layer_visibility_changed(self, layer_id: str, visible: bool) -> None:
         """Toggle layer visibility and refresh the composed overlay."""
@@ -1885,7 +1885,7 @@ class MasterController:
             self.annotation_controller.sync_overlay_settings()
             return
         self.annotation_controller.sync_overlay_settings()
-        self.annotation_controller.refresh_overlay(rebuild=False)
+        self.annotation_controller.refresh_overlay(defer_volume=True, rebuild=False)
         self._mark_active_session_dirty()
 
     def _on_layer_created(self) -> None:
@@ -1933,9 +1933,9 @@ class MasterController:
             self.annotation_view.clear_temp_shapes()
         self.annotation_controller.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
 
-    def _after_layer_stack_changed(self) -> None:
+    def _after_layer_stack_changed(self, *, defer_volume: bool = False) -> None:
         """Resync overlay UI, rendered overlay and active-label selectors after a layer change."""
-        self._after_session_switch()
+        self._after_layer_switch(defer_volume=defer_volume)
         self._mark_active_session_dirty()
 
     def _sync_tools_labels(self, select_label_id: Optional[int] = None) -> None:
@@ -3077,6 +3077,22 @@ class MasterController:
 
     def _on_session_deleted(self, session_id: str) -> None:
         self.session_workspace_controller.on_session_deleted(session_id)
+
+    def _after_layer_switch(self, *, defer_volume: bool) -> None:
+        """Synchronize only the UI state affected by an intra-session layer change."""
+        volume = self._current_volume()
+        if volume is not None:
+            self.cscan_controller.update_views(volume)
+        self._sync_cscan_labels()
+        self._sync_corrosion_workflow_controls()
+        self.annotation_controller.sync_overlay_settings()
+        self._sync_tools_labels(select_label_id=self.view_state_model.active_label)
+        self.annotation_controller.refresh_overlay(
+            defer_volume=defer_volume,
+            rebuild=False,
+        )
+        self.corrosion_profile_controller.sync_anchors()
+        self._restore_piece3d_state_from_view_state(sync_action=True)
 
     def _after_session_switch(self) -> None:
         """Synchronise l'état du modèle actif vers les vues."""

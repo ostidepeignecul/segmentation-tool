@@ -457,18 +457,56 @@ class ToolsPanel(QFrame):
         ):
             return
 
-        self.clear_layers()
-
-        row_heights: list[int] = []
-        ordered_ids: list[str] = []
+        normalized_entries: list[Tuple[str, str, bool, bool]] = []
         for layer_id, name, visible, is_active in entries:
             normalized_id = str(layer_id or "").strip()
             if not normalized_id:
                 continue
+            normalized_entries.append(
+                (
+                    normalized_id,
+                    str(name or "Layer"),
+                    bool(visible),
+                    bool(is_active),
+                )
+            )
 
-            layer_button = QBtn(str(name or "Layer"), self._label_text_container)
+        ordered_ids = [layer_id for layer_id, _name, _visible, _is_active in normalized_entries]
+        existing_ids = list(self._layer_buttons.keys())
+        if existing_ids == ordered_ids and ordered_ids:
+            self._active_layer_id = None
+            row_heights: list[int] = []
+            for layer_id, name, visible, is_active in normalized_entries:
+                layer_button = self._layer_buttons[layer_id]
+                visibility_box = self._layer_visibility_buttons[layer_id]
+                layer_button.blockSignals(True)
+                layer_button.setText(name)
+                layer_button.setChecked(is_active)
+                layer_button.blockSignals(False)
+                visibility_box.blockSignals(True)
+                visibility_box.setChecked(visible)
+                visibility_box.blockSignals(False)
+                if is_active:
+                    self._active_layer_id = layer_id
+                row_heights.append(
+                    max(layer_button.sizeHint().height(), visibility_box.sizeHint().height())
+                )
+
+            max_height = max(row_heights) if row_heights else 0
+            if max_height > 0:
+                for layer_id in ordered_ids:
+                    self._layer_buttons[layer_id].setFixedHeight(max_height)
+                    self._layer_visibility_buttons[layer_id].setFixedHeight(max_height)
+            self._update_layer_buttons_enabled()
+            return
+
+        self.clear_layers()
+
+        row_heights: list[int] = []
+        for normalized_id, name, visible, is_active in normalized_entries:
+            layer_button = QBtn(name, self._label_text_container)
             layer_button.setCheckable(True)
-            layer_button.setChecked(bool(is_active))
+            layer_button.setChecked(is_active)
             layer_button.toggled.connect(
                 lambda checked, target_id=normalized_id: self._on_layer_selected(target_id, checked)
             )
@@ -476,7 +514,7 @@ class ToolsPanel(QFrame):
             self._layer_text_layout.addWidget(layer_button)
 
             visibility_box = QCheckBox("Visible", self._label_color_container)
-            visibility_box.setChecked(bool(visible))
+            visibility_box.setChecked(visible)
             visibility_box.toggled.connect(
                 lambda checked, target_id=normalized_id: self.layer_visibility_changed.emit(target_id, checked)
             )
@@ -484,7 +522,6 @@ class ToolsPanel(QFrame):
 
             self._layer_buttons[normalized_id] = layer_button
             self._layer_visibility_buttons[normalized_id] = visibility_box
-            ordered_ids.append(normalized_id)
             if is_active:
                 self._active_layer_id = normalized_id
             row_heights.append(

@@ -961,12 +961,8 @@ class AnnotationSessionManager:
 
         state.layer_stack = layer_stack
         state.mask_volume = active_layer.mask_volume if active_layer is not None else None
-        state.label_palette = copy.deepcopy(active_layer.label_palette) if active_layer is not None else {}
-        state.label_visibility = (
-            copy.deepcopy(active_layer.label_visibility)
-            if active_layer is not None
-            else {}
-        )
+        state.label_palette = active_layer.label_palette if active_layer is not None else {}
+        state.label_visibility = active_layer.label_visibility if active_layer is not None else {}
         state.overlay_cache = active_layer.overlay_cache if active_layer is not None else None
         return state
 
@@ -1095,8 +1091,8 @@ class AnnotationSessionManager:
             state.overlay_cache = None
             return
         state.mask_volume = active_layer.mask_volume
-        state.label_palette = copy.deepcopy(active_layer.label_palette)
-        state.label_visibility = copy.deepcopy(active_layer.label_visibility)
+        state.label_palette = active_layer.label_palette
+        state.label_visibility = active_layer.label_visibility
         state.overlay_cache = active_layer.overlay_cache
 
     @staticmethod
@@ -1105,8 +1101,8 @@ class AnnotationSessionManager:
         active_layer: Optional[LayerState],
     ) -> None:
         """Rebind the live annotation model to the current editable layer."""
-        annotation_model.clear()
         if active_layer is None:
+            annotation_model.clear()
             return
         annotation_model.mask_volume = active_layer.mask_volume  # type: ignore[assignment]
         annotation_model.label_palette = active_layer.label_palette
@@ -1116,7 +1112,16 @@ class AnnotationSessionManager:
             annotation_model.detected_label_ids = (0,)
         else:
             annotation_model.detected_label_ids = tuple(
-                int(value) for value in np.unique(active_layer.mask_volume).tolist()
+                sorted(
+                    {
+                        0,
+                        *(
+                            int(label_id)
+                            for label_id in active_layer.label_palette.keys()
+                            if int(label_id) >= 0
+                        ),
+                    }
+                )
             )
         annotation_model.ensure_persistent_labels()
 
@@ -1189,15 +1194,25 @@ class AnnotationSessionManager:
         if layer.mask_volume is None:
             return None
         cached = layer.overlay_cache
+        normalized_mask = np.asarray(layer.mask_volume, dtype=np.uint8)
+        normalized_palette = {
+            int(label_id): tuple(int(channel) for channel in color)
+            for label_id, color in layer.label_palette.items()
+        }
+        if (
+            cached is not None
+            and cached.mask_volume is normalized_mask
+            and cached.palette == normalized_palette
+        ):
+            return cached
         label_volumes = cached.label_volumes if cached is not None else {}
-        return OverlayData(
-            mask_volume=np.asarray(layer.mask_volume, dtype=np.uint8),
-            palette={
-                int(label_id): tuple(int(channel) for channel in color)
-                for label_id, color in layer.label_palette.items()
-            },
+        overlay_data = OverlayData(
+            mask_volume=normalized_mask,
+            palette=normalized_palette,
             label_volumes=label_volumes,
         )
+        layer.overlay_cache = overlay_data
+        return overlay_data
 
     @classmethod
     def _normalize_layer_kind(cls, value: Optional[str]) -> str:
@@ -1301,6 +1316,10 @@ class AnnotationSessionManager:
     def _normalize_layer_stack(cls, layer_stack: Any) -> Optional[LayerStackModel]:
         if not isinstance(layer_stack, LayerStackModel):
             return None
+        raw_layers = list(getattr(layer_stack, "layers", []))
+        if raw_layers and all(isinstance(layer, LayerState) for layer in raw_layers):
+            layer_stack.ensure_active_layer()
+            return layer_stack
         normalized_layers = [
             normalized_layer
             for normalized_layer in (

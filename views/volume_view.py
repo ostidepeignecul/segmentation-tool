@@ -201,6 +201,7 @@ class VolumeView(QFrame):
         self._overlay_timer.timeout.connect(self._apply_pending_overlay_volume)
         self._pending_overlay_apply = False
         self._pending_overlay_labels: Optional[set[int]] = None
+        self._pending_force_upload_layer_ids: set[str] = set()
         self._display_size: Optional[Tuple[int, int]] = None
         # Rebuild scene after dock/undock transitions to avoid stale GL state.
         self._dock_rebuild_timer = QTimer(self)
@@ -379,6 +380,7 @@ class VolumeView(QFrame):
         self._overlay_timer.stop()
         self._pending_overlay_apply = False
         self._pending_overlay_labels = None
+        self._pending_force_upload_layer_ids.clear()
         self._build_scene()
         self.set_slice_index(current_slice, update_slider=True, emit=False)
         self.set_secondary_slice_index(
@@ -399,6 +401,7 @@ class VolumeView(QFrame):
         defer_3d: bool = False,
         changed_slice: Optional[int] = None,
         changed_labels: Optional[set[int]] = None,
+        force_upload_layer_ids: Optional[set[str]] = None,
     ) -> None:
         """Backward-compatible wrapper for a single overlay layer."""
         if overlay is None:
@@ -424,6 +427,7 @@ class VolumeView(QFrame):
             defer_3d=defer_3d,
             changed_slice=changed_slice,
             changed_labels=changed_labels,
+            force_upload_layer_ids=force_upload_layer_ids,
         )
 
     def set_overlay_stack(
@@ -433,6 +437,7 @@ class VolumeView(QFrame):
         defer_3d: bool = False,
         changed_slice: Optional[int] = None,
         changed_labels: Optional[set[int]] = None,
+        force_upload_layer_ids: Optional[set[str]] = None,
     ) -> None:
         """Assign an overlay stack and update 2D/3D visuals layer by layer."""
         self._overlay_stack = overlay_stack
@@ -464,10 +469,17 @@ class VolumeView(QFrame):
             if self._slice_overlay is None and self._view.scene is not None:
                 self._add_slice_overlay()
             self._update_overlay_image()
-            self._schedule_overlay_volume_update(labels=changed_labels)
+            self._schedule_overlay_volume_update(
+                labels=changed_labels,
+                force_upload_layer_ids=force_upload_layer_ids,
+            )
             return
 
-        self._apply_overlay_volume_now()
+        self._overlay_timer.stop()
+        self._pending_overlay_apply = False
+        self._pending_overlay_labels = None
+        self._pending_force_upload_layer_ids.clear()
+        self._apply_overlay_volume_now(force_upload_layer_ids=force_upload_layer_ids)
         if self._slice_overlay is None and self._view.scene is not None:
             self._add_slice_overlay()
         self._update_overlay_image()
@@ -511,11 +523,23 @@ class VolumeView(QFrame):
 
         self._pending_overlay_apply = False
         self._pending_overlay_labels = None
+        self._pending_force_upload_layer_ids.clear()
 
-    def _schedule_overlay_volume_update(self, *, labels: Optional[set[int]] = None) -> None:
+    def _schedule_overlay_volume_update(
+        self,
+        *,
+        labels: Optional[set[int]] = None,
+        force_upload_layer_ids: Optional[set[str]] = None,
+    ) -> None:
         """Coalesce overlay volume uploads to reduce GPU churn."""
         self._pending_overlay_apply = True
         self._pending_overlay_labels = set(labels) if labels is not None else None
+        if force_upload_layer_ids is not None:
+            self._pending_force_upload_layer_ids.update(
+                str(layer_id)
+                for layer_id in force_upload_layer_ids
+                if str(layer_id or "").strip()
+            )
         # Short delay to batch multiple toggles; 120ms keeps UI responsive
         self._overlay_timer.start(120)
 
@@ -525,11 +549,26 @@ class VolumeView(QFrame):
         self._pending_overlay_apply = False
         pending_labels = self._pending_overlay_labels
         self._pending_overlay_labels = None
-        self._apply_overlay_volume_now(labels_to_push=pending_labels)
+        pending_force_upload_layer_ids = set(self._pending_force_upload_layer_ids)
+        self._pending_force_upload_layer_ids.clear()
+        self._apply_overlay_volume_now(
+            labels_to_push=pending_labels,
+            force_upload_layer_ids=pending_force_upload_layer_ids,
+        )
 
-    def _apply_overlay_volume_now(self, *, labels_to_push: Optional[set[int]] = None) -> None:
+    def _apply_overlay_volume_now(
+        self,
+        *,
+        labels_to_push: Optional[set[int]] = None,
+        force_upload_layer_ids: Optional[set[str]] = None,
+    ) -> None:
         # labels_to_push is ignored for now; the stack is uploaded layer by layer.
         _ = labels_to_push
+        forced_layer_ids = {
+            str(layer_id)
+            for layer_id in (force_upload_layer_ids or set())
+            if str(layer_id or "").strip()
+        }
 
         renderable_layers = self._iter_renderable_overlay_layers()
         if not renderable_layers:
@@ -555,9 +594,6 @@ class VolumeView(QFrame):
             self._uploaded_volumes.pop(layer_id, None)
 
         self._overlay_volume_visual = None
-        active_layer_id = (
-            self._overlay_stack.active_layer_id if self._overlay_stack is not None else None
-        )
         for order, layer in enumerate(renderable_layers, start=10):
             overlay = layer.overlay
             if overlay is None or overlay.mask_volume is None:
@@ -577,7 +613,7 @@ class VolumeView(QFrame):
                 self._layer_visuals[layer.layer_id] = visual
             else:
                 last_uploaded = self._uploaded_volumes.get(layer.layer_id)
-                if last_uploaded is not overlay.mask_volume or layer.layer_id == active_layer_id:
+                if last_uploaded is not overlay.mask_volume or layer.layer_id in forced_layer_ids:
                     visual.set_data(np.asarray(overlay.mask_volume, dtype=np.uint8))
                 visual.cmap = cmap
             visual.order = order

@@ -170,8 +170,25 @@ class OverlaySettingsView(QDialog):
 
     def set_layers(self, entries: Iterable[Tuple[str, str, bool, bool]]) -> None:
         """Sync the view from an external list of (id, name, visible, is_active)."""
-        self.clear_layers()
+        normalized_entries: list[Tuple[str, str, bool, bool]] = []
         for layer_id, name, visible, is_active in entries:
+            normalized_id = str(layer_id or "").strip()
+            if not normalized_id:
+                continue
+            normalized_entries.append(
+                (
+                    normalized_id,
+                    str(name or "Layer"),
+                    bool(visible),
+                    bool(is_active),
+                )
+            )
+
+        ordered_ids = [layer_id for layer_id, _name, _visible, _is_active in normalized_entries]
+        if list(self._layers.keys()) != ordered_ids:
+            self.clear_layers()
+        self._active_layer_id = None
+        for layer_id, name, visible, is_active in normalized_entries:
             self.ensure_layer(layer_id, name, visible=visible, active=is_active)
         self._update_layer_buttons_enabled()
 

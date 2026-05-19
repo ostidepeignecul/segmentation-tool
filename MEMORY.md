@@ -4379,3 +4379,23 @@ La phase D avait termine le rendu multi-layer, mais le workflow corrosion restai
 1. Faire du layer corrosion la source de verite pour le stage et le payload corrosion, et ne garder l etat corrosion du `ViewStateModel` que comme miroir runtime derive du layer actif.
 2. Decoupler l etat corrosion du choix de widget Endview, afin de preparer la suppression future de la vue corrosion dediee et de laisser la vue standard porter les outils raw.
 3. Recalculer les peak maps bruts a partir du masque raw actif avant interpolation, plutot que de reutiliser uniquement les peak maps memorisees, afin que les edits utilisateurs sur le raw layer soient pris en compte immediatement.
+
+### 2026-05-18 - Optimisation du changement de layer
+**Tags :** `#branch:feature/layer-system-v2`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#services/annotation_session_manager.py`, `#views/overlay_settings_view.py`, `#views/tools_panel.py`, `#views/volume_view.py`, `#layer-switch`, `#performance`, `#overlay-stack`, `#vispy`, `#qt`, `#mvc`
+
+**Actions effectuees :**
+- Ajout dans `controllers/master_controller.py` d un chemin `_after_layer_switch()` dedie au switch intra-session, afin d eviter de repasser par le post-traitement complet de `_after_session_switch()` lors d un simple changement de layer.
+- Optimisation de `services/annotation_session_manager.py` pour rebinder le layer actif vivant sans `clear()` systematique ni `np.unique()` sur tout le volume, en reutilisant directement les references runtime des palettes, visibilites et caches overlay.
+- Stabilisation de `services/annotation_session_manager.py` pour court-circuiter la renormalisation du `LayerStackModel` quand les layers sont deja des `LayerState` runtime valides, et pour reutiliser `overlay_cache` quand le masque/palette du layer n ont pas change.
+- Mise a jour de `controllers/annotation_controller.py` et `views/volume_view.py` pour limiter les uploads 3D VisPy aux vrais changements de contenu overlay, avec `force_upload_layer_ids` seulement sur rebuild ou modification de slice.
+- Reduction du churn de rendu dans `controllers/annotation_controller.py` en evitant de reconstruire le stack secondaire quand aucune vue secondaire n est presente, et en sautant la resynchronisation de la fenetre overlay quand elle est fermee.
+- Refactor de `views/tools_panel.py` et `views/overlay_settings_view.py` pour faire des mises a jour incrementales de la liste des layers quand l ordre du stack ne change pas, au lieu de detruire/recreer tous les widgets a chaque switch.
+- Verification par `python -m py_compile`, un smoke test `AnnotationSessionManager`, puis un smoke test Qt cible sur `ToolsPanel` et `OverlaySettingsView`.
+
+**Contexte :**
+Le systeme de layers etait devenu sensiblement plus lent au changement de layer que l ancien changement de session. L analyse du pipeline a montre un cumul de couts evitables: gros chemin de refresh de session reutilise pour un simple switch de layer, rebind complet du modele live, uploads 3D VisPy trop frequents, et reconstruction totale des widgets de layers dans les panneaux UI. Cette entree documente le diff staged capture pendant le `brew`.
+
+**Decisions techniques :**
+1. Separer strictement le chemin `layer switch` du chemin `session switch`, afin de conserver l orchestration MVC existante tout en supprimant le refresh global inutile sur le cas le plus frequent.
+2. Traiter le layer actif comme un etat runtime vivant et partager ses references utiles (`mask_volume`, `label_palette`, `label_visibility`, `overlay_cache`) tant que l on reste dans la session active, afin d eviter les recopies et rescans volumetriques inutiles.
+3. Conserver le rendu multi-layer existant, mais ne forcer les reuploads GPU et les rebuilds UI complets que quand la structure ou le contenu du stack change vraiment, pas sur un simple changement de selection active.
