@@ -190,6 +190,7 @@ class CScanCorrosionService(CScanService):
             class_A_id=class_A_id,
             class_B_id=class_B_id,
             line_thickness=1,
+            connect_points=False,
         )
         self._logger.info("[Corrosion] Overlay lignes construit en %.2f s", time.perf_counter() - t_overlay)
         self._log_progress(0.75, "Overlay lignes")
@@ -1039,8 +1040,9 @@ class CScanCorrosionService(CScanService):
         class_B_id: int,
         line_thickness: int = 1,
         max_gap_px: Optional[int] = None,
+        connect_points: bool = True,
     ) -> np.ndarray:
-        """Public wrapper to rebuild BW/FW overlay lines from peak maps."""
+        """Public wrapper to rebuild BW/FW overlay marks from peak maps."""
         return self._build_overlay_from_peak_maps(
             peak_map_a=peak_map_a,
             peak_map_b=peak_map_b,
@@ -1049,6 +1051,7 @@ class CScanCorrosionService(CScanService):
             class_B_id=class_B_id,
             line_thickness=line_thickness,
             max_gap_px=max_gap_px,
+            connect_points=connect_points,
         )
 
     def build_peak_maps_from_overlay_mask(
@@ -1177,8 +1180,9 @@ class CScanCorrosionService(CScanService):
         class_B_id: int,
         line_thickness: int = 1,
         max_gap_px: Optional[int] = None,
+        connect_points: bool = True,
     ) -> np.ndarray:
-        """Construit un overlay de lignes BW/FW �f  partir des indices de pics (Y par X)."""
+        """Build BW/FW overlay marks from peak indices (Y per X)."""
         if peak_map_a.ndim != 2 or peak_map_b.ndim != 2:
             raise ValueError(
                 f"Peak maps attendus 2D (Z,W), re�f§us {peak_map_a.shape} et {peak_map_b.shape}"
@@ -1200,20 +1204,54 @@ class CScanCorrosionService(CScanService):
             slice_b = peak_map_b[z]
 
             valid_a = np.where((slice_a[:width_map] >= 0) & (slice_a[:width_map] < height))[0]
-            pts_a = [(int(x), int(slice_a[x])) for x in valid_a]
-            if len(pts_a) >= 2:
-                for pt_a, pt_b in self._iter_gap_limited_segments(pts_a, max_gap=max_gap):
-                    cv2.line(lines_volume[z], pt_a, pt_b, color=color_A, thickness=line_thickness)
-            elif len(pts_a) == 1:
-                lines_volume[z, pts_a[0][1], pts_a[0][0]] = color_A
+            if not connect_points:
+                if valid_a.size > 0:
+                    lines_volume[
+                        z,
+                        slice_a[valid_a].astype(np.intp),
+                        valid_a.astype(np.intp),
+                    ] = color_A
+            else:
+                pts_a = [(int(x), int(slice_a[x])) for x in valid_a]
+                if len(pts_a) >= 2:
+                    for pt_a, pt_b in self._iter_gap_limited_segments(
+                        pts_a,
+                        max_gap=max_gap,
+                    ):
+                        cv2.line(
+                            lines_volume[z],
+                            pt_a,
+                            pt_b,
+                            color=color_A,
+                            thickness=line_thickness,
+                        )
+                elif len(pts_a) == 1:
+                    lines_volume[z, pts_a[0][1], pts_a[0][0]] = color_A
 
             valid_b = np.where((slice_b[:width_map] >= 0) & (slice_b[:width_map] < height))[0]
-            pts_b = [(int(x), int(slice_b[x])) for x in valid_b]
-            if len(pts_b) >= 2:
-                for pt_a, pt_b in self._iter_gap_limited_segments(pts_b, max_gap=max_gap):
-                    cv2.line(lines_volume[z], pt_a, pt_b, color=color_B, thickness=line_thickness)
-            elif len(pts_b) == 1:
-                lines_volume[z, pts_b[0][1], pts_b[0][0]] = color_B
+            if not connect_points:
+                if valid_b.size > 0:
+                    lines_volume[
+                        z,
+                        slice_b[valid_b].astype(np.intp),
+                        valid_b.astype(np.intp),
+                    ] = color_B
+            else:
+                pts_b = [(int(x), int(slice_b[x])) for x in valid_b]
+                if len(pts_b) >= 2:
+                    for pt_a, pt_b in self._iter_gap_limited_segments(
+                        pts_b,
+                        max_gap=max_gap,
+                    ):
+                        cv2.line(
+                            lines_volume[z],
+                            pt_a,
+                            pt_b,
+                            color=color_B,
+                            thickness=line_thickness,
+                        )
+                elif len(pts_b) == 1:
+                    lines_volume[z, pts_b[0][1], pts_b[0][0]] = color_B
 
         return lines_volume
 

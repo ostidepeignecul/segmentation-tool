@@ -4419,3 +4419,20 @@ L utilisateur voulait supprimer la dependance a la vue Endview corrosion dediee 
 1. Garder `LayerState.mask_volume` comme source de verite du masque de layer, et stocker les peak maps/metadata corrosion dans `CorrosionLayerState`.
 2. Isoler les donnees lourdes recalculables dans `CorrosionRuntimeCache`, exclu du dump persistable, afin de reduire les duplications et le risque de desynchronisation.
 3. Differencier l edition raw et interpolated: le raw conserve les colonnes invalides et ne lance pas d interpolation globale au commit, tandis que l interpolated conserve le comportement de ligne complete/interpolee.
+
+### 2026-05-20 - Profil raw corrosion en points A-scan non relies
+**Tags :** `#branch:feature/tool-mod-upgrade`, `#services/cscan_corrosion_service.py`, `#services/corrosion_profile_edit_service.py`, `#MEMORY.md`, `#corrosion`, `#raw`, `#ascan`, `#overlay`, `#interpolated`, `#mvc`
+
+**Actions effectuées :**
+- Ajout d un parametre `connect_points` dans `services/cscan_corrosion_service.py` pour separer le rendu des peak maps en points seuls du rendu connecte par `cv2.line`.
+- Passage du raw initial corrosion en `connect_points=False`, afin que le masque raw contienne uniquement les positions `(x, y_max)` issues des A-scans valides.
+- Branchement de `services/corrosion_profile_edit_service.py` sur `connect_points=not preserve_existing_gaps` pour que la preview et le commit raw restent en points seuls, tandis que l interpolated conserve le rendu connecte.
+- Verification par compilation Python et test inline ciblant le rendu raw points-only, le rendu connecte historique et le commit raw sans interpolation.
+
+**Contexte :**
+Le raw connecte et l interpolated ne produisaient pas exactement le meme masque parce que le raw etait calcule depuis les maxima A-scan, mais son overlay etait encore rasterise avec des lignes entre points voisins. Ces pixels de ligne n etaient pas des maxima A-scan et rendaient le raw visuellement trop proche d un profil reconstruit.
+
+**Décisions techniques :**
+1. Garder les peak maps comme source numerique du raw, et limiter le masque raw a un pixel par colonne A-scan valide pour chaque label corrosion.
+2. Conserver le rendu connecte par defaut pour les appels existants et pour les layers interpolated, afin de ne pas changer le comportement de reconstruction interpolee.
+3. Piloter la difference raw/interpolated via le service metier (`connect_points`) plutot que par une logique de vue, afin de respecter la separation MVC.

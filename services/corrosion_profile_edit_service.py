@@ -123,6 +123,7 @@ class CorrosionProfileEditService:
             class_B_id=self._label_ids[1],
             line_thickness=self.LINE_THICKNESS,
             max_gap_px=0 if self._preserve_existing_gaps else None,
+            connect_points=not self._preserve_existing_gaps,
         )
         return True
 
@@ -312,6 +313,7 @@ class CorrosionProfileEditService:
             class_B_id=int(self._label_ids[1]),
             line_thickness=self.LINE_THICKNESS,
             max_gap_px=0 if self._preserve_existing_gaps else None,
+            connect_points=not self._preserve_existing_gaps,
         )
 
         projection: Optional[np.ndarray] = None
@@ -506,6 +508,7 @@ class CorrosionProfileEditService:
             height=h,
             line_thickness=self.LINE_THICKNESS,
             max_gap_px=0 if self._preserve_existing_gaps else None,
+            connect_points=not self._preserve_existing_gaps,
         )
         self._draw_row_polyline(
             canvas=rendered,
@@ -514,6 +517,7 @@ class CorrosionProfileEditService:
             height=h,
             line_thickness=self.LINE_THICKNESS,
             max_gap_px=0 if self._preserve_existing_gaps else None,
+            connect_points=not self._preserve_existing_gaps,
         )
         self._overlay_cache[z] = rendered
 
@@ -526,9 +530,13 @@ class CorrosionProfileEditService:
         height: int,
         line_thickness: int,
         max_gap_px: Optional[int],
+        connect_points: bool,
     ) -> None:
         valid = np.where((row >= 0) & (row < int(height)))[0]
         if valid.size == 0:
+            return
+        if not connect_points:
+            canvas[row[valid].astype(np.intp), valid.astype(np.intp)] = int(color)
             return
         pts = [(int(x), int(row[x])) for x in valid.tolist()]
         if len(pts) == 1:
@@ -540,5 +548,8 @@ class CorrosionProfileEditService:
             if max_gap_px is None
             else max(0, int(max_gap_px))
         )
-        for pt_a, pt_b in CScanCorrosionService._iter_gap_limited_segments(pts, max_gap=max_gap):
+        for pt_a, pt_b in CScanCorrosionService._iter_gap_limited_segments(
+            pts,
+            max_gap=max_gap,
+        ):
             cv2.line(canvas, pt_a, pt_b, color=int(color), thickness=int(line_thickness))
