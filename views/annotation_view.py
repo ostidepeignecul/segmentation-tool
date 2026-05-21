@@ -81,6 +81,9 @@ class AnnotationView(EndviewView):
         self._mod_anchor_pen_active = QPen(Qt.GlobalColor.cyan)
         self._mod_anchor_pen_active.setWidth(1)
         self._mod_anchor_pen_active.setCosmetic(True)
+        self._mod_anchor_pen_drag = QPen(Qt.GlobalColor.yellow)
+        self._mod_anchor_pen_drag.setWidth(1)
+        self._mod_anchor_pen_drag.setCosmetic(True)
         self._mod_anchor_pen_inactive = QPen(Qt.GlobalColor.gray)
         self._mod_anchor_pen_inactive.setWidth(1)
         self._mod_anchor_pen_inactive.setCosmetic(True)
@@ -282,6 +285,42 @@ class AnnotationView(EndviewView):
             item.setZValue(9)
             self._scene.addItem(item)
             self._mod_anchor_items.append(item)
+
+    def set_mod_anchor_groups(
+        self,
+        groups: Sequence[Sequence[Tuple[int, int]]],
+        *,
+        drag_component_index: Optional[int] = None,
+        drag_anchor_index: Optional[int] = None,
+    ) -> None:
+        """Display anchor points for multiple selected masks in mod mode."""
+        self.clear_mod_anchor_points()
+        if not groups:
+            return
+        size = 1.0
+        half = size / 2.0
+        for component_idx, points in enumerate(groups):
+            for anchor_idx, (x, y) in enumerate(points):
+                is_dragged = (
+                    drag_component_index is not None
+                    and drag_anchor_index is not None
+                    and int(drag_component_index) == int(component_idx)
+                    and int(drag_anchor_index) == int(anchor_idx)
+                )
+                pen = self._mod_anchor_pen_drag if is_dragged else self._mod_anchor_pen_active
+                brush = QColor(pen.color())
+                brush.setAlpha(min(255, pen.color().alpha() + 20))
+                item = QGraphicsEllipseItem(
+                    float(x) + 0.5 - half,
+                    float(y) + 0.5 - half,
+                    size,
+                    size,
+                )
+                item.setPen(pen)
+                item.setBrush(brush)
+                item.setZValue(9)
+                self._scene.addItem(item)
+                self._mod_anchor_items.append(item)
 
     def clear_mod_anchor_points(self) -> None:
         for item in self._mod_anchor_items:

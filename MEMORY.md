@@ -4436,3 +4436,21 @@ Le raw connecte et l interpolated ne produisaient pas exactement le meme masque 
 1. Garder les peak maps comme source numerique du raw, et limiter le masque raw a un pixel par colonne A-scan valide pour chaque label corrosion.
 2. Conserver le rendu connecte par defaut pour les appels existants et pour les layers interpolated, afin de ne pas changer le comportement de reconstruction interpolee.
 3. Piloter la difference raw/interpolated via le service metier (`connect_points`) plutot que par une logique de vue, afin de respecter la separation MVC.
+
+### 2026-05-20 - Outil mod multi-selection et support des micro-masks
+**Tags :** `#branch:feature/tool-mod-upgrade`, `#controllers/mask_modification_controller.py`, `#controllers/master_controller.py`, `#services/mask_modification_service.py`, `#views/annotation_view.py`, `#MEMORY.md`, `#mod-tool`, `#multi-selection`, `#micro-mask`, `#interaction`, `#mvc`
+
+**Actions effectuées :**
+- Ajout du raccourci `Delete` en mode `mod` normal pour supprimer les masks selectionnes et appliquer immediatement.
+- Refactor du service `mod` pour supporter la selection cumulative de plusieurs masks et l edition de leurs ancres.
+- Separation du clic de selection et du drag d edition avec un seuil de mouvement pour eviter les faux drags sur petits masks proches.
+- Ajout du support des composants de `1 pixel` comme points et de `2 pixels` comme segments, en plus des polygones classiques.
+
+**Contexte :**
+Le mode `mod` devait permettre la suppression clavier, la selection successive de plusieurs masks du meme label, une interaction plus precise sur de petits masks voisins, et l acceptation des micro-masks degeneres.
+
+**Décisions techniques :**
+1. Conserver la separation MVC : orchestration dans les controllers, logique de geometrie et d etat dans le service, rendu multi-ancres dans la vue.
+2. Remplacer l etat mono-composant par une collection de composants selectionnes avec un drag cible sur une ancre precise.
+3. Traiter separement les geometries `point`, `segment` et `polygon` au lieu de forcer toute l edition via un seul pipeline polygone.
+4. Declencher l edition seulement apres depassement d un seuil de deplacement pour rendre la selection fiable sur des composants proches.

@@ -16,6 +16,8 @@ from views.annotation_view import AnnotationView
 class MaskModificationController:
     """Coordinate mask contour edition in `mod` tool mode."""
 
+    MOD_DRAG_START_DISTANCE_PX = 3
+
     def __init__(
         self,
         *,
@@ -41,9 +43,14 @@ class MaskModificationController:
         self._mod_preview_slices: set[int] = set()
         self._mod_preview_base: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         self._mod_preview_current: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        self._mod_press_pos: Optional[tuple[int, int]] = None
+        self._mod_press_slice_idx: Optional[int] = None
+        self._mod_press_label: Optional[int] = None
+        self._mod_drag_started: bool = False
 
     def reset(self, *, restore_overlay: bool = False) -> None:
         self.mask_modification_service.reset()
+        self._reset_mod_pointer_state()
         self.annotation_view.clear_mod_anchor_points()
         had_preview = self._clear_mod_preview_from_temp()
         if restore_overlay or had_preview:
@@ -51,13 +58,18 @@ class MaskModificationController:
 
     def on_tool_mode_changed(self, mode: str) -> None:
         if str(mode) != "mod":
-            self.mask_modification_service.end_drag()
+            self.mask_modification_service.clear_active_component()
+            self._reset_mod_pointer_state()
+            self.annotation_view.clear_mod_anchor_points()
             return
         if self._is_corrosion_layer_mode():
-            self.mask_modification_service.end_drag()
+            self.mask_modification_service.clear_active_component()
+            self._reset_mod_pointer_state()
+            self.annotation_view.clear_mod_anchor_points()
             return
 
         if not self._ensure_context():
+            self._reset_mod_pointer_state()
             self.annotation_view.clear_mod_anchor_points()
             return
         self.sync_anchors()
@@ -66,21 +78,31 @@ class MaskModificationController:
     def on_active_label_changed(self, _label_id: int) -> None:
         if self._is_corrosion_layer_mode():
             self.mask_modification_service.clear_active_component()
+            self._reset_mod_pointer_state()
+            self.annotation_view.clear_mod_anchor_points()
             return
         if not self._is_mod_mode():
+            self.mask_modification_service.clear_active_component()
+            self._reset_mod_pointer_state()
             self.annotation_view.clear_mod_anchor_points()
             return
         self.mask_modification_service.clear_active_component()
+        self._reset_mod_pointer_state()
         self.sync_anchors()
 
     def on_slice_changed(self, _slice_idx: int) -> None:
         if self._is_corrosion_layer_mode():
             self.mask_modification_service.clear_active_component()
+            self._reset_mod_pointer_state()
+            self.annotation_view.clear_mod_anchor_points()
             return
         if not self._is_mod_mode():
+            self.mask_modification_service.clear_active_component()
+            self._reset_mod_pointer_state()
             self.annotation_view.clear_mod_anchor_points()
             return
         self.mask_modification_service.clear_active_component()
+        self._reset_mod_pointer_state()
         self.sync_anchors()
 
     def on_drag_started(self, pos: Any) -> None:
@@ -96,23 +118,10 @@ class MaskModificationController:
         if label is None:
             self._status_message("Selectionne un label > 0 pour modifier le masque.", timeout_ms=1800)
             return
-        x, y = point
-        slice_idx = int(self.view_state_model.current_slice)
-        effective_slice = self._effective_slice_mask(slice_idx)
-        if effective_slice is None:
-            return
-        started = self.mask_modification_service.start_drag(
-            slice_idx=slice_idx,
-            label=label,
-            x_pos=x,
-            y_pos=y,
-            slice_mask=effective_slice,
-        )
-        if not started:
-            self._status_message("Clique directement sur un point d'ancrage.", timeout_ms=1400)
-            return
-        self._set_position_label(x, y)
-        self.sync_anchors()
+        self._mod_press_pos = point
+        self._mod_press_slice_idx = int(self.view_state_model.current_slice)
+        self._mod_press_label = int(label)
+        self._mod_drag_started = False
 
     def on_drag_moved(self, pos: Any) -> None:
         if not self._is_mod_mode():
@@ -121,8 +130,37 @@ class MaskModificationController:
         if point is None:
             return
 
+        if self._mod_press_pos is None or self._mod_press_slice_idx is None or self._mod_press_label is None:
+            return
+
         x, y = point
-        slice_idx = int(self.view_state_model.current_slice)
+        slice_idx = int(self._mod_press_slice_idx)
+        if int(self.view_state_model.current_slice) != slice_idx:
+            self._reset_mod_pointer_state()
+            return
+
+        if not self._mod_drag_started:
+            press_x, press_y = self._mod_press_pos
+            dx = int(x) - int(press_x)
+            dy = int(y) - int(press_y)
+            threshold_sq = int(self.MOD_DRAG_START_DISTANCE_PX) * int(self.MOD_DRAG_START_DISTANCE_PX)
+            if (dx * dx) + (dy * dy) < threshold_sq:
+                return
+            effective_slice = self._effective_slice_mask(slice_idx)
+            if effective_slice is None:
+                self._reset_mod_pointer_state()
+                return
+            started = self.mask_modification_service.start_drag(
+                slice_idx=slice_idx,
+                label=int(self._mod_press_label),
+                x_pos=int(press_x),
+                y_pos=int(press_y),
+                slice_mask=effective_slice,
+            )
+            if not started:
+                return
+            self._mod_drag_started = True
+
         updated_slice = self.mask_modification_service.drag_to(
             slice_idx=slice_idx,
             x_pos=x,
@@ -135,8 +173,28 @@ class MaskModificationController:
         self.refresh_preview(changed_slice=slice_idx)
         self.sync_anchors()
 
-    def on_drag_finished(self, _pos: Any) -> None:
+    def on_drag_finished(self, pos: Any) -> None:
+        point = self._parse_pos(pos)
+        if (
+            self._mod_press_pos is not None
+            and self._mod_press_slice_idx is not None
+            and self._mod_press_label is not None
+            and not self._mod_drag_started
+        ):
+            release_point = self._mod_press_pos
+            effective_slice = self._effective_slice_mask(int(self._mod_press_slice_idx))
+            if effective_slice is not None:
+                selected_idx = self.mask_modification_service.select_component(
+                    slice_idx=int(self._mod_press_slice_idx),
+                    label=int(self._mod_press_label),
+                    x_pos=int(release_point[0]),
+                    y_pos=int(release_point[1]),
+                    slice_mask=effective_slice,
+                )
+                if selected_idx is not None:
+                    self._set_position_label(int(release_point[0]), int(release_point[1]))
         self.mask_modification_service.end_drag()
+        self._reset_mod_pointer_state()
         self.sync_anchors()
 
     def on_double_clicked(self, pos: Any) -> None:
@@ -157,6 +215,13 @@ class MaskModificationController:
         effective_slice = self._effective_slice_mask(slice_idx)
         if effective_slice is None:
             return
+        self.mask_modification_service.select_component(
+            slice_idx=slice_idx,
+            label=label,
+            x_pos=x,
+            y_pos=y,
+            slice_mask=effective_slice,
+        )
         created = self.mask_modification_service.add_anchor_on_contour(
             slice_idx=slice_idx,
             label=label,
@@ -183,6 +248,7 @@ class MaskModificationController:
         if not self._is_mod_mode() and not self.mask_modification_service.has_pending_edits():
             return False
         had_dirty = self.mask_modification_service.cancel_pending()
+        self._reset_mod_pointer_state()
         self.annotation_view.clear_mod_anchor_points()
         cleared_preview = self._clear_mod_preview_from_temp()
         if had_dirty:
@@ -195,12 +261,34 @@ class MaskModificationController:
         """Keep mod pending state consistent when ROI temp deletion is requested."""
         had_dirty = self.mask_modification_service.cancel_pending()
         self.mask_modification_service.end_drag()
+        self._reset_mod_pointer_state()
         self.annotation_view.clear_mod_anchor_points()
         self._mod_preview_slices.clear()
         self._mod_preview_base.clear()
         self._mod_preview_current.clear()
         if had_dirty:
             self._status_message("Mask edits deleted.", timeout_ms=1800)
+
+    def on_delete_selected_component_requested(self) -> bool:
+        """Delete the currently selected mod components and stage them for standard apply."""
+        if not self._is_mod_mode():
+            return False
+        if not self._ensure_context():
+            return False
+
+        deleted = self.mask_modification_service.delete_selected_components()
+        if deleted is None:
+            self._status_message(
+                "Selectionne un ou plusieurs masks en mode mod avant d'appuyer sur Delete.",
+                timeout_ms=1800,
+            )
+            return False
+
+        slice_idx, updated_slice = deleted
+        self.annotation_view.clear_mod_anchor_points()
+        self._store_mod_preview_slice(slice_idx=slice_idx, updated_slice=updated_slice)
+        self.refresh_preview(changed_slice=slice_idx)
+        return True
 
     def has_pending_edits(self) -> bool:
         return self.mask_modification_service.has_pending_edits()
@@ -233,18 +321,25 @@ class MaskModificationController:
         if label is None:
             self.annotation_view.clear_mod_anchor_points()
             return
-        points = self.mask_modification_service.anchor_points(
+        groups = self.mask_modification_service.selected_anchor_groups(
             slice_idx=int(self.view_state_model.current_slice),
             label=label,
         )
-        if not points:
+        if not groups:
             self.annotation_view.clear_mod_anchor_points()
             return
-        self.annotation_view.set_mod_anchor_points(
-            points,
-            active=True,
-            active_index=self.mask_modification_service.active_anchor_index(),
+        drag_component_idx, drag_anchor_idx = self.mask_modification_service.active_drag_state()
+        self.annotation_view.set_mod_anchor_groups(
+            groups,
+            drag_component_index=drag_component_idx,
+            drag_anchor_index=drag_anchor_idx,
         )
+
+    def _reset_mod_pointer_state(self) -> None:
+        self._mod_press_pos = None
+        self._mod_press_slice_idx = None
+        self._mod_press_label = None
+        self._mod_drag_started = False
 
     def _ensure_context(self) -> bool:
         mask_volume = self.annotation_model.get_mask_volume()

@@ -647,6 +647,7 @@ class MasterController:
             (QKeySequence(Qt.Key.Key_A), self._on_previous_slice),
             (QKeySequence(Qt.Key.Key_D), self._on_next_slice),
             (QKeySequence(Qt.Key.Key_W), self._apply_roi_non_corrosion),
+            (QKeySequence(Qt.Key.Key_Delete), self._on_mod_delete_requested),
             (QKeySequence(Qt.Key.Key_R), self._select_draw_action),
             (QKeySequence(Qt.Key.Key_E), self._select_erase_action),
             (QKeySequence(QKeySequence.StandardKey.Undo), self._on_annotation_undo_requested),
@@ -1606,6 +1607,14 @@ class MasterController:
         """Delete ROI/temp previews and clear mod pending edits consistently."""
         self.mask_modification_controller.on_roi_delete_requested()
         self.annotation_controller.on_roi_delete_requested()
+
+    def _on_mod_delete_requested(self) -> None:
+        """Delete the selected mod component in normal mode, then apply immediately."""
+        if self.corrosion_profile_controller.is_profile_mod_active():
+            return
+        if not self.mask_modification_controller.on_delete_selected_component_requested():
+            return
+        self._apply_roi_non_corrosion()
 
     @staticmethod
     def _normalize_colormap_name(name: str) -> str:
