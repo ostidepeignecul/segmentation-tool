@@ -4454,3 +4454,22 @@ Le mode `mod` devait permettre la suppression clavier, la selection successive d
 2. Remplacer l etat mono-composant par une collection de composants selectionnes avec un drag cible sur une ancre precise.
 3. Traiter separement les geometries `point`, `segment` et `polygon` au lieu de forcer toute l edition via un seul pipeline polygone.
 4. Declencher l edition seulement apres depassement d un seuil de deplacement pour rendre la selection fiable sur des composants proches.
+
+### 2026-05-21 - Outil mod menu contextuel ctrl-clic et detection de label au clic
+**Tags :** `#branch:feature/tool-mod-upgrade`, `#controllers/mask_modification_controller.py`, `#controllers/master_controller.py`, `#services/mask_modification_service.py`, `#views/annotation_view.py`, `#MEMORY.md`, `#mod-tool`, `#context-menu`, `#apply-auto`, `#label-detection`, `#interaction`, `#mvc`
+
+**Actions effectuées :**
+- Ajout dans `views/annotation_view.py` d un menu contextuel du tool `mod` sur `Ctrl+clic droit`, avec actions `Change label` et `Delete`, tout en laissant le clic droit seul disponible pour le pan de l Endview.
+- Durcissement de `views/annotation_view.py` pour preinitialiser l etat lu par `eventFilter()` avant `super().__init__()`, afin d eviter le crash au lancement quand le viewport emet des evenements pendant l initialisation.
+- Extension de `controllers/master_controller.py` pour router `mod_context_requested` et pour brancher `Delete` sur le meme comportement `Apply auto` que les autres previews ROI au lieu d appliquer immediatement dans tous les cas.
+- Extension de `services/mask_modification_service.py` avec la resolution du label sous le curseur ou au contour le plus proche, ainsi qu avec un helper exposant le contexte actif `(slice, label)` du mode `mod`.
+- Refactor de `controllers/mask_modification_controller.py` pour que `mod` travaille sur le label du mask clique plutot que sur `active_label`, et pour resynchroniser les ancres a partir du contexte actif du service au lieu du label selectionne dans le panneau.
+
+**Contexte :**
+Le tool `mod` etait devenu plus riche avec multi-selection, suppression et menu contextuel, mais deux limites restaient genantes a l usage. D une part, le menu contextuel ne devait pas casser le drag bouton droit utilise pour deplacer l Endview. D autre part, l outil imposait encore de preselectionner dans l UI le label du masque a modifier, ce qui ralentissait fortement l edition de plusieurs classes sur une meme slice. Le lot staged rend donc l interaction explicite avec `Ctrl+clic droit`, garde `Apply auto` comme source de verite pour l application immediate, et fait porter au mode `mod` le label detecte directement sous le clic.
+
+**Décisions techniques :**
+1. Reserver le clic droit simple au pan de `EndviewView` et deplacer le menu `mod` sur `Ctrl+clic droit`, afin d eviter toute ambiguite entre clic contextuel et drag de navigation.
+2. Detecter le label a partir du masque effectif sous le curseur, avec fallback sur le contour le plus proche dans une tolerance bornee, plutot que de dependre du `active_label` global du `ToolsPanel`.
+3. Garder le label actif du panneau inchange pendant l edition `mod`, et faire du contexte `(slice, label)` stocke dans `MaskModificationService` la source de verite pour les ancres et l edition en cours.
+4. Aligner `Delete` et les actions du menu contextuel sur le pipeline preview puis `Apply auto` deja utilise ailleurs, afin de conserver un comportement uniforme avec les autres outils ROI.

@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
-from PyQt6.QtCore import Qt, QEvent, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
-from PyQt6.QtWidgets import QFileDialog, QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem
+from PyQt6.QtWidgets import QFileDialog, QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem, QMenu
 
-from config.constants import MASK_COLORS_BGRA
+from config.constants import MASK_COLORS_BGRA, format_label_text
 from views.endview_view import EndviewView
 
 
@@ -27,11 +27,26 @@ class AnnotationView(EndviewView):
     mod_drag_moved = pyqtSignal(object)
     mod_drag_finished = pyqtSignal(object)
     mod_double_clicked = pyqtSignal(object)
+    mod_context_requested = pyqtSignal(object)
     paint_stroke_started = pyqtSignal(object)
     paint_stroke_moved = pyqtSignal(object)
     paint_stroke_finished = pyqtSignal(object)
 
     def __init__(self, parent=None) -> None:
+        # EndviewView installs the viewport event filter during super().__init__().
+        # Predeclare the interaction state that AnnotationView.eventFilter() reads so
+        # startup events cannot observe a partially initialized subclass.
+        self._tool_mode: Optional[str] = None
+        self._paint_cursor: Optional[QCursor] = None
+        self._paint_cursor_radius: int = 8
+        self._paint_dragging: bool = False
+        self._paint_drag_last_point: Optional[Tuple[int, int]] = None
+        self._restriction_dragging: bool = False
+        self._restriction_drag_mode: Optional[str] = None
+        self._restriction_drag_start: Optional[Tuple[int, int]] = None
+        self._restriction_drag_rect: Optional[Tuple[int, int, int, int]] = None
+        self._restriction_edge_grab: int = 6
+        self._restriction_min_size: int = 10
         super().__init__(parent)
         self._restriction_rect: Optional[Tuple[int, int, int, int]] = None
         self._temp_mask_points: list[Tuple[int, int]] = []
@@ -87,17 +102,6 @@ class AnnotationView(EndviewView):
         self._mod_anchor_pen_inactive = QPen(Qt.GlobalColor.gray)
         self._mod_anchor_pen_inactive.setWidth(1)
         self._mod_anchor_pen_inactive.setCosmetic(True)
-        self._tool_mode: Optional[str] = None
-        self._paint_cursor: Optional[QCursor] = None
-        self._paint_cursor_radius: int = 8
-        self._paint_dragging: bool = False
-        self._paint_drag_last_point: Optional[Tuple[int, int]] = None
-        self._restriction_dragging: bool = False
-        self._restriction_drag_mode: Optional[str] = None
-        self._restriction_drag_start: Optional[Tuple[int, int]] = None
-        self._restriction_drag_rect: Optional[Tuple[int, int, int, int]] = None
-        self._restriction_edge_grab: int = 6
-        self._restriction_min_size: int = 10
         self._update_roi_outline_color()
 
     def set_colormap(self, name: str, lut: Optional[np.ndarray]) -> None:
@@ -327,6 +331,48 @@ class AnnotationView(EndviewView):
             self._scene.removeItem(item)
         self._mod_anchor_items.clear()
 
+    def show_mod_context_menu(
+        self,
+        *,
+        global_pos: tuple[int, int],
+        current_label: Optional[int],
+        label_choices: Sequence[int],
+    ) -> Optional[tuple[str, Optional[int]]]:
+        """Display the mod context menu and return the selected action."""
+        menu = QMenu(self)
+        relabel_menu = menu.addMenu("Change label")
+        relabel_actions = []
+        for label_id in sorted(int(label) for label in label_choices if int(label) > 0):
+            action = relabel_menu.addAction(format_label_text(int(label_id)))
+            action.setData(("relabel", int(label_id)))
+            if current_label is not None and int(label_id) == int(current_label):
+                action.setEnabled(False)
+            else:
+                relabel_actions.append(action)
+        relabel_menu.setEnabled(bool(relabel_actions))
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete")
+        delete_action.setData(("delete", None))
+        chosen = menu.exec(QPoint(int(global_pos[0]), int(global_pos[1])))
+        if chosen is None:
+            return None
+        data = chosen.data()
+        if (
+            isinstance(data, tuple)
+            and len(data) == 2
+            and isinstance(data[0], str)
+        ):
+            action_kind = str(data[0]).strip().lower()
+            target_label = data[1]
+            if action_kind == "delete":
+                return "delete", None
+            if action_kind == "relabel":
+                try:
+                    return "relabel", int(target_label) if target_label is not None else None
+                except Exception:
+                    return None
+        return None
+
     def _apply_tool_cursor(self) -> None:
         """Set a cursor matching the active tool (paint shows a hollow circle)."""
         if self._tool_mode == "paint":
@@ -377,15 +423,26 @@ class AnnotationView(EndviewView):
     # Events
     # ------------------------------------------------------------------ #
     def eventFilter(self, obj: Any, event) -> bool:
+        tool_mode = getattr(self, "_tool_mode", None)
         if obj is self._view.viewport():
+            if tool_mode == "mod" and event.type() == QEvent.Type.ContextMenu:
+                return True
             if isinstance(event, QMouseEvent):
-                if self._tool_mode == "mod":
+                if tool_mode == "mod":
                     coords = self._clamped_scene_coords_from_event(event)
+                    modifiers = event.modifiers()
                     has_modifier = bool(
-                        event.modifiers()
+                        modifiers
                         & (
                             Qt.KeyboardModifier.ShiftModifier
                             | Qt.KeyboardModifier.ControlModifier
+                            | Qt.KeyboardModifier.AltModifier
+                        )
+                    )
+                    ctrl_only = bool(modifiers & Qt.KeyboardModifier.ControlModifier) and not bool(
+                        modifiers
+                        & (
+                            Qt.KeyboardModifier.ShiftModifier
                             | Qt.KeyboardModifier.AltModifier
                         )
                     )
@@ -420,6 +477,20 @@ class AnnotationView(EndviewView):
                     ):
                         self.mod_double_clicked.emit(coords)
                         return True
+                    if (
+                        event.type() == QEvent.Type.MouseButtonPress
+                        and event.button() == Qt.MouseButton.RightButton
+                        and coords is not None
+                        and ctrl_only
+                    ):
+                        global_point = event.globalPosition().toPoint()
+                        self.mod_context_requested.emit(
+                            (
+                                coords,
+                                (int(global_point.x()), int(global_point.y())),
+                            )
+                        )
+                        return True
                 if event.type() == QMouseEvent.Type.MouseButtonPress:
                     if (
                         event.modifiers() & Qt.KeyboardModifier.AltModifier
@@ -427,19 +498,19 @@ class AnnotationView(EndviewView):
                     ):
                         self._handle_restriction_press(event)
                         return True
-                    if self._tool_mode == "paint":
+                    if tool_mode == "paint":
                         handled = self._handle_paint_press(event)
                         if handled:
                             return True
-                    if self._tool_mode == "line":
+                    if tool_mode == "line":
                         handled = self._handle_line_press(event)
                         if handled:
                             return True
-                    if self._tool_mode in ("free_hand", "peak"):
+                    if tool_mode in ("free_hand", "peak"):
                         handled = self._handle_freehand_press(event)
                         if handled:
                             return True
-                    if self._tool_mode in ("box", "prune"):
+                    if tool_mode in ("box", "prune"):
                         handled = self._handle_box_press(event)
                         if handled:
                             return True
@@ -447,23 +518,23 @@ class AnnotationView(EndviewView):
                     if self._restriction_dragging:
                         self._handle_restriction_move(event)
                         return True
-                    if self._tool_mode == "paint":
+                    if tool_mode == "paint":
                         self._handle_paint_move(event)
-                    if self._tool_mode == "line":
+                    if tool_mode == "line":
                         self._handle_line_move(event)
-                    if self._tool_mode in ("free_hand", "peak"):
+                    if tool_mode in ("free_hand", "peak"):
                         self._handle_freehand_move(event)
-                    if self._tool_mode in ("box", "prune"):
+                    if tool_mode in ("box", "prune"):
                         self._handle_box_move(event)
                 if event.type() == QMouseEvent.Type.MouseButtonRelease:
                     if self._restriction_dragging:
                         self._handle_restriction_release(event)
                         return True
-                    if self._tool_mode == "paint":
+                    if tool_mode == "paint":
                         handled = self._handle_paint_release(event)
                         if handled:
                             return True
-                    if self._tool_mode in ("box", "prune"):
+                    if tool_mode in ("box", "prune"):
                         handled = self._handle_box_release(event)
                         if handled:
                             return True
@@ -472,11 +543,11 @@ class AnnotationView(EndviewView):
                         and event.button() == Qt.MouseButton.LeftButton
                     ):
                         return True
-                    if self._tool_mode == "line":
+                    if tool_mode == "line":
                         handled = self._handle_line_release(event)
                         if handled:
                             return True
-                    if self._tool_mode in ("free_hand", "peak"):
+                    if tool_mode in ("free_hand", "peak"):
                         handled = self._handle_freehand_release(event)
                         if handled:
                             return True

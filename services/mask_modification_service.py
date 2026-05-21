@@ -63,6 +63,49 @@ class MaskModificationService:
         self._drag_component_list_idx = None
         self._drag_anchor_list_idx = None
 
+    def active_context(self) -> tuple[Optional[int], Optional[int]]:
+        """Return the currently loaded `(slice_idx, label)` context for mod editing."""
+        return self._active_slice_idx, self._active_label
+
+    def detect_label_at_point(self, *, slice_mask: np.ndarray, x_pos: int, y_pos: int) -> Optional[int]:
+        """Resolve the label under the cursor, or the nearest contour label within tolerance."""
+        slice_arr = np.asarray(slice_mask, dtype=np.uint8)
+        if slice_arr.ndim != 2:
+            return None
+        height, width = slice_arr.shape
+        if height <= 0 or width <= 0:
+            return None
+
+        x = int(max(0, min(width - 1, int(x_pos))))
+        y = int(max(0, min(height - 1, int(y_pos))))
+        direct_label = int(slice_arr[y, x])
+        if direct_label > 0:
+            return direct_label
+
+        labels = [int(lbl) for lbl in np.unique(slice_arr) if int(lbl) > 0]
+        if not labels:
+            return None
+
+        best_label: Optional[int] = None
+        best_d2: Optional[float] = None
+        max_d2 = float(self.CONTOUR_HIT_TOLERANCE_PX * self.CONTOUR_HIT_TOLERANCE_PX)
+        for label in labels:
+            label_binary = (slice_arr == int(label)).astype(np.uint8)
+            if not np.any(label_binary):
+                continue
+            contours, _ = cv2.findContours(label_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            for contour in contours:
+                if contour is None or contour.size == 0:
+                    continue
+                pts = contour.reshape((-1, 2))
+                d2 = float(np.min((pts[:, 0] - x) ** 2 + (pts[:, 1] - y) ** 2))
+                if best_d2 is None or d2 < best_d2:
+                    best_d2 = d2
+                    best_label = int(label)
+        if best_d2 is None or best_d2 > max_d2:
+            return None
+        return best_label
+
     def selected_anchor_groups(self, *, slice_idx: int, label: int) -> list[list[tuple[int, int]]]:
         if not self._context_matches(slice_idx=slice_idx, label=label):
             return []
@@ -324,6 +367,25 @@ class MaskModificationService:
         updated_slice = np.array(self._active_slice_mask, dtype=np.uint8, copy=True)
         for component in self._selected_components:
             updated_slice[np.asarray(component.component_mask, dtype=bool)] = 0
+        self._dirty_slices.add(slice_idx)
+        self.clear_active_component()
+        return slice_idx, updated_slice
+
+    def relabel_selected_components(self, *, target_label: int) -> Optional[tuple[int, np.ndarray]]:
+        """Reassign all selected components to another label on the active slice."""
+        if self._active_slice_idx is None or self._active_slice_mask is None:
+            return None
+        if self._active_label is None or not self._selected_components:
+            return None
+        label = int(target_label)
+        if label <= 0 or label == int(self._active_label):
+            return None
+
+        slice_idx = int(self._active_slice_idx)
+        updated_slice = np.array(self._active_slice_mask, dtype=np.uint8, copy=True)
+        for component in self._selected_components:
+            component_mask = np.asarray(component.component_mask, dtype=bool)
+            updated_slice[component_mask] = label
         self._dirty_slices.add(slice_idx)
         self.clear_active_component()
         return slice_idx, updated_slice

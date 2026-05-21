@@ -86,8 +86,6 @@ class MaskModificationController:
             self._reset_mod_pointer_state()
             self.annotation_view.clear_mod_anchor_points()
             return
-        self.mask_modification_service.clear_active_component()
-        self._reset_mod_pointer_state()
         self.sync_anchors()
 
     def on_slice_changed(self, _slice_idx: int) -> None:
@@ -114,12 +112,17 @@ class MaskModificationController:
         if not self._ensure_context():
             return
 
-        label = self._active_label_for_mod()
+        slice_idx = int(self.view_state_model.current_slice)
+        effective_slice = self._effective_slice_mask(slice_idx)
+        if effective_slice is None:
+            return
+
+        label = self._resolve_mod_label_at_point(point=point, slice_mask=effective_slice)
         if label is None:
-            self._status_message("Selectionne un label > 0 pour modifier le masque.", timeout_ms=1800)
+            self._status_message("Clique sur un mask pour le modifier.", timeout_ms=1800)
             return
         self._mod_press_pos = point
-        self._mod_press_slice_idx = int(self.view_state_model.current_slice)
+        self._mod_press_slice_idx = slice_idx
         self._mod_press_label = int(label)
         self._mod_drag_started = False
 
@@ -206,14 +209,14 @@ class MaskModificationController:
         if not self._ensure_context():
             return
 
-        label = self._active_label_for_mod()
-        if label is None:
-            self._status_message("Selectionne un label > 0 pour modifier le masque.", timeout_ms=1800)
-            return
         x, y = point
         slice_idx = int(self.view_state_model.current_slice)
         effective_slice = self._effective_slice_mask(slice_idx)
         if effective_slice is None:
+            return
+        label = self._resolve_mod_label_at_point(point=point, slice_mask=effective_slice)
+        if label is None:
+            self._status_message("Double-click near a mask contour to add an anchor.", timeout_ms=1800)
             return
         self.mask_modification_service.select_component(
             slice_idx=slice_idx,
@@ -243,6 +246,60 @@ class MaskModificationController:
             return
         self.sync_anchors()
         self._status_message("Anchor added.", timeout_ms=1000)
+
+    def on_context_menu_requested(self, payload: Any) -> bool:
+        if not self._is_mod_mode():
+            return False
+        request = self._parse_context_request(payload)
+        if request is None:
+            return False
+        point, global_pos = request
+        if not self._ensure_context():
+            return False
+
+        slice_idx = int(self.view_state_model.current_slice)
+        effective_slice = self._effective_slice_mask(slice_idx)
+        if effective_slice is None:
+            return False
+        label = self._resolve_mod_label_at_point(point=point, slice_mask=effective_slice)
+        if label is None:
+            self._status_message(
+                "Ctrl+right-click directly on a mask to open the mod menu.",
+                timeout_ms=1800,
+            )
+            return False
+
+        selected_idx = self.mask_modification_service.select_component(
+            slice_idx=slice_idx,
+            label=label,
+            x_pos=int(point[0]),
+            y_pos=int(point[1]),
+            slice_mask=effective_slice,
+        )
+        if selected_idx is None:
+            self._status_message(
+                "Ctrl+right-click directly on a mask to open the mod menu.",
+                timeout_ms=1800,
+            )
+            return False
+
+        self._set_position_label(int(point[0]), int(point[1]))
+        self.sync_anchors()
+        palette = self.annotation_model.get_label_palette()
+        action = self.annotation_view.show_mod_context_menu(
+            global_pos=global_pos,
+            current_label=label,
+            label_choices=sorted(int(lbl) for lbl in palette.keys() if int(lbl) > 0),
+        )
+        if action is None:
+            return False
+
+        action_kind, target_label = action
+        if action_kind == "delete":
+            return self.on_delete_selected_component_requested()
+        if action_kind == "relabel" and target_label is not None:
+            return self.on_relabel_selected_component_requested(target_label)
+        return False
 
     def on_selection_cancel_requested(self) -> bool:
         if not self._is_mod_mode() and not self.mask_modification_service.has_pending_edits():
@@ -288,6 +345,31 @@ class MaskModificationController:
         self.annotation_view.clear_mod_anchor_points()
         self._store_mod_preview_slice(slice_idx=slice_idx, updated_slice=updated_slice)
         self.refresh_preview(changed_slice=slice_idx)
+        if not self._is_apply_auto_enabled():
+            self._status_message("Suppression previsualisee. Applique pour valider.", timeout_ms=1800)
+        return True
+
+    def on_relabel_selected_component_requested(self, target_label: int) -> bool:
+        """Reassign the selected mod components to another label and stage the preview."""
+        if not self._is_mod_mode():
+            return False
+        if not self._ensure_context():
+            return False
+
+        changed = self.mask_modification_service.relabel_selected_components(target_label=int(target_label))
+        if changed is None:
+            self._status_message(
+                "Selectionne un ou plusieurs masks puis choisis un label cible different.",
+                timeout_ms=1800,
+            )
+            return False
+
+        slice_idx, updated_slice = changed
+        self.annotation_view.clear_mod_anchor_points()
+        self._store_mod_preview_slice(slice_idx=slice_idx, updated_slice=updated_slice)
+        self.refresh_preview(changed_slice=slice_idx)
+        if not self._is_apply_auto_enabled():
+            self._status_message("Changement de label previsualise. Applique pour valider.", timeout_ms=1800)
         return True
 
     def has_pending_edits(self) -> bool:
@@ -317,13 +399,16 @@ class MaskModificationController:
         if not self._is_mod_mode():
             self.annotation_view.clear_mod_anchor_points()
             return
-        label = self._active_label_for_mod()
-        if label is None:
+        active_slice_idx, active_label = self.mask_modification_service.active_context()
+        if active_slice_idx is None or active_label is None:
+            self.annotation_view.clear_mod_anchor_points()
+            return
+        if int(active_slice_idx) != int(self.view_state_model.current_slice):
             self.annotation_view.clear_mod_anchor_points()
             return
         groups = self.mask_modification_service.selected_anchor_groups(
             slice_idx=int(self.view_state_model.current_slice),
-            label=label,
+            label=int(active_label),
         )
         if not groups:
             self.annotation_view.clear_mod_anchor_points()
@@ -340,6 +425,23 @@ class MaskModificationController:
         self._mod_press_slice_idx = None
         self._mod_press_label = None
         self._mod_drag_started = False
+
+    def _parse_context_request(
+        self,
+        payload: Any,
+    ) -> Optional[tuple[tuple[int, int], tuple[int, int]]]:
+        if not isinstance(payload, tuple) or len(payload) != 2:
+            return None
+        point = self._parse_pos(payload[0])
+        global_pos = payload[1]
+        if point is None or not isinstance(global_pos, tuple) or len(global_pos) != 2:
+            return None
+        try:
+            gx = int(global_pos[0])
+            gy = int(global_pos[1])
+        except Exception:
+            return None
+        return point, (gx, gy)
 
     def _ensure_context(self) -> bool:
         mask_volume = self.annotation_model.get_mask_volume()
@@ -390,6 +492,18 @@ class MaskModificationController:
         if value <= 0:
             return None
         return value
+
+    def _resolve_mod_label_at_point(
+        self,
+        *,
+        point: tuple[int, int],
+        slice_mask: np.ndarray,
+    ) -> Optional[int]:
+        return self.mask_modification_service.detect_label_at_point(
+            slice_mask=slice_mask,
+            x_pos=int(point[0]),
+            y_pos=int(point[1]),
+        )
 
     def _ensure_temp_model_shape(self, shape: tuple[int, int, int]) -> bool:
         temp_volume = self.temp_mask_model.get_mask_volume()
@@ -488,6 +602,9 @@ class MaskModificationController:
             str(getattr(self.view_state_model, "tool_mode", "") or "") == "mod"
             and not self._is_corrosion_layer_mode()
         )
+
+    def _is_apply_auto_enabled(self) -> bool:
+        return bool(getattr(self.view_state_model, "apply_auto", False))
 
     def _is_corrosion_layer_mode(self) -> bool:
         return bool(getattr(self.view_state_model, "corrosion_active", False))

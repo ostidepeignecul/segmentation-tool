@@ -529,6 +529,7 @@ class MasterController:
         self.annotation_view.mod_drag_moved.connect(self._on_mod_drag_moved)
         self.annotation_view.mod_drag_finished.connect(self._on_mod_drag_finished)
         self.annotation_view.mod_double_clicked.connect(self._on_mod_double_clicked)
+        self.annotation_view.mod_context_requested.connect(self._on_mod_context_requested)
         self.annotation_view.restriction_rect_changed.connect(
             self.annotation_controller.on_restriction_rect_changed
         )
@@ -1609,12 +1610,11 @@ class MasterController:
         self.annotation_controller.on_roi_delete_requested()
 
     def _on_mod_delete_requested(self) -> None:
-        """Delete the selected mod component in normal mode, then apply immediately."""
+        """Delete the selected mod component in normal mode, then auto-apply if enabled."""
         if self.corrosion_profile_controller.is_profile_mod_active():
             return
-        if not self.mask_modification_controller.on_delete_selected_component_requested():
-            return
-        self._apply_roi_non_corrosion()
+        preview_created = self.mask_modification_controller.on_delete_selected_component_requested()
+        self._apply_annotation_preview_if_needed(preview_created)
 
     @staticmethod
     def _normalize_colormap_name(name: str) -> str:
@@ -1784,6 +1784,13 @@ class MasterController:
             self.corrosion_profile_controller.on_double_clicked(pos)
             return
         self.mask_modification_controller.on_double_clicked(pos)
+
+    def _on_mod_context_requested(self, payload: Any) -> None:
+        """Open the contour-mod context menu and auto-apply the chosen action when enabled."""
+        if self.corrosion_profile_controller.is_profile_mod_active():
+            return
+        preview_created = self.mask_modification_controller.on_context_menu_requested(payload)
+        self._apply_annotation_preview_if_needed(preview_created)
 
     def _on_annotation_freehand_completed(self, points: Any) -> None:
         """Create the ROI preview, then optionally apply it immediately."""
