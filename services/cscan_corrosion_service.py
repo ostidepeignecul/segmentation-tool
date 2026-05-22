@@ -126,6 +126,17 @@ class CScanCorrosionService(CScanService):
 
         return (vmin, float(np.nextafter(np.float32(vmin), np.float32(np.inf))))
 
+    @staticmethod
+    def _invert_bgra(color: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+        """Invert BGRA color channels while preserving the input alpha."""
+        b, g, r, a = (int(channel) for channel in color)
+        return (
+            max(0, min(255, 255 - b)),
+            max(0, min(255, 255 - g)),
+            max(0, min(255, 255 - r)),
+            max(0, min(255, a)),
+        )
+
     # --- Analyse corrosion end-to-end ----------------------------------------------
     def run_analysis(
         self,
@@ -205,12 +216,16 @@ class CScanCorrosionService(CScanService):
         self._log_progress(0.9, "Palette")
 
         palette_source = label_palette or {}
-        color_a_bgra = palette_source.get(color_A)
-        if color_a_bgra is None:
-            color_a_bgra = MASK_COLORS_BGRA.get(color_A, (255, 0, 255, 160))
-        color_b_bgra = palette_source.get(color_B)
-        if color_b_bgra is None:
-            color_b_bgra = MASK_COLORS_BGRA.get(color_B, (255, 0, 255, 160))
+        source_a_bgra = tuple(
+            int(channel)
+            for channel in palette_source.get(color_A, MASK_COLORS_BGRA.get(color_A, (255, 0, 255, 160)))
+        )
+        source_b_bgra = tuple(
+            int(channel)
+            for channel in palette_source.get(color_B, MASK_COLORS_BGRA.get(color_B, (255, 0, 255, 160)))
+        )
+        color_a_bgra = self._invert_bgra(source_a_bgra)
+        color_b_bgra = self._invert_bgra(source_b_bgra)
         overlay_palette = {
             color_A: tuple(int(c) for c in color_a_bgra),
             color_B: tuple(int(c) for c in color_b_bgra),

@@ -4491,3 +4491,20 @@ L utilisateur a ajoute un toggle `View > Toggle restriction` pour masquer ou aff
 1. Separer strictement l etat geometrique (`restriction_rect`) de son affichage (`show_restriction`), afin que le toggle du menu ne desactive jamais la logique metier de restriction.
 2. Stocker `show_restriction` dans `ViewStateModel` et le reappliquer depuis `MasterController` et `AnnotationController`, afin de garder une source de verite unique compatible avec la persistance et les switches de session.
 3. Reinitialiser explicitement `restriction_rect` a l ouverture d un nouveau NDE, puis laisser `ensure_restriction_rect()` reconstruire la zone par defaut depuis la shape du volume courant, afin d eviter la reutilisation silencieuse d un rectangle issu du dataset precedent.
+
+### 2026-05-22 - Palette corrosion derivee par inversion des labels source
+**Tags :** `#branch:feature/color-profil`, `#MEMORY.md`, `#services/cscan_corrosion_service.py`, `#corrosion`, `#palette`, `#raw`, `#interpolated`
+
+**Actions effectuees :**
+- Ajout d un helper `_invert_bgra()` dans `services/cscan_corrosion_service.py` pour inverser uniquement les canaux couleur d une teinte BGRA en conservant son alpha.
+- Remplacement, dans `run_analysis()`, de la reutilisation directe de la palette `FW/BW` par une palette corrosion derivee a partir des couleurs source des labels `A` et `B`.
+- Branchement de cette palette derivee sur `overlay_palette` du resultat d analyse corrosion, ce qui fait heriter automatiquement les layers `raw` et `interpolated` de la meme variante coloree.
+- Ajout d un fallback sur `MASK_COLORS_BGRA` quand la palette active ne contient pas explicitement la couleur du label source.
+
+**Contexte :**
+L utilisateur voulait distinguer visuellement les profils corrosion des masques source sans perdre la correspondance semantique avec les labels d origine. La variante noire testee etait trop arbitraire, tandis que la reutilisation directe des couleurs `FW/BW` rendait les layers corrosion trop proches du layer principal. Le diff staged du `2026-05-22` capture donc le passage a une palette derivee par inversion des couleurs source.
+
+**Decisions techniques :**
+1. Deriver la couleur corrosion directement depuis la palette active du label source (`A` ou `B`), afin de respecter les personnalisations utilisateur et de conserver un lien visuel clair avec les masques de depart.
+2. Inverser uniquement les canaux `BGR` et conserver l alpha existant, afin d obtenir un contraste fort sans changer les regles de transparence du rendu overlay.
+3. Limiter ce comportement a `services/cscan_corrosion_service.py` et au flux de creation des layers corrosion, afin de ne pas impacter la palette globale des autres overlays ou labels persistants.
