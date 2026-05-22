@@ -382,6 +382,9 @@ class MasterController:
         if hasattr(self.ui, "actionToggle_pixel_mm"):
             self.ui.actionToggle_pixel_mm.setCheckable(True)
             self.ui.actionToggle_pixel_mm.toggled.connect(self._on_ruler_display_unit_toggled)
+        if hasattr(self.ui, "actionToggle_restriction"):
+            self.ui.actionToggle_restriction.setCheckable(True)
+            self.ui.actionToggle_restriction.toggled.connect(self._on_restriction_toggled)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionR_initialisation_docks"):
@@ -1754,6 +1757,11 @@ class MasterController:
         )
         self.status_message(f"Ruler display: {active_unit}", 2000)
 
+    def _on_restriction_toggled(self, enabled: bool) -> None:
+        """Handle the restriction-outline visibility toggle."""
+        self.annotation_controller.set_restriction_visible(enabled)
+        self._set_action_checked(getattr(self.ui, "actionToggle_restriction", None), enabled)
+
     def _on_tool_mode_changed(self, mode: str) -> None:
         """Route the shared tool mode to the controller that owns the current context."""
         self.annotation_controller.on_tool_mode_changed(mode)
@@ -2200,6 +2208,10 @@ class MasterController:
             getattr(self.ui, "actionToggle_pixel_mm", None),
             getattr(self.view_state_model, "ruler_display_unit", "px") == "mm",
         )
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_restriction", None),
+            getattr(self.view_state_model, "show_restriction", True),
+        )
 
     def _apply_saved_colormaps(self) -> None:
         """Reapply persisted colormap names with their resolved LUTs."""
@@ -2446,6 +2458,7 @@ class MasterController:
         self.temp_mask_model.clear()
         self.temp_mask_model.initialize(volume.shape)
         self.roi_model.clear()
+        self.annotation_controller.clear_restriction_rect()
         self.annotation_controller.sync_overlay_settings()
         self.cscan_controller.reset_corrosion()
         self._reset_piece3d_state(sync_action=True)
@@ -3311,6 +3324,9 @@ class MasterController:
         self.ascan_controller.set_overlay_opacity(self.view_state_model.overlay_alpha)
         self.annotation_controller.set_outline_only(
             getattr(self.view_state_model, "show_outline_only", False)
+        )
+        self.annotation_controller.set_restriction_visible(
+            getattr(self.view_state_model, "show_restriction", True)
         )
 
         # Colormaps

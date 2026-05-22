@@ -47,6 +47,7 @@ class AnnotationView(EndviewView):
         self._restriction_drag_rect: Optional[Tuple[int, int, int, int]] = None
         self._restriction_edge_grab: int = 6
         self._restriction_min_size: int = 10
+        self._show_restriction: bool = True
         super().__init__(parent)
         self._restriction_rect: Optional[Tuple[int, int, int, int]] = None
         self._temp_mask_points: list[Tuple[int, int]] = []
@@ -177,7 +178,12 @@ class AnnotationView(EndviewView):
             ymin = max(0, min(height - 1, ymin))
         self._restriction_rect = (xmin, ymin, xmax, ymax)
         self._restriction_item.setRect(xmin, ymin, (xmax - xmin) + 1, (ymax - ymin) + 1)
-        self._restriction_item.setVisible(True)
+        self._apply_restriction_visibility()
+
+    def set_restriction_visible(self, visible: bool) -> None:
+        """Show or hide the restriction outline without clearing its geometry."""
+        self._show_restriction = bool(visible)
+        self._apply_restriction_visibility()
 
     # ------------------------------------------------------------------ #
     # ROI overlay (stub)
@@ -827,6 +833,11 @@ class AnnotationView(EndviewView):
         self._restriction_drag_mode = None
         self._restriction_drag_start = None
         self._restriction_drag_rect = None
+
+    def _apply_restriction_visibility(self) -> None:
+        self._restriction_item.setVisible(
+            self._show_restriction and self._restriction_rect is not None
+        )
 
     def _restriction_hit_test(self, coords: Tuple[int, int]) -> Optional[str]:
         if self._restriction_rect is None:

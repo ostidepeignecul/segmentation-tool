@@ -86,6 +86,7 @@ class AnnotationController:
         self._paint_stroke_preview_created: bool = False
         self.on_paint_size_changed(self.view_state_model.paint_radius)
         self.set_outline_only(getattr(self.view_state_model, "show_outline_only", False))
+        self.set_restriction_visible(getattr(self.view_state_model, "show_restriction", True))
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -190,6 +191,11 @@ class AnnotationController:
             self.annotation_corrosion_view.set_overlay_outline_only(enabled)
         if self.annotation_secondary_corrosion_view is not None:
             self.annotation_secondary_corrosion_view.set_overlay_outline_only(enabled)
+
+    def set_restriction_visible(self, enabled: bool) -> None:
+        """Show or hide the restriction outline while keeping the restriction active."""
+        self.view_state_model.set_show_restriction(enabled)
+        self.annotation_view.set_restriction_visible(enabled)
 
     def on_volume_view_overlay_toggled(self, enabled: bool) -> None:
         """Gère l'envoi optionnel de l'overlay vers la vue volume."""
@@ -723,6 +729,11 @@ class AnnotationController:
         rect = self._clamp_rect_to_shape(rect, shape)
         self.view_state_model.set_restriction_rect(rect)
         self.annotation_view.set_restriction_rect(rect)
+
+    def clear_restriction_rect(self) -> None:
+        """Clear the global restriction rectangle from both state and view."""
+        self.view_state_model.set_restriction_rect(None)
+        self.annotation_view.set_restriction_rect(None)
 
     def on_roi_recompute_requested(self) -> None:
         """Handle ROI recomputation request (stub)."""

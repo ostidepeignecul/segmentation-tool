@@ -27,6 +27,7 @@ class ViewStateModel:
         self.show_volume_planes: bool = True
         self.show_volume: bool = True
         self.show_cross: bool = True
+        self.show_restriction: bool = True
 
         # --- Tools / Interaction ---
         self.tool_mode: Optional[str] = None
@@ -475,6 +476,9 @@ class ViewStateModel:
 
     def set_show_cross(self, visible: bool) -> None:
         self.show_cross = bool(visible)
+
+    def set_show_restriction(self, visible: bool) -> None:
+        self.show_restriction = bool(visible)
 
     def set_endview_colormap(self, name: str) -> None:
         self.endview_colormap = str(name)

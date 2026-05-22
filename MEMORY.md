@@ -4473,3 +4473,21 @@ Le tool `mod` etait devenu plus riche avec multi-selection, suppression et menu 
 2. Detecter le label a partir du masque effectif sous le curseur, avec fallback sur le contour le plus proche dans une tolerance bornee, plutot que de dependre du `active_label` global du `ToolsPanel`.
 3. Garder le label actif du panneau inchange pendant l edition `mod`, et faire du contexte `(slice, label)` stocke dans `MaskModificationService` la source de verite pour les ancres et l edition en cours.
 4. Aligner `Delete` et les actions du menu contextuel sur le pipeline preview puis `Apply auto` deja utilise ailleurs, afin de conserver un comportement uniforme avec les autres outils ROI.
+
+### 2026-05-22 - Toggle d affichage de la restriction et reset au chargement NDE
+**Tags :** `#branch:feature/restriction-toggle`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#views/annotation_view.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#restriction`, `#nde`, `#ui`, `#mvc`, `#session`
+
+**Actions effectuees :**
+- Ajoute `show_restriction` dans `models/view_state_model.py` pour persister par session la visibilite du cadre pointille de restriction.
+- Ajoute dans `views/annotation_view.py` un etat `_show_restriction`, un setter `set_restriction_visible()` et un helper `_apply_restriction_visibility()` pour masquer ou afficher uniquement le `QGraphicsRectItem` sans perdre la geometrie de restriction.
+- Etend `controllers/annotation_controller.py` avec `set_restriction_visible()` pour propager cet etat MVC vers la vue, et initialise cet affichage depuis le `ViewStateModel`.
+- Branche `actionToggle_restriction` dans `untitled.ui`, `ui_mainwindow.py` et `controllers/master_controller.py`, avec action cochable, handler dedie et resynchronisation via `_sync_display_toggle_actions()` et apres switch de session.
+- Ajoute `clear_restriction_rect()` dans `controllers/annotation_controller.py` puis l appelle au chargement d un nouveau dataset dans `controllers/master_controller.py`, afin de reconstruire une restriction pleine taille sur la nouvelle endview au lieu de reemployer celle du NDE precedent.
+
+**Contexte :**
+L utilisateur a ajoute un toggle `View > Toggle restriction` pour masquer ou afficher la zone pointillee de restriction, tout en conservant la restriction fonctionnelle pour les outils d annotation. En parallele, le cadre de restriction gardait l ancienne geometrie lors du chargement d un second NDE, ce qui faisait persister une zone stale au lieu de reprendre automatiquement la taille de la nouvelle endview.
+
+**Decisions techniques :**
+1. Separer strictement l etat geometrique (`restriction_rect`) de son affichage (`show_restriction`), afin que le toggle du menu ne desactive jamais la logique metier de restriction.
+2. Stocker `show_restriction` dans `ViewStateModel` et le reappliquer depuis `MasterController` et `AnnotationController`, afin de garder une source de verite unique compatible avec la persistance et les switches de session.
+3. Reinitialiser explicitement `restriction_rect` a l ouverture d un nouveau NDE, puis laisser `ensure_restriction_rect()` reconstruire la zone par defaut depuis la shape du volume courant, afin d eviter la reutilisation silencieuse d un rectangle issu du dataset precedent.
