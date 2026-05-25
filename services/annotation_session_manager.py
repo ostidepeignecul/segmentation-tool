@@ -272,6 +272,28 @@ class AnnotationSessionManager:
         layer.visible = bool(visible)
         return True
 
+    def rename_layer(
+        self,
+        layer_id: str,
+        name: str,
+        *,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Rename one layer while preserving uniqueness inside the target stack."""
+        target_id = str(session_id or self._active_id or "").strip()
+        if not target_id or target_id not in self._sessions:
+            return False
+        state = self._normalize_session_state(self._sessions[target_id])
+        layer = state.layer_stack.get_layer(layer_id)
+        if layer is None:
+            return False
+        layer.name = self._unique_layer_name(
+            state.layer_stack,
+            name,
+            exclude_layer_id=str(layer.id),
+        )
+        return True
+
     def create_empty_layer(
         self,
         *,
@@ -1519,11 +1541,21 @@ class AnnotationSessionManager:
             index += 1
 
     @staticmethod
-    def _unique_layer_name(layer_stack: LayerStackModel, requested_name: str) -> str:
+    def _unique_layer_name(
+        layer_stack: LayerStackModel,
+        requested_name: str,
+        *,
+        exclude_layer_id: Optional[str] = None,
+    ) -> str:
         normalized = str(requested_name or "").strip()
         if not normalized:
             return AnnotationSessionManager._next_layer_name(layer_stack)
-        existing_names = {str(layer.name or "").strip() for layer in layer_stack.layers}
+        excluded_id = str(exclude_layer_id or "").strip()
+        existing_names = {
+            str(layer.name or "").strip()
+            for layer in layer_stack.layers
+            if not excluded_id or str(layer.id) != excluded_id
+        }
         if normalized not in existing_names:
             return normalized
         index = 2

@@ -19,6 +19,7 @@ import numpy as np
 
 from services.endview_export import EndviewExportService
 from services.nde_signal_processing_service import NdeSignalProcessingOptions
+from utils.filename_utils import sanitize_filename_component
 
 
 @dataclass(frozen=True)
@@ -70,8 +71,8 @@ class SplitFlawNoflawService:
         rgb_complete = base_dir / "endviews_rgb24" / "complete"
         uint8_complete = base_dir / "endviews_uint8" / "complete"
 
-        prefix = filename_prefix or ""
-        suffix = filename_suffix or ""
+        prefix = sanitize_filename_component(filename_prefix or "")
+        suffix = sanitize_filename_component(filename_suffix or "")
 
         targets = {
             "rgb": {
@@ -192,8 +193,8 @@ class SplitFlawNoflawService:
             images_tr.mkdir(parents=True, exist_ok=True)
             labels_tr.mkdir(parents=True, exist_ok=True)
 
-            prefix = filename_prefix or ""
-            suffix = filename_suffix or ""
+            prefix = sanitize_filename_component(filename_prefix or "")
+            suffix = sanitize_filename_component(filename_suffix or "")
 
             primary_stats = self._export_nnunet_axis_dataset(
                 image_volume=context.image_volume,
@@ -285,9 +286,12 @@ class SplitFlawNoflawService:
             )
 
         nde_path = nde_file or (getattr(nde_model, "metadata", {}) or {}).get("path")
-        base_name = str(base_name_override or "").strip()
+        base_name = sanitize_filename_component(base_name_override or "")
         if not base_name:
-            base_name = Path(str(nde_path)).stem if nde_path else "nde_export"
+            base_name = sanitize_filename_component(
+                Path(str(nde_path)).stem if nde_path else "",
+                fallback="nde_export",
+            )
         min_value, max_value = self._resolve_min_max(
             nde_model=nde_model,
             image_volume=image_volume,

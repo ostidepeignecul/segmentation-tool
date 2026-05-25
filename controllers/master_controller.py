@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config.constants import DEFAULT_ACTIVE_LABEL_ID, PERSISTENT_LABEL_IDS, CORROSION_STAGE_BASE, CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED, normalize_interpolation_algo
+from config.constants import DEFAULT_ACTIVE_LABEL_ID, PERSISTENT_LABEL_IDS, CORROSION_STAGE_BASE, CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED
 from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
 from controllers.cscan_controller import CScanController
@@ -75,6 +75,7 @@ from views.overlay_class_remap_dialog import OverlayClassRemapDialog
 from views.overlay_settings_view import OverlaySettingsView
 from views.piece3d_view import Piece3DView
 from views.session_bundle_export_dialog import SessionBundleExportDialog
+from utils.filename_utils import sanitize_filename_component
 
 
 class NnUnetUiSignals(QObject):
@@ -791,6 +792,7 @@ class MasterController:
                 preserve_labels=True,
                 force_visible=True,
             )
+            self._rename_active_layer("AI result")
             self.status_message(
                 f"nnUNet completed, NPZ displayed: {payload.output_path}",
                 timeout_ms=5000,
@@ -939,9 +941,7 @@ class MasterController:
     @staticmethod
     def _sanitize_output_stem(value: str, *, fallback: str) -> str:
         """Sanitize a filename stem for a Windows-friendly NPZ output path."""
-        cleaned = "".join("_" if ch in '<>:"/\\|?*' else ch for ch in str(value))
-        cleaned = cleaned.strip().strip(".")
-        return cleaned or fallback
+        return sanitize_filename_component(value, fallback=fallback)
 
     def _on_export_overlay_npz(self) -> None:
         """Export the current overlay to a standalone NPZ file."""
@@ -2146,6 +2146,17 @@ class MasterController:
         self._after_layer_switch(defer_volume=defer_volume)
         self._mark_active_session_dirty()
 
+    def _rename_active_layer(self, name: str) -> None:
+        """Rename the active layer and refresh layer selectors without rebuilding the overlay."""
+        active_layer = self.session_manager.get_active_layer()
+        if active_layer is None:
+            return
+        if not self.session_manager.rename_layer(str(active_layer.id), name):
+            return
+        self.annotation_controller.sync_overlay_settings(force=True)
+        self._sync_tools_labels(select_label_id=self.view_state_model.active_label)
+        self._mark_active_session_dirty()
+
     def _sync_tools_labels(self, select_label_id: Optional[int] = None) -> None:
         """Sync the label list in the tools panel with the annotation model."""
         self.tools_panel.set_layers(self.session_manager.list_active_layers())
@@ -2995,63 +3006,46 @@ class MasterController:
 
         self.corrosion_settings_view.set_workflow_state(stage)
 
-    @classmethod
-    def _base_corrosion_session_name(cls, session_name: Optional[str]) -> str:
-        base_name = cls._normalize_session_name(session_name)
-        lowered = base_name.casefold()
-        for marker in (
-            " corrosion brute",
-            " corrosion raw",
-            " corrosion interpolee",
-            " corrosion interpolated",
-        ):
-            marker_pos = lowered.find(marker)
-            if marker_pos >= 0:
-                base_name = base_name[:marker_pos].rstrip()
-                break
-        return base_name or "New session"
+    @staticmethod
+    def _corrosion_raw_display_name() -> str:
+        return "Corrosion profile"
 
-    def _build_corrosion_raw_session_name(self, session_name: Optional[str]) -> str:
-        base_name = self._base_corrosion_session_name(session_name)
-        return f"{base_name} corrosion raw"
-
-    def _build_corrosion_interpolated_session_name(
-        self,
-        session_name: Optional[str],
-        algo: str,
-    ) -> str:
-        base_name = self._base_corrosion_session_name(session_name)
-        algo_label = normalize_interpolation_algo(algo)
-        return f"{base_name} corrosion interpolated {algo_label}"
+    @staticmethod
+    def _corrosion_interpolated_display_name() -> str:
+        return "Interpolated profile"
 
     @classmethod
-    def _base_corrosion_layer_name(cls, layer_name: Optional[str]) -> str:
-        base_name = cls._normalize_session_name(layer_name, fallback="Layer")
-        lowered = base_name.casefold()
-        for marker in (
-            " corrosion raw",
-            " corrosion brute",
-            " corrosion interpolated",
-            " corrosion interpolee",
-            " corrosion interpole",
-        ):
-            marker_pos = lowered.find(marker)
-            if marker_pos >= 0:
-                base_name = base_name[:marker_pos].rstrip()
-                break
-        return base_name or "Layer"
+    def _build_corrosion_raw_session_name(cls) -> str:
+        return cls._corrosion_raw_display_name()
 
-    def _build_corrosion_raw_layer_name(self, layer_name: Optional[str]) -> str:
-        return f"{self._base_corrosion_layer_name(layer_name)} corrosion raw"
+    @classmethod
+    def _build_corrosion_interpolated_session_name(cls) -> str:
+        return cls._corrosion_interpolated_display_name()
 
-    def _build_corrosion_interpolated_layer_name(
-        self,
-        layer_name: Optional[str],
-        algo: str,
-    ) -> str:
-        algo_label = normalize_interpolation_algo(algo)
-        return (
-            f"{self._base_corrosion_layer_name(layer_name)} corrosion interpolated {algo_label}"
+    def _build_correction_layer_name(self, base_name: str) -> str:
+        normalized_base = str(base_name or "").strip() or "Layer"
+        layer_stack = self.session_manager.get_active_layer_stack()
+        if layer_stack is None:
+            return normalized_base
+        existing_names = {
+            str(layer.name or "").strip().casefold()
+            for layer in layer_stack.layers
+        }
+        if normalized_base.casefold() not in existing_names:
+            return normalized_base
+        correction_index = 1
+        while True:
+            candidate = f"{normalized_base} (correction {correction_index})"
+            if candidate.casefold() not in existing_names:
+                return candidate
+            correction_index += 1
+
+    def _build_corrosion_raw_layer_name(self) -> str:
+        return self._build_correction_layer_name(self._corrosion_raw_display_name())
+
+    def _build_corrosion_interpolated_layer_name(self) -> str:
+        return self._build_correction_layer_name(
+            self._corrosion_interpolated_display_name()
         )
 
     def _snapshot_active_session_in_manager(self) -> tuple[Optional[str], Optional[str]]:
@@ -3549,8 +3543,7 @@ class MasterController:
                 self.session_manager._sessions[origin_id] = origin_state  # noqa: SLF001
 
         # Prépare la session avec les données brutes (pas d'interpolation)
-        origin_name = getattr(origin_state, "name", None)
-        name = self._build_corrosion_raw_session_name(origin_name)
+        name = self._build_corrosion_raw_session_name()
         self.view_state_model.corrosion_piece_view_enabled = self._workflow_result_has_piece3d_data(
             result
         )
@@ -3597,7 +3590,7 @@ class MasterController:
             self._sync_corrosion_workflow_controls()
             return
 
-        _raw_session_id, raw_session_name = self._snapshot_active_session_in_manager()
+        self._snapshot_active_session_in_manager()
 
         nde_model = self.nde_model if hasattr(self, "nde_model") else None
         self.status_message(f"Interpolation ({algo}) in progress...", 2000)
@@ -3619,7 +3612,7 @@ class MasterController:
             interp_result
         )
         new_session_id = self.session_manager.create_from_models(
-            name=self._build_corrosion_interpolated_session_name(raw_session_name, algo),
+            name=self._build_corrosion_interpolated_session_name(),
             annotation_model=self.annotation_model,
             temp_mask_model=self.temp_mask_model,
             roi_model=self.roi_model,
@@ -3641,14 +3634,12 @@ class MasterController:
         """Create a raw corrosion layer inside the active session."""
         self.corrosion_profile_edit_service.reset()
         self.mask_modification_controller.reset()
-        source_layer = self.session_manager.get_active_layer()
-        source_layer_name = source_layer.name if source_layer is not None else None
         self._apply_corrosion_session_result(result, stage="raw")
         self.view_state_model.corrosion_piece_view_enabled = self._workflow_result_has_piece3d_data(
             result
         )
         created_layer_id = self.session_manager.create_layer_from_model_state(
-            name=self._build_corrosion_raw_layer_name(source_layer_name),
+            name=self._build_corrosion_raw_layer_name(),
             annotation_model=self.annotation_model,
             view_state_model=self.view_state_model,
             set_active=True,
@@ -3690,9 +3681,6 @@ class MasterController:
             annotation_model=self.annotation_model,
             view_state_model=self.view_state_model,
         )
-        raw_layer = self.session_manager.get_active_layer()
-        raw_layer_name = raw_layer.name if raw_layer is not None else None
-
         nde_model = self.nde_model if hasattr(self, "nde_model") else None
         self.status_message(f"Interpolation ({algo}) in progress...", 2000)
 
@@ -3711,7 +3699,7 @@ class MasterController:
             interp_result
         )
         created_layer_id = self.session_manager.create_layer_from_model_state(
-            name=self._build_corrosion_interpolated_layer_name(raw_layer_name, algo),
+            name=self._build_corrosion_interpolated_layer_name(),
             annotation_model=self.annotation_model,
             view_state_model=self.view_state_model,
             set_active=True,

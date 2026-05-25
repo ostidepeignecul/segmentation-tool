@@ -4543,3 +4543,21 @@ Le besoin etait de declencher depuis le menu `File` un export global de la sessi
 1. Introduire un service d orchestration `SessionBundleExportService` plutot que de pousser cette logique dans `MasterController` ou `AnnotationController`, afin de garder la logique UI dans le controleur et la composition des exports dans la couche service.
 2. Reutiliser les services existants pour Sentinel, nnU-Net et C-scan en les etendant minimalement (`mask_volume_override`, `base_name_override`, `filename_suffix`) plutot que de dupliquer les pipelines d export.
 3. Faire choisir explicitement un `main layer` dans un dialogue dedie, tout en exportant les NPZ standards sur tous les layers de la session active et les C-scan uniquement pour les layers corrosion `raw` et `interpolated`, afin de respecter le modele `session -> layers` deja en place.
+
+### 2026-05-25 - Nommage des layers IA corrosion et sanitation des exports
+**Tags :** `#branch:feature/name-layer`, `#MEMORY.md`, `#controllers/master_controller.py`, `#services/annotation_session_manager.py`, `#services/cscan_corrosion_service.py`, `#services/overlay_export.py`, `#services/session_bundle_export.py`, `#services/split_service.py`, `#utils/filename_utils.py`, `#naming`, `#layers`, `#export`, `#nnunet`, `#corrosion`, `#mvc`
+
+**Actions effectuees :**
+- Renomme automatiquement en `AI result` le layer actif apres import du resultat d inference nnU-Net dans `controllers/master_controller.py`.
+- Remplace les noms techniques des layers corrosion par `Corrosion profile` et `Interpolated profile`, y compris dans le workflow legacy par session pour garder un vocabulaire uniforme.
+- Introduit une logique de suffixe metier ` (correction N)` pour les relances d analyse ou d interpolation, au lieu de reutiliser le suffixe generique `(2)` produit par la deduplication standard.
+- Ajoute `rename_layer()` dans `services/annotation_session_manager.py` pour permettre le renommage d un layer sans casser l unicite du stack ni contourner la couche service.
+- Cree `utils/filename_utils.py` et l utilise dans les services d export pour remplacer les espaces par `-` tout en conservant une sanitation Windows commune pour les stems, prefixes, suffixes et noms derives.
+
+**Contexte :**
+Les noms visibles dans l application etaient trop techniques ou instables pour l utilisateur final: le resultat nnU-Net gardait un nom de layer generique, les layers corrosion reprenaient le nom source et l algorithme, et une relance depuis un masque corrige produisait des suffixes `(2)` peu explicites. En parallele, les exports auto-generes conservaient des espaces dans les noms de fichiers, alors que le besoin etait d uniformiser ces noms avec des tirets.
+
+**Decisions techniques :**
+1. Porter le renommage visible des layers dans `MasterController`, mais exposer l operation de renommage via `AnnotationSessionManager`, afin de conserver la separation MVC et de ne pas muter directement le stack depuis l UI.
+2. Utiliser des libelles metier fixes (`AI result`, `Corrosion profile`, `Interpolated profile`) et reserver la logique `correction N` uniquement aux collisions intentionnelles de relance, plutot que d exposer des noms dependants du layer source ou de l algorithme.
+3. Centraliser la sanitation des composants de noms de fichiers dans un helper unique reutilise par `session_bundle_export`, `split_service`, `overlay_export` et `cscan_corrosion_service`, afin d appliquer partout la meme regle `espaces -> -` sans dupliquer la logique.

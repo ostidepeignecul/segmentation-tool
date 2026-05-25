@@ -26,6 +26,7 @@ from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from services.cscan_service import CScanService
 from services.distance_measurement import DistanceMeasurementService
+from utils.filename_utils import sanitize_filename_component
 
 
 @dataclass
@@ -466,8 +467,11 @@ class CScanCorrosionService(CScanService):
             value_range = self.compute_display_value_range(data)
 
         os.makedirs(output_directory, exist_ok=True)
-        base_name = os.path.splitext(os.path.basename(str(nde_filename)))[0] or "unknown"
-        suffix = str(filename_suffix or "").strip()
+        base_name = sanitize_filename_component(
+            os.path.splitext(os.path.basename(str(nde_filename)))[0],
+            fallback="unknown",
+        )
+        suffix = sanitize_filename_component(filename_suffix or "")
         npz_path = os.path.join(output_directory, f"{base_name}{suffix}_cscan.npz")
         png_path = os.path.join(output_directory, f"{base_name}{suffix}_cscan.png")
         np.savez_compressed(

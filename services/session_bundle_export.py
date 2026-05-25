@@ -16,6 +16,7 @@ from services.annotation_session_manager import AnnotationSessionManager
 from services.cscan_corrosion_service import CScanCorrosionService
 from services.overlay_export import OverlayExport
 from services.split_service import SplitFlawNoflawService
+from utils.filename_utils import sanitize_filename_component
 
 
 @dataclass(frozen=True)
@@ -416,9 +417,7 @@ class SessionBundleExportService:
 
     @staticmethod
     def _sanitize_output_stem(value: str, *, fallback: str) -> str:
-        cleaned = "".join("_" if ch in '<>:"/\\|?*' else ch for ch in str(value))
-        cleaned = cleaned.strip().strip(".")
-        return cleaned or fallback
+        return sanitize_filename_component(value, fallback=fallback)
 
     @staticmethod
     def _layer_corrosion_stage(layer: LayerState) -> str:

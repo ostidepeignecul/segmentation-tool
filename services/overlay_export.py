@@ -8,6 +8,8 @@ from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
+from utils.filename_utils import sanitize_filename_component
+
 
 class OverlayExport:
     """Sauvegarde un volume de masques 3D en NPZ pour l'app ou pour Sentinel."""
@@ -252,7 +254,8 @@ class OverlayExport:
         if path.suffix.lower() != ".npz":
             path = path.with_suffix(".npz")
         if suffix:
-            path = path.with_name(f"{path.stem}{suffix}{path.suffix}")
+            normalized_suffix = sanitize_filename_component(suffix)
+            path = path.with_name(f"{path.stem}{normalized_suffix}{path.suffix}")
         return path
 
     def _parse_transpose_axes(
