@@ -46,6 +46,11 @@ from services.overlay_service import OverlayService
 from services.overlay_export import OverlayExport
 from services.endview_export import EndviewExportService
 from services.project_persistence import ProjectPersistence
+from services.session_bundle_export import (
+    BundleSentinelExportOptions,
+    SessionBundleExportRequest,
+    SessionBundleExportService,
+)
 from services.split_service import SplitFlawNoflawService
 from services.nde_loader import NdeLoader
 from services.nde_signal_processing_service import (
@@ -69,6 +74,7 @@ from views.endview_resize_dialog import EndviewResizeDialog
 from views.overlay_class_remap_dialog import OverlayClassRemapDialog
 from views.overlay_settings_view import OverlaySettingsView
 from views.piece3d_view import Piece3DView
+from views.session_bundle_export_dialog import SessionBundleExportDialog
 
 
 class NnUnetUiSignals(QObject):
@@ -111,6 +117,11 @@ class MasterController:
         )
         self.nnunet_service = NnUnetService(logger=self.logger)
         self.cscan_corrosion_service = CScanCorrosionService()
+        self.session_bundle_export_service = SessionBundleExportService(
+            overlay_export=self.overlay_export,
+            split_export_service=self.split_flaw_noflaw_service,
+            cscan_corrosion_service=self.cscan_corrosion_service,
+        )
         self.corrosion_workflow_service = CorrosionWorkflowService(
             cscan_corrosion_service=self.cscan_corrosion_service
         )
@@ -322,6 +333,8 @@ class MasterController:
         self.ui.actionExporter_npz.triggered.connect(self._on_export_overlay_npz)
         if hasattr(self.ui, "actionExporter_endviews"):
             self.ui.actionExporter_endviews.triggered.connect(self._on_export_endviews)
+        if hasattr(self.ui, "actionExport_all"):
+            self.ui.actionExport_all.triggered.connect(self._on_export_all)
         if hasattr(self.ui, "actionSplit_flaw_noflaw"):
             self.ui.actionSplit_flaw_noflaw.triggered.connect(self._on_dataset_export_requested)
         self.ui.actionParam_tres.triggered.connect(self._on_open_settings)
@@ -999,6 +1012,142 @@ class MasterController:
         final_message = f"{message_rgb}\n\n{message_uint8}"
         self.status_message("Endviews export completed", timeout_ms=4000)
         QMessageBox.information(self.main_window, "Export endviews", final_message)
+
+    def _on_export_all(self) -> None:
+        """Export the full active-session bundle from one dialog."""
+        if self.nde_model is None:
+            QMessageBox.warning(self.main_window, "Export all", "Load an NDE before exporting.")
+            return
+        if not self._prepare_active_session_for_persistence():
+            return
+
+        self.session_manager.sync_active_layer_from_model(
+            annotation_model=self.annotation_model,
+            view_state_model=self.view_state_model,
+        )
+        layer_stack = self.session_manager.get_active_layer_stack()
+        if layer_stack is None or not layer_stack.layers:
+            QMessageBox.warning(
+                self.main_window,
+                "Export all",
+                "No layer is available in the active session.",
+            )
+            return
+
+        active_layer_id = str(layer_stack.active_layer_id or "")
+        main_layer_choices: list[tuple[str, str]] = []
+        default_main_layer_id = ""
+
+        for layer in layer_stack.layers:
+            if layer.mask_volume is None:
+                continue
+            if str(getattr(layer, "layer_kind", "")).strip().casefold() == "corrosion":
+                continue
+            label = str(layer.name or "Layer")
+            if str(layer.id) == active_layer_id:
+                label = f"{label} (active)"
+                default_main_layer_id = str(layer.id)
+            elif not default_main_layer_id:
+                default_main_layer_id = str(layer.id)
+            main_layer_choices.append((str(layer.id), label))
+
+        if not main_layer_choices:
+            for layer in layer_stack.layers:
+                if layer.mask_volume is None:
+                    continue
+                label = str(layer.name or "Layer")
+                if str(layer.id) == active_layer_id:
+                    label = f"{label} (active)"
+                    default_main_layer_id = str(layer.id)
+                elif not default_main_layer_id:
+                    default_main_layer_id = str(layer.id)
+                main_layer_choices.append((str(layer.id), label))
+
+        if not main_layer_choices:
+            QMessageBox.warning(
+                self.main_window,
+                "Export all",
+                "No layer with a mask volume is available in the active session.",
+            )
+            return
+
+        has_corrosion_layers = any(
+            str(getattr(layer, "layer_kind", "")).strip().casefold() == "corrosion"
+            and ViewStateModel.normalize_corrosion_session_stage(
+                getattr(getattr(layer, "corrosion_state", None), "stage", None)
+            )
+            in {CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED}
+            for layer in layer_stack.layers
+        )
+
+        axis_order = list((getattr(self.nde_model, "metadata", {}) or {}).get("axis_order") or [])
+        primary_axis_name = str(axis_order[0]) if axis_order else None
+        dialog = SessionBundleExportDialog(
+            self.main_window,
+            layer_choices=main_layer_choices,
+            default_main_layer_id=default_main_layer_id,
+            default_sentinel_source_view=self.overlay_export.suggested_sentinel_source_view(
+                primary_axis_name
+            ),
+            has_corrosion_layers=has_corrosion_layers,
+        )
+        if dialog.exec() != int(QDialog.DialogCode.Accepted):
+            return
+        options = dialog.get_options()
+
+        nde_path = None
+        try:
+            nde_path = (self.nde_model.metadata or {}).get("path")
+        except Exception:
+            nde_path = None
+        initial_dir = str(Path(nde_path).parent) if nde_path else ""
+        output_root = QFileDialog.getExistingDirectory(
+            self.main_window,
+            "Choose the export root folder",
+            initial_dir,
+        )
+        if not output_root:
+            return
+
+        request = SessionBundleExportRequest(
+            output_root=output_root,
+            primary_axis_name=primary_axis_name,
+            main_layer_id=options.main_layer_id,
+            export_session_npz=options.export_session_npz,
+            export_sentinel_npz=options.export_sentinel_npz,
+            export_nnunet_pngs=options.export_nnunet_pngs,
+            export_corrosion_cscan=options.export_corrosion_cscan,
+            sentinel=BundleSentinelExportOptions(
+                sentinel_source_view=options.sentinel_source_view,
+                rotation_degrees=options.rotation_degrees,
+                rotation_axes=options.rotation_axes,
+                transpose_axes=options.transpose_axes,
+                output_suffix=options.output_suffix,
+                mirror_horizontal=options.mirror_horizontal,
+                mirror_vertical=options.mirror_vertical,
+                mirror_z=options.mirror_z,
+                strict_mode=options.strict_mode,
+            ),
+        )
+
+        try:
+            self.status_message("Bundle export in progress...", timeout_ms=2000)
+            result = self.session_bundle_export_service.export_bundle(
+                session_manager=self.session_manager,
+                nde_model=self.nde_model,
+                nde_file=str(nde_path) if nde_path else None,
+                request=request,
+                signal_processing_options=self._current_signal_processing_options(),
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self.main_window, "Export all", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "Export all", str(exc))
+            return
+
+        self.status_message("Bundle export completed", timeout_ms=5000)
+        QMessageBox.information(self.main_window, "Export all", result.build_summary())
 
     def _on_export_corrosion_cscan(self) -> None:
         """Open the native Windows folder picker and export the current corrosion C-scan."""

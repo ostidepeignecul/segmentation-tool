@@ -450,6 +450,7 @@ class CScanCorrosionService(CScanService):
         nde_filename: str,
         projection: np.ndarray,
         value_range: Optional[Tuple[float, float]] = None,
+        filename_suffix: str = "",
     ) -> Tuple[str, str]:
         """Save the displayed corrosion C-scan as NPZ and PNG."""
         if not output_directory:
@@ -466,8 +467,9 @@ class CScanCorrosionService(CScanService):
 
         os.makedirs(output_directory, exist_ok=True)
         base_name = os.path.splitext(os.path.basename(str(nde_filename)))[0] or "unknown"
-        npz_path = os.path.join(output_directory, f"{base_name}_cscan.npz")
-        png_path = os.path.join(output_directory, f"{base_name}_cscan.png")
+        suffix = str(filename_suffix or "").strip()
+        npz_path = os.path.join(output_directory, f"{base_name}{suffix}_cscan.npz")
+        png_path = os.path.join(output_directory, f"{base_name}{suffix}_cscan.png")
         np.savez_compressed(
             npz_path,
             projection=data,

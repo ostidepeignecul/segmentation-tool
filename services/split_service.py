@@ -173,6 +173,8 @@ class SplitFlawNoflawService:
         filename_prefix: Optional[str] = None,
         filename_suffix: Optional[str] = None,
         signal_processing_options: Optional[NdeSignalProcessingOptions] = None,
+        mask_volume_override: Optional[np.ndarray] = None,
+        base_name_override: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """Export a local nnU-Net-style dataset with matching imagesTr/labelsTr."""
         try:
@@ -181,6 +183,8 @@ class SplitFlawNoflawService:
                 annotation_model=annotation_model,
                 nde_file=nde_file,
                 signal_processing_options=signal_processing_options,
+                mask_volume_override=mask_volume_override,
+                base_name_override=base_name_override,
             )
             base_dir = Path(output_root) / f"{context.base_name}{context.processing_tag}_nnunet"
             images_tr = base_dir / "imagesTr"
@@ -245,12 +249,16 @@ class SplitFlawNoflawService:
         annotation_model,
         nde_file: Optional[str],
         signal_processing_options: Optional[NdeSignalProcessingOptions],
+        mask_volume_override: Optional[np.ndarray] = None,
+        base_name_override: Optional[str] = None,
     ) -> SplitExportContext:
         """Resolve all shared inputs required by the export flows."""
         if nde_model is None:
             raise ValueError("Aucun modele NDE charge.")
 
-        mask_volume = getattr(annotation_model, "mask_volume", None)
+        mask_volume = mask_volume_override
+        if mask_volume is None:
+            mask_volume = getattr(annotation_model, "mask_volume", None)
         if mask_volume is None and hasattr(annotation_model, "get_mask_volume"):
             mask_volume = annotation_model.get_mask_volume()
         if mask_volume is None:
@@ -277,7 +285,9 @@ class SplitFlawNoflawService:
             )
 
         nde_path = nde_file or (getattr(nde_model, "metadata", {}) or {}).get("path")
-        base_name = Path(str(nde_path)).stem if nde_path else "nde_export"
+        base_name = str(base_name_override or "").strip()
+        if not base_name:
+            base_name = Path(str(nde_path)).stem if nde_path else "nde_export"
         min_value, max_value = self._resolve_min_max(
             nde_model=nde_model,
             image_volume=image_volume,

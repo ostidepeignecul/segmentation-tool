@@ -37,6 +37,7 @@
     <addaction name="separator"/>
     <addaction name="actionExporter_endviews"/>
     <addaction name="actionSplit_flaw_noflaw"/>
+    <addaction name="actionExport_all"/>
     <addaction name="separator"/>
     <addaction name="actionParam_tres"/>
     <addaction name="separator"/>
@@ -270,6 +271,11 @@
   <action name="actionToggle_restriction">
    <property name="text">
     <string>Toggle restriction</string>
+   </property>
+  </action>
+  <action name="actionExport_all">
+   <property name="text">
+    <string>Export all</string>
    </property>
   </action>
  </widget>

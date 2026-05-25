@@ -4525,3 +4525,21 @@ L export Sentinel dependait du plan d annotation ouvert au moment de la sauvegar
 1. Exposer le choix utilisateur en `B-Scan` / `D-Scan` dans la vue, mais conserver en interne un mapping vers `UCoordinate` / `VCoordinate`, afin de ne pas casser les conventions de persistance existantes.
 2. Laisser `AnnotationController` ne faire que transporter `primary_axis_name` et `sentinel_source_view`, tandis que `OverlayExport` reste l unique endroit ou la resolution d orientation Sentinel est appliquee, afin de respecter la separation MVC.
 3. Calculer une valeur par defaut a partir de l axe primaire courant pour preserver l ergonomie du workflow existant, tout en faisant du parametre `Source view` la vraie source de verite de l export.
+
+### 2026-05-25 - Bundle Export all pour session active
+**Tags :** `#branch:feature/export-all`, `#MEMORY.md`, `#controllers/master_controller.py`, `#services/cscan_corrosion_service.py`, `#services/session_bundle_export.py`, `#services/split_service.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#views/session_bundle_export_dialog.py`, `#export`, `#bundle`, `#session`, `#layers`, `#sentinel`, `#nnunet`, `#cscan`, `#mvc`, `#pyqt6`
+
+**Actions effectuees :**
+- Ajoute dans `untitled.ui` et `ui_mainwindow.py` une action `Export all`, puis la branche dans `controllers/master_controller.py` avec un handler `_on_export_all()`.
+- Cree `views/session_bundle_export_dialog.py` pour piloter le bundle export avec cases a cocher par defaut pour `Session NPZ`, `Sentinel NPZ`, `nnU-Net PNGs` et `Corrosion C-scan`, plus le choix du layer principal et les options Sentinel.
+- Cree `services/session_bundle_export.py` comme service d orchestration dedie qui exporte tous les NPZ de la session active, un NPZ Sentinel pour le layer principal, un dataset nnU-Net pour ce layer, et les C-scan des layers corrosion `raw` et `interpolated`.
+- Etend `services/split_service.py` pour accepter un `mask_volume_override` et un `base_name_override`, afin de reutiliser le pipeline nnU-Net existant depuis un layer arbitraire sans switcher le layer actif de l UI.
+- Etend `services/cscan_corrosion_service.py` avec un `filename_suffix` sur `save_cscan_projection()` afin d exporter plusieurs C-scan corrosion dans le meme dossier sans ecrasement.
+
+**Contexte :**
+Le besoin etait de declencher depuis le menu `File` un export global de la session active couvrant plusieurs formats heterogenes: tous les NPZ standards des layers, un export Sentinel du layer principal, le dataset nnU-Net correspondant et les C-scan corrosion `raw/interpolated`. Le flux existant etait eparpille entre plusieurs actions et plusieurs services deja specialises, avec deux limites structurelles: `SplitFlawNoflawService` dependait du masque courant du `annotation_model`, et `save_cscan_projection()` utilisait un nom fixe qui aurait provoque des collisions entre exports `raw` et `interpolated`.
+
+**Decisions techniques :**
+1. Introduire un service d orchestration `SessionBundleExportService` plutot que de pousser cette logique dans `MasterController` ou `AnnotationController`, afin de garder la logique UI dans le controleur et la composition des exports dans la couche service.
+2. Reutiliser les services existants pour Sentinel, nnU-Net et C-scan en les etendant minimalement (`mask_volume_override`, `base_name_override`, `filename_suffix`) plutot que de dupliquer les pipelines d export.
+3. Faire choisir explicitement un `main layer` dans un dialogue dedie, tout en exportant les NPZ standards sur tous les layers de la session active et les C-scan uniquement pour les layers corrosion `raw` et `interpolated`, afin de respecter le modele `session -> layers` deja en place.
