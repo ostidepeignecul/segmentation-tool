@@ -22,6 +22,7 @@ class OverlayExportOptions(NamedTuple):
     """Holds user-selected export options."""
 
     export_target: str = "normal"
+    sentinel_source_view: str = "dscan"
     rotation_degrees: int = 0
     rotation_axes: str = ""
     transpose_axes: str = ""
@@ -35,7 +36,12 @@ class OverlayExportOptions(NamedTuple):
 class OverlayExportDialog(QDialog):
     """Modal dialog letting the user choose export options before saving."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(
+        self,
+        parent=None,
+        *,
+        default_sentinel_source_view: str = "dscan",
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Overlay export options")
         self.setModal(True)
@@ -43,6 +49,17 @@ class OverlayExportDialog(QDialog):
         self._export_target = QComboBox(self)
         self._export_target.addItem("Normal", "normal")
         self._export_target.addItem("Sentinel", "sentinel")
+
+        self._sentinel_source_view = QComboBox(self)
+        self._sentinel_source_view.addItem("B-Scan", "bscan")
+        self._sentinel_source_view.addItem("D-Scan", "dscan")
+        default_source_index = self._sentinel_source_view.findData(
+            str(default_sentinel_source_view or "").strip().lower()
+        )
+        if default_source_index < 0:
+            default_source_index = self._sentinel_source_view.findData("dscan")
+        if default_source_index >= 0:
+            self._sentinel_source_view.setCurrentIndex(default_source_index)
 
         self._rotation = QComboBox(self)
         self._rotation.addItems(["0 deg", "90 deg", "180 deg", "270 deg"])
@@ -68,6 +85,7 @@ class OverlayExportDialog(QDialog):
 
         sentinel_box = QGroupBox("Sentinel transforms", self)
         sentinel_form = QFormLayout(sentinel_box)
+        sentinel_form.addRow("Source view", self._sentinel_source_view)
         sentinel_form.addRow("Rotation", self._rotation)
         sentinel_form.addRow("Rotation axes (e.g. -2,-1)", self._rotation_axes)
         sentinel_form.addRow("Transpose (e.g. 0,2,1)", self._transpose_axes)
@@ -123,6 +141,7 @@ class OverlayExportDialog(QDialog):
         export_target = str(self._export_target.currentData() or "normal")
         return OverlayExportOptions(
             export_target=export_target,
+            sentinel_source_view=str(self._sentinel_source_view.currentData() or "dscan"),
             rotation_degrees=rotation_value,
             rotation_axes=self._rotation_axes.text().strip(),
             transpose_axes=self._transpose_axes.text().strip(),

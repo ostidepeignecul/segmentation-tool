@@ -64,6 +64,8 @@ class OverlayExport:
         destination: str,
         expected_shape: Optional[Sequence[int] | Tuple[int, int, int]] = None,
         *,
+        primary_axis_name: Optional[str],
+        sentinel_source_view: str = "dscan",
         rotation_degrees: int = 0,
         rotation_axes: str = "",
         transpose_axes: str = "",
@@ -73,10 +75,15 @@ class OverlayExport:
         mirror_z: bool = False,
         strict_mode: bool = False,
     ) -> str:
-        """Save a Sentinel-oriented compatibility NPZ using a transformed `arr_0` payload."""
+        """Save a Sentinel NPZ from an explicit B-Scan/D-Scan source orientation."""
         masks = self._validate_mask_volume(mask_volume, expected_shape=expected_shape)
-        transformed = self._build_sentinel_payload(
+        sentinel_source_masks = self._select_sentinel_source_masks(
             masks,
+            primary_axis_name=primary_axis_name,
+            sentinel_source_view=sentinel_source_view,
+        )
+        transformed = self._build_sentinel_payload(
+            sentinel_source_masks,
             rotation_degrees=rotation_degrees,
             rotation_axes=rotation_axes,
             transpose_axes=transpose_axes,
@@ -168,6 +175,76 @@ class OverlayExport:
         if normalized in {"vcoordinate", "vcoord", "v", "crosswise"}:
             return "vcoord"
         return normalized
+
+    @classmethod
+    def suggested_sentinel_source_view(cls, primary_axis_name: Optional[str]) -> str:
+        """Map the current primary annotation axis to the corresponding B/D-Scan label."""
+        normalized_primary = cls._normalize_axis_name(primary_axis_name)
+        if normalized_primary == "vcoord":
+            return "bscan"
+        return "dscan"
+
+    @classmethod
+    def _normalize_sentinel_source_view(cls, sentinel_source_view: Optional[str]) -> str:
+        normalized = "".join(
+            character.lower() if character.isalnum() else ""
+            for character in str(sentinel_source_view or "").strip()
+        )
+        if normalized in {"bscan", "b", "vcoordinate", "vcoord", "v", "crosswise"}:
+            return "bscan"
+        if normalized in {"dscan", "d", "ucoordinate", "ucoord", "u", "lengthwise"}:
+            return "dscan"
+        return normalized
+
+    @staticmethod
+    def _sentinel_source_view_to_primary_axis(sentinel_source_view: str) -> str:
+        if sentinel_source_view == "bscan":
+            return "vcoord"
+        if sentinel_source_view == "dscan":
+            return "ucoord"
+        raise ValueError(f"Vue source Sentinel invalide: {sentinel_source_view!r}.")
+
+    def _select_sentinel_source_masks(
+        self,
+        masks: np.ndarray,
+        *,
+        primary_axis_name: Optional[str],
+        sentinel_source_view: str,
+    ) -> np.ndarray:
+        """
+        Resolve the Sentinel source orientation explicitly instead of using the open view.
+
+        The current mask volume is stored in the current primary annotation orientation. When
+        the user selects the other endview, the same `(2, 1, 0)` transpose used across the app
+        is applied before the Sentinel transform chain.
+        """
+        normalized_primary = self._normalize_axis_name(primary_axis_name)
+        if normalized_primary not in {"ucoord", "vcoord"}:
+            raise ValueError(
+                "Impossible de resoudre l'orientation source Sentinel: axe primaire courant "
+                f"inconnu ({primary_axis_name!r})."
+            )
+
+        normalized_source_view = self._normalize_sentinel_source_view(sentinel_source_view)
+        if normalized_source_view not in {"bscan", "dscan"}:
+            raise ValueError(
+                "Impossible de resoudre l'orientation source Sentinel: vue demandee "
+                f"invalide ({sentinel_source_view!r})."
+            )
+
+        desired_primary = self._sentinel_source_view_to_primary_axis(normalized_source_view)
+        if desired_primary == normalized_primary:
+            resolved = np.asarray(masks, dtype=np.uint8)
+        else:
+            resolved = np.transpose(masks, (2, 1, 0))
+
+        self.logger.info(
+            "Overlay Sentinel: source=%s, current_primary=%s, resolved_shape=%s",
+            normalized_source_view,
+            normalized_primary,
+            tuple(resolved.shape),
+        )
+        return np.asarray(resolved, dtype=np.uint8)
 
     @staticmethod
     def _normalize_output_path(destination: str, *, suffix: str = "") -> Path:

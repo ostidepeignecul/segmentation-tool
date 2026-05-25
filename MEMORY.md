@@ -4508,3 +4508,20 @@ L utilisateur voulait distinguer visuellement les profils corrosion des masques 
 1. Deriver la couleur corrosion directement depuis la palette active du label source (`A` ou `B`), afin de respecter les personnalisations utilisateur et de conserver un lien visuel clair avec les masques de depart.
 2. Inverser uniquement les canaux `BGR` et conserver l alpha existant, afin d obtenir un contraste fort sans changer les regles de transparence du rendu overlay.
 3. Limiter ce comportement a `services/cscan_corrosion_service.py` et au flux de creation des layers corrosion, afin de ne pas impacter la palette globale des autres overlays ou labels persistants.
+
+### 2026-05-25 - Export Sentinel NPZ avec choix explicite B-Scan D-Scan
+**Tags :** `#branch:feature/sentinel-export-choice`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#services/overlay_export.py`, `#views/overlay_export_dialog.py`, `#overlay`, `#npz`, `#sentinel`, `#bscan`, `#dscan`, `#mvc`, `#pyqt6`
+
+**Actions effectuees :**
+- Ajoute dans `views/overlay_export_dialog.py` un parametre `Source view` pour l export Sentinel, avec choix explicite `B-Scan` ou `D-Scan` et preselection derivee du plan courant.
+- Etend `controllers/annotation_controller.py` pour injecter cette valeur dans le flux d export Sentinel tout en continuant a transmettre l axe primaire courant du dataset actif.
+- Modifie `services/overlay_export.py` pour resoudre explicitement le volume source Sentinel avant les transformations existantes (`transpose`, `rotate`, `mirror`) au lieu d utiliser implicitement l orientation actuellement ouverte.
+- Ajoute dans `OverlayExport` un mapping explicite entre vues UI `B-Scan` / `D-Scan` et axes internes `VCoordinate` / `UCoordinate`, avec transpose `(2, 1, 0)` appliquee seulement quand la vue demandee differe du primaire courant.
+
+**Contexte :**
+L export Sentinel dependait du plan d annotation ouvert au moment de la sauvegarde, ce qui rendait le resultat implicite et fragile. Le besoin etait de rendre ce choix deterministe depuis le dialogue d export, sans lier le format d export aux libelles UI et sans sortir la logique d orientation du service metier.
+
+**Decisions techniques :**
+1. Exposer le choix utilisateur en `B-Scan` / `D-Scan` dans la vue, mais conserver en interne un mapping vers `UCoordinate` / `VCoordinate`, afin de ne pas casser les conventions de persistance existantes.
+2. Laisser `AnnotationController` ne faire que transporter `primary_axis_name` et `sentinel_source_view`, tandis que `OverlayExport` reste l unique endroit ou la resolution d orientation Sentinel est appliquee, afin de respecter la separation MVC.
+3. Calculer une valeur par defaut a partir de l axe primaire courant pour preserver l ergonomie du workflow existant, tout en faisant du parametre `Source view` la vraie source de verite de l export.

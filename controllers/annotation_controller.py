@@ -1927,7 +1927,12 @@ class AnnotationController:
                 if mask_volume.shape != tgt_shape:
                     raise ValueError(f"Overlay shape {mask_volume.shape} différent du volume {tgt_shape}.")
 
-        options_dialog = OverlayExportDialog(parent)
+        options_dialog = OverlayExportDialog(
+            parent,
+            default_sentinel_source_view=self.overlay_export.suggested_sentinel_source_view(
+                primary_axis_name
+            ),
+        )
         result = options_dialog.exec()
         if result != int(QDialog.DialogCode.Accepted):
             return None
@@ -1942,6 +1947,8 @@ class AnnotationController:
                 mask_volume,
                 file_path,
                 expected_shape=volume_shape,
+                primary_axis_name=primary_axis_name,
+                sentinel_source_view=options.sentinel_source_view,
                 rotation_degrees=options.rotation_degrees,
                 rotation_axes=options.rotation_axes,
                 transpose_axes=options.transpose_axes,
