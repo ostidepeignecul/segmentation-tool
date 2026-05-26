@@ -177,12 +177,14 @@ class CorrosionProfileController:
         overlay = self.corrosion_profile_edit_service.preview_overlay()
         if overlay is None:
             return
+        corrosion_profile = self.corrosion_profile_edit_service.preview_profile_data()
         palette = self.view_state_model.corrosion_overlay_palette or self.annotation_model.get_label_palette()
         visible_labels = self.annotation_model.get_visible_labels()
         self.annotation_controller.show_active_layer_overlay_preview(
             overlay,
             palette=dict(palette),
             visible_labels=visible_labels,
+            corrosion_profile=corrosion_profile,
             changed_slice=int(self.view_state_model.current_slice),
             defer_volume=True,
         )

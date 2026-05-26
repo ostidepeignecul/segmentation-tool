@@ -9,7 +9,12 @@ import numpy as np
 
 from config.constants import MASK_COLORS_BGRA
 from models.nde_model import NdeModel
-from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
+from models.overlay_data import (
+    CorrosionProfileData,
+    OverlayData,
+    OverlayLayerData,
+    OverlayStackData,
+)
 
 
 @dataclass(frozen=True)
@@ -225,6 +230,31 @@ class AnnotationAxisService:
             label_volumes=None,
         )
 
+    @staticmethod
+    def build_secondary_corrosion_profile_data(
+        profile: Optional[CorrosionProfileData],
+    ) -> Optional[CorrosionProfileData]:
+        """Transpose peak-map profile data for the secondary orthogonal view."""
+        if profile is None:
+            return None
+        try:
+            peak_map_a = np.asarray(profile.peak_map_a, dtype=np.int32)
+            peak_map_b = np.asarray(profile.peak_map_b, dtype=np.int32)
+            height = int(profile.image_shape[0])
+        except Exception:
+            return None
+        if peak_map_a.ndim != 2 or peak_map_b.ndim != 2 or peak_map_a.shape != peak_map_b.shape:
+            return None
+        depth, _width = peak_map_a.shape
+        return CorrosionProfileData(
+            peak_map_a=np.ascontiguousarray(peak_map_a.T),
+            peak_map_b=np.ascontiguousarray(peak_map_b.T),
+            label_ids=tuple(int(label_id) for label_id in profile.label_ids),
+            image_shape=(height, int(depth)),
+            connect_points=bool(profile.connect_points),
+            max_gap_px=profile.max_gap_px,
+        )
+
     @classmethod
     def build_secondary_overlay_stack_data(
         cls,
@@ -245,6 +275,9 @@ class AnnotationAxisService:
                     overlay=secondary_overlay,
                     visible_labels=layer.visible_labels,
                     opacity=float(layer.opacity),
+                    corrosion_profile=cls.build_secondary_corrosion_profile_data(
+                        layer.corrosion_profile
+                    ),
                 )
             )
         if not secondary_layers:

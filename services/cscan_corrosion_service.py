@@ -323,17 +323,13 @@ class CScanCorrosionService(CScanService):
             line_thickness=1,
         )
 
-        interpolated_distance_map = self.build_interpolated_distance_map(
-            overlay=overlay,
-            class_A_value=int(class_A_id),
-            class_B_value=int(class_B_id),
-            use_mm=use_mm,
-            resolution_ultrasound_mm=resolution_ultrasound_mm,
-        )
-        interpolated_value_range = self.compute_display_value_range(interpolated_distance_map)
+        interpolated_distance_map = np.array(distance_map, dtype=np.float32, copy=True)
+        interpolated_value_range = value_range
 
-        piece_volume_raw = self._build_prismatic_piece_from_distance_map(distance_map)
-        piece_volume_interpolated = self._build_prismatic_piece_from_distance_map(interpolated_distance_map)
+        piece_volume_raw = raw_result.piece_volume_raw
+        if piece_volume_raw is None and raw_result.distance_map.size > 0:
+            piece_volume_raw = self._build_prismatic_piece_from_distance_map(raw_result.distance_map)
+        piece_volume_interpolated = self._build_prismatic_piece_from_distance_map(distance_map)
         piece_volume_legacy_interpolated = self._build_solid_volume(
             mask_stack=overlay,
             class_A_id=class_A_id,
@@ -1091,24 +1087,6 @@ class CScanCorrosionService(CScanService):
             support_map=support_map,
         )
 
-    def build_interpolated_distance_map(
-        self,
-        *,
-        overlay: np.ndarray,
-        class_A_value: int,
-        class_B_value: int,
-        use_mm: bool,
-        resolution_ultrasound_mm: float,
-    ) -> np.ndarray:
-        """Public wrapper to recompute corrosion distances from BW/FW line overlay."""
-        return self._build_interpolated_distance_map(
-            overlay=overlay,
-            class_A_value=class_A_value,
-            class_B_value=class_B_value,
-            use_mm=use_mm,
-            resolution_ultrasound_mm=resolution_ultrasound_mm,
-        )
-
     def build_piece_volume_from_distance_map(
         self,
         distance_map: np.ndarray,
@@ -1136,60 +1114,6 @@ class CScanCorrosionService(CScanService):
     ) -> Optional[Tuple[float, float, float]]:
         """Public wrapper for the preferred camera anchor computation."""
         return self._compute_piece_anchor(*candidates)
-
-    def _build_interpolated_distance_map(
-        self,
-        *,
-        overlay: np.ndarray,
-        class_A_value: int,
-        class_B_value: int,
-        use_mm: bool,
-        resolution_ultrasound_mm: float,
-    ) -> np.ndarray:
-        """
-        Recalcule une carte de distances (Z, X) à partir des lignes interpolées BW/FW.
-
-        Pour chaque slice (Z), calcule en une passe la moyenne des positions Y par X
-        pour les valeurs class_A_value et class_B_value via des bincounts, puis
-        calcule la distance verticale. Les positions manquantes sont laissées à NaN.
-        """
-        if overlay.size == 0:
-            return np.empty((0, 0), dtype=np.float32)
-
-        volume = np.asarray(overlay)
-        if volume.ndim != 3:
-            raise ValueError(f"Overlay attendu 3D (Z,H,W), reçu shape {volume.shape}")
-
-        num_slices, height, width = volume.shape
-        interpolated = np.full((num_slices, width), np.nan, dtype=np.float32)
-
-        scale = float(resolution_ultrasound_mm) if use_mm else 1.0
-
-        for z in range(num_slices):
-            slice_mask = volume[z]
-            yA, xA = np.nonzero(slice_mask == class_A_value)
-            yB, xB = np.nonzero(slice_mask == class_B_value)
-            if yA.size == 0 or yB.size == 0:
-                continue
-
-            sumA = np.bincount(xA, weights=yA, minlength=width)
-            cntA = np.bincount(xA, minlength=width)
-            sumB = np.bincount(xB, weights=yB, minlength=width)
-            cntB = np.bincount(xB, minlength=width)
-
-            valid = (cntA > 0) & (cntB > 0)
-            if not np.any(valid):
-                continue
-
-            meanA = np.zeros(width, dtype=np.float32)
-            meanB = np.zeros(width, dtype=np.float32)
-            meanA[valid] = sumA[valid] / cntA[valid]
-            meanB[valid] = sumB[valid] / cntB[valid]
-
-            dist = np.abs(meanA - meanB) * scale
-            interpolated[z, valid] = dist[valid]
-
-        return interpolated
 
     def _build_overlay_from_peak_maps(
         self,
@@ -1307,17 +1231,21 @@ class CScanCorrosionService(CScanService):
                 if y_coords.size == 0:
                     continue
 
-                sum_y = np.bincount(x_coords, weights=y_coords, minlength=width)
-                count_y = np.bincount(x_coords, minlength=width)
-                valid = count_y > 0
+                order = np.lexsort((y_coords, x_coords))
+                sorted_x = x_coords[order]
+                sorted_y = y_coords[order]
+                x_first, first_indices = np.unique(sorted_x, return_index=True)
+                valid = np.zeros(width, dtype=bool)
+                valid[x_first] = True
                 if support is not None:
                     valid &= support[z]
                 if not np.any(valid):
                     continue
 
                 x_valid = np.nonzero(valid)[0]
-                mean_y = np.rint(sum_y[x_valid] / count_y[x_valid]).astype(np.int32)
-                peak_map[z, x_valid] = np.clip(mean_y, 0, height - 1)
+                y_by_x = np.full(width, -1, dtype=np.int32)
+                y_by_x[x_first] = sorted_y[first_indices].astype(np.int32, copy=False)
+                peak_map[z, x_valid] = np.clip(y_by_x[x_valid], 0, height - 1)
 
         _fill_peak_map(class_A_id, peak_map_a)
         _fill_peak_map(class_B_id, peak_map_b)
@@ -1340,62 +1268,6 @@ class CScanCorrosionService(CScanService):
             gap = int(right[0]) - int(left[0]) - 1
             if gap <= max_gap:
                 yield left, right
-
-    def _build_overlay_from_masks(
-        self,
-        *,
-        mask_stack: np.ndarray,
-        class_A_id: int,
-        class_B_id: int,
-        line_thickness: int = 1,
-    ) -> np.ndarray:
-        """Construit un overlay de lignes BW/FW (moyenne Y par X, ligne fine)."""
-        if mask_stack.ndim != 3:
-            raise ValueError(f"Overlay attendu 3D (Z,H,W), reçu shape {mask_stack.shape}")
-
-        num_slices, height, width = mask_stack.shape
-        lines_volume = np.zeros((num_slices, height, width), dtype=np.uint8)
-        color_A = int(class_A_id)
-        color_B = int(class_B_id)
-
-        for z in range(num_slices):
-            slice_mask = mask_stack[z]
-            yA, xA = np.nonzero(slice_mask == class_A_id)
-            yB, xB = np.nonzero(slice_mask == class_B_id)
-            if yA.size == 0 or yB.size == 0:
-                continue
-
-            # Moyenne Y par X pour chaque classe
-            sumA = np.bincount(xA, weights=yA, minlength=width)
-            cntA = np.bincount(xA, minlength=width)
-            sumB = np.bincount(xB, weights=yB, minlength=width)
-            cntB = np.bincount(xB, minlength=width)
-            validA = cntA > 0
-            validB = cntB > 0
-
-            ysA = np.zeros(width, dtype=np.float32)
-            ysB = np.zeros(width, dtype=np.float32)
-            ysA[validA] = sumA[validA] / cntA[validA]
-            ysB[validB] = sumB[validB] / cntB[validB]
-
-            x_coords_A = np.nonzero(validA)[0].tolist()
-            x_coords_B = np.nonzero(validB)[0].tolist()
-            pts_A = [(int(x), int(round(ysA[x]))) for x in x_coords_A]
-            pts_B = [(int(x), int(round(ysB[x]))) for x in x_coords_B]
-
-            if len(pts_A) >= 2:
-                for i in range(len(pts_A) - 1):
-                    cv2.line(lines_volume[z], pts_A[i], pts_A[i + 1], color=color_A, thickness=line_thickness)
-            elif len(pts_A) == 1:
-                lines_volume[z, pts_A[0][1], pts_A[0][0]] = color_A
-
-            if len(pts_B) >= 2:
-                for i in range(len(pts_B) - 1):
-                    cv2.line(lines_volume[z], pts_B[i], pts_B[i + 1], color=color_B, thickness=line_thickness)
-            elif len(pts_B) == 1:
-                lines_volume[z, pts_B[0][1], pts_B[0][0]] = color_B
-
-        return lines_volume
 
     def _log_progress(self, fraction: float, label: str) -> None:
         """Affiche une barre de progression ASCII dans les logs."""
@@ -1783,6 +1655,7 @@ class CorrosionWorkflowService:
                 overlay_label_ids=raw_result.overlay_label_ids or (0, 0),
                 overlay_palette=raw_result.overlay_palette or {},
                 overlay_npz_path=None,
+                piece_volume_raw=raw_result.piece_volume_raw,
                 piece_volume_legacy_raw=raw_result.piece_volume_legacy_raw,
             )
 

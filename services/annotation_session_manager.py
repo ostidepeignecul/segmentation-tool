@@ -14,7 +14,12 @@ from models.layer_stack_model import (
     LayerStackModel,
     LayerState,
 )
-from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
+from models.overlay_data import (
+    CorrosionProfileData,
+    OverlayData,
+    OverlayLayerData,
+    OverlayStackData,
+)
 from models.roi_model import ROI, RoiModel
 from models.temp_mask_model import TempMaskModel
 from models.view_state_model import ViewStateModel
@@ -523,6 +528,7 @@ class AnnotationSessionManager:
             if overlay is None:
                 continue
             visible_labels = self._visible_label_ids_for_layer(layer)
+            corrosion_profile = self._build_corrosion_profile_data_for_layer(layer)
             stack_layers.append(
                 OverlayLayerData(
                     layer_id=str(layer.id),
@@ -534,6 +540,7 @@ class AnnotationSessionManager:
                         else None
                     ),
                     opacity=max(0.0, min(1.0, float(layer.opacity))),
+                    corrosion_profile=corrosion_profile,
                 )
             )
         if not stack_layers:
@@ -1251,6 +1258,73 @@ class AnnotationSessionManager:
         )
         layer.overlay_cache = overlay_data
         return overlay_data
+
+    @classmethod
+    def _build_corrosion_profile_data_for_layer(
+        cls,
+        layer: LayerState,
+    ) -> Optional[CorrosionProfileData]:
+        """Expose corrosion profile peak maps to renderers without re-reading mask pixels."""
+        if cls._normalize_layer_kind(getattr(layer, "layer_kind", None)) != "corrosion":
+            return None
+        corrosion_state = getattr(layer, "corrosion_state", None)
+        payload = getattr(corrosion_state, "payload", None)
+        if corrosion_state is None or not isinstance(payload, dict):
+            return None
+
+        stage = ViewStateModel.normalize_corrosion_session_stage(
+            getattr(corrosion_state, "stage", None)
+        )
+        label_ids = payload.get("corrosion_overlay_label_ids")
+        if not isinstance(label_ids, (tuple, list)) or len(label_ids) != 2:
+            return None
+
+        if stage == "raw":
+            peak_a = payload.get("corrosion_raw_peak_index_map_a")
+            peak_b = payload.get("corrosion_raw_peak_index_map_b")
+            if peak_a is None or peak_b is None:
+                peak_a = payload.get("corrosion_peak_index_map_a")
+                peak_b = payload.get("corrosion_peak_index_map_b")
+            connect_points = False
+            max_gap_px = 0
+        elif stage == "interpolated":
+            peak_a = payload.get("corrosion_peak_index_map_a")
+            peak_b = payload.get("corrosion_peak_index_map_b")
+            if peak_a is None or peak_b is None:
+                peak_a = payload.get("corrosion_raw_peak_index_map_a")
+                peak_b = payload.get("corrosion_raw_peak_index_map_b")
+            connect_points = True
+            max_gap_px = None
+        else:
+            return None
+
+        if peak_a is None or peak_b is None or layer.mask_volume is None:
+            return None
+        peak_map_a = np.asarray(peak_a, dtype=np.int32)
+        peak_map_b = np.asarray(peak_b, dtype=np.int32)
+        mask_volume = np.asarray(layer.mask_volume)
+        if (
+            peak_map_a.ndim != 2
+            or peak_map_b.ndim != 2
+            or peak_map_a.shape != peak_map_b.shape
+            or mask_volume.ndim != 3
+        ):
+            return None
+
+        try:
+            class_a_id = int(label_ids[0])
+            class_b_id = int(label_ids[1])
+        except Exception:
+            return None
+
+        return CorrosionProfileData(
+            peak_map_a=peak_map_a,
+            peak_map_b=peak_map_b,
+            label_ids=(class_a_id, class_b_id),
+            image_shape=(int(mask_volume.shape[1]), int(mask_volume.shape[2])),
+            connect_points=connect_points,
+            max_gap_px=max_gap_px,
+        )
 
     @classmethod
     def _normalize_layer_kind(cls, value: Optional[str]) -> str:

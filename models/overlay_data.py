@@ -17,6 +17,18 @@ class OverlayData:
 
 
 @dataclass(frozen=True)
+class CorrosionProfileData:
+    """Peak-map driven corrosion profile payload for render-only consumers."""
+
+    peak_map_a: np.ndarray
+    peak_map_b: np.ndarray
+    label_ids: Tuple[int, int]
+    image_shape: Tuple[int, int]
+    connect_points: bool = True
+    max_gap_px: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class OverlayLayerData:
     """One renderable overlay layer with its own opacity and visible labels."""
 
@@ -25,6 +37,7 @@ class OverlayLayerData:
     overlay: Optional[OverlayData]
     visible_labels: Optional[frozenset[int]] = None
     opacity: float = 1.0
+    corrosion_profile: Optional[CorrosionProfileData] = None
 
 
 @dataclass(frozen=True)

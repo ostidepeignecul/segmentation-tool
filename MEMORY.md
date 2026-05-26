@@ -4632,3 +4632,22 @@ Le workflow corrosion avait deja une vue legacy dediee qui affichait les profils
 1. Extraire la vectorisation dans un service metier pur (`OverlayVectorizationService`) partage entre vues, afin de respecter la separation MVC et d eviter une duplication de logique Qt-specifique entre `EndviewView` et `EndviewViewCorrosion`.
 2. Ne vectoriser automatiquement que les layers corrosion dont le `stage` de session est `interpolated`, afin de preserver le rendu raster habituel des autres overlays et de faire du controleur la source de verite sur ce choix.
 3. Introduire dans `AnnotationController` une signature de rendu et un filtrage des vues corrosion legacy non visibles, afin de reduire les redraws inutiles dans le workflow a overlays empiles sans changer la logique metier des layers.
+
+### 2026-05-26 - Profils corrosion pilotes par peak maps sans moyenne
+**Tags :** `#branch:feature/vectorise-profil`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/corrosion_profile_controller.py`, `#models/overlay_data.py`, `#services/annotation_axis_service.py`, `#services/annotation_session_manager.py`, `#services/corrosion_profile_edit_service.py`, `#services/cscan_corrosion_service.py`, `#services/overlay_vectorization_service.py`, `#corrosion`, `#peakmap`, `#interpolation`, `#overlay`, `#vectorisation`, `#endview`, `#mod-tool`, `#mvc`
+
+**Actions effectuées :**
+- Ajoute `CorrosionProfileData` dans `models/overlay_data.py` pour transporter les peak maps A/B, labels, dimensions et options de connexion avec les layers overlay.
+- Etend `services/annotation_session_manager.py` pour exposer aux renderers les peak maps raw ou interpolated stockees dans l etat corrosion du layer.
+- Refactorise `services/overlay_vectorization_service.py` pour vectoriser les profils corrosion directement depuis `CorrosionProfileData` quand il est disponible, avec fallback mask qui choisit un pixel existant par colonne au lieu de recalculer une moyenne.
+- Modifie `services/cscan_corrosion_service.py` pour faire de la distance interpolated une copie directe de la distance calculee depuis les peak maps interpolees, supprimer le recalcul depuis overlay rasterise, retirer les helpers morts `_build_interpolated_distance_map` et `_build_overlay_from_masks`, et preserver le volume 3D raw pendant l interpolation.
+- Propage les peak maps pending de l outil `mod` via `services/corrosion_profile_edit_service.py`, `controllers/corrosion_profile_controller.py` et `controllers/annotation_controller.py`, afin que le preview d edition interpolated ne retombe pas sur une moyenne issue du masque.
+- Etend `services/annotation_axis_service.py` pour transposer aussi `CorrosionProfileData` dans la vue secondaire orthogonale.
+
+**Contexte :**
+Le profil corrosion raw devait rester uniquement une carte de peaks, et le profil interpolated devait relier ces peak maps et combler les points manquants sans reconstruire le profil a partir d un masque raster. L ancien rendu pouvait recalculer un `mean_y` par colonne quand le layer ou le preview passait par le mask, ce qui deplacait automatiquement le profil lors de l edition avec l outil `mod`.
+
+**Décisions techniques :**
+1. Faire des peak maps A/B la source de verite des profils raw et interpolated, puis limiter le mask overlay a une representation de compatibilite/affichage.
+2. Interdire au rendu interpolated et au preview `mod` de reconstruire le profil par moyenne de pixels rasterises; le rendu vectoriel lit les Y directement depuis `CorrosionProfileData`.
+3. Conserver un fallback mask pour les overlays non peak-map, mais choisir un pixel existant par colonne plutot qu une moyenne, afin d eviter tout recentrage implicite du profil.

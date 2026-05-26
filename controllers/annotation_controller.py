@@ -20,7 +20,12 @@ from models.annotation_model import AnnotationModel
 from models.applied_annotation_history_model import AppliedAnnotationHistoryModel
 from models.roi_model import RoiModel
 from models.temp_mask_model import TempMaskModel
-from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
+from models.overlay_data import (
+    CorrosionProfileData,
+    OverlayData,
+    OverlayLayerData,
+    OverlayStackData,
+)
 from models.view_state_model import ViewStateModel
 from services.annotation_axis_service import AnnotationAxisService
 from services.annotation_session_manager import AnnotationSessionManager
@@ -311,6 +316,7 @@ class AnnotationController:
         *,
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
         visible_labels: Optional[set[int]] = None,
+        corrosion_profile: Optional[CorrosionProfileData] = None,
         changed_slice: Optional[int] = None,
         defer_volume: bool = True,
     ) -> None:
@@ -326,6 +332,7 @@ class AnnotationController:
         preview_stack = self._build_active_layer_preview_stack(
             preview_overlay=preview_overlay,
             visible_labels=visible_labels,
+            corrosion_profile=corrosion_profile,
         )
         if preview_stack is None or not preview_stack.layers:
             return
@@ -372,6 +379,7 @@ class AnnotationController:
         *,
         preview_overlay: OverlayData,
         visible_labels: Optional[set[int]],
+        corrosion_profile: Optional[CorrosionProfileData] = None,
     ) -> Optional[OverlayStackData]:
         """Return the current visible stack with the active layer replaced by a preview."""
         preview_visible_labels = (
@@ -383,6 +391,7 @@ class AnnotationController:
             return self._build_single_overlay_stack(
                 overlay_data=preview_overlay,
                 visible_labels=visible_labels,
+                corrosion_profile=corrosion_profile,
             )
 
         base_stack = self.session_manager.build_active_overlay_stack()
@@ -390,6 +399,7 @@ class AnnotationController:
             return self._build_single_overlay_stack(
                 overlay_data=preview_overlay,
                 visible_labels=visible_labels,
+                corrosion_profile=corrosion_profile,
             )
 
         active_layer_id = base_stack.active_layer_id
@@ -408,6 +418,7 @@ class AnnotationController:
                             else layer.visible_labels
                         ),
                         opacity=layer.opacity,
+                        corrosion_profile=corrosion_profile,
                     )
                 )
                 replaced = True
@@ -422,6 +433,7 @@ class AnnotationController:
                     overlay=preview_overlay,
                     visible_labels=preview_visible_labels,
                     opacity=1.0,
+                    corrosion_profile=corrosion_profile,
                 )
             )
             active_layer_id = "active-preview"
@@ -484,7 +496,7 @@ class AnnotationController:
             stage = ViewStateModel.normalize_corrosion_session_stage(
                 getattr(corrosion_state, "stage", None)
             )
-            if stage == "interpolated":
+            if stage == "interpolated" and getattr(overlay_layer, "corrosion_profile", None) is not None:
                 vector_layer_ids.add(layer_id)
         return vector_layer_ids
 
@@ -512,6 +524,16 @@ class AnnotationController:
                 if layer.visible_labels is not None
                 else None
             )
+            corrosion_profile = getattr(layer, "corrosion_profile", None)
+            profile_signature = None
+            if corrosion_profile is not None:
+                profile_signature = (
+                    id(getattr(corrosion_profile, "peak_map_a", None)),
+                    id(getattr(corrosion_profile, "peak_map_b", None)),
+                    tuple(int(v) for v in getattr(corrosion_profile, "image_shape", ())),
+                    bool(getattr(corrosion_profile, "connect_points", True)),
+                    getattr(corrosion_profile, "max_gap_px", None),
+                )
             layer_signatures.append(
                 (
                     str(layer.layer_id),
@@ -519,6 +541,7 @@ class AnnotationController:
                     visible_labels,
                     round(float(layer.opacity), 6),
                     str(layer.layer_id) in vector_layer_ids,
+                    profile_signature,
                 )
             )
         return (bool(volume_overlay_enabled), tuple(layer_signatures))
@@ -565,6 +588,7 @@ class AnnotationController:
         *,
         overlay_data: Optional[OverlayData],
         visible_labels: Optional[set[int]],
+        corrosion_profile: Optional[CorrosionProfileData] = None,
     ) -> Optional[OverlayStackData]:
         """Wrap a legacy single overlay payload in a one-layer render stack."""
         if overlay_data is None:
@@ -581,6 +605,7 @@ class AnnotationController:
                         else None
                     ),
                     opacity=1.0,
+                    corrosion_profile=corrosion_profile,
                 ),
             ),
             active_layer_id="legacy-overlay",

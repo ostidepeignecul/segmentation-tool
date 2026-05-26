@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from models.overlay_data import CorrosionProfileData
 from services.cscan_corrosion_service import CScanCorrosionService
 
 
@@ -271,6 +272,24 @@ class CorrosionProfileEditService:
         if self._overlay_cache is None:
             return None
         return self._overlay_cache
+
+    def preview_profile_data(self) -> Optional[CorrosionProfileData]:
+        """Return the pending peak maps used by preview rendering."""
+        if (
+            self._pending_peak_map_a is None
+            or self._pending_peak_map_b is None
+            or self._label_ids is None
+            or self._image_shape is None
+        ):
+            return None
+        return CorrosionProfileData(
+            peak_map_a=self._pending_peak_map_a,
+            peak_map_b=self._pending_peak_map_b,
+            label_ids=self._label_ids,
+            image_shape=self._image_shape,
+            connect_points=not self._preserve_existing_gaps,
+            max_gap_px=0 if self._preserve_existing_gaps else None,
+        )
 
     def commit(
         self,
