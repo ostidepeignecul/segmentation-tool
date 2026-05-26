@@ -28,6 +28,7 @@ class ViewStateModel:
         self.show_volume: bool = True
         self.show_cross: bool = True
         self.show_restriction: bool = True
+        self.nnunet_model_path: str = ""
 
         # --- Tools / Interaction ---
         self.tool_mode: Optional[str] = None
@@ -309,6 +310,12 @@ class ViewStateModel:
             self.active_label = None
         else:
             self.active_label = int(label_id)
+
+    def set_nnunet_model_path(self, path: Optional[str]) -> str:
+        """Store the configured nnUNet model path as a normalized string."""
+        normalized = str(path or "").strip()
+        self.nnunet_model_path = normalized
+        return normalized
 
     def is_erase_action(self) -> bool:
         return self.normalize_annotation_action(self.annotation_action) == "erase"

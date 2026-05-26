@@ -66,6 +66,7 @@
      <string>Inference</string>
     </property>
     <addaction name="actionnnunet"/>
+    <addaction name="actionSettings"/>
    </widget>
    <widget class="QMenu" name="menuAffichage">
     <property name="title">
@@ -276,6 +277,11 @@
   <action name="actionExport_all">
    <property name="text">
     <string>Export all</string>
+   </property>
+  </action>
+  <action name="actionSettings">
+   <property name="text">
+    <string>Settings</string>
    </property>
   </action>
  </widget>

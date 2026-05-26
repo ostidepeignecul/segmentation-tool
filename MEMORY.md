@@ -4561,3 +4561,21 @@ Les noms visibles dans l application etaient trop techniques ou instables pour l
 1. Porter le renommage visible des layers dans `MasterController`, mais exposer l operation de renommage via `AnnotationSessionManager`, afin de conserver la separation MVC et de ne pas muter directement le stack depuis l UI.
 2. Utiliser des libelles metier fixes (`AI result`, `Corrosion profile`, `Interpolated profile`) et reserver la logique `correction N` uniquement aux collisions intentionnelles de relance, plutot que d exposer des noms dependants du layer source ou de l algorithme.
 3. Centraliser la sanitation des composants de noms de fichiers dans un helper unique reutilise par `session_bundle_export`, `split_service`, `overlay_export` et `cscan_corrosion_service`, afin d appliquer partout la meme regle `espaces -> -` sans dupliquer la logique.
+
+### 2026-05-26 - Parametres nnUNet et sortie auto sans prompts
+**Tags :** `#branch:feature/nnunet-settings`, `#MEMORY.md`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#views/nnunet_settings_view.py`, `#nnunet`, `#settings`, `#inference`, `#ui`, `#persistence`, `#export`, `#mvc`
+
+**Actions effectuees :**
+- Ajoute dans `untitled.ui` et `ui_mainwindow.py` une action `Settings` sous le menu `Inference` pour exposer la configuration nnUNet depuis l interface principale.
+- Cree `views/nnunet_settings_view.py`, une fenetre dediee avec champ de chemin modele, boutons `Choose zip` et `Choose folder`, et emission de signaux UI pour garder la selection de modele hors de la couche service.
+- Etend `models/view_state_model.py` avec `nnunet_model_path` et son setter, afin de memoriser le dernier modele configure dans l etat de vue persiste par session.
+- Refactorise `controllers/master_controller.py` pour brancher `Inference > Settings`, reutiliser le modele configure au lancement, supprimer les boites de dialogue de choix du modele et du fichier de sortie, puis enregistrer automatiquement le resultat a cote du `.nde`.
+- Ajoute dans `controllers/master_controller.py` une resolution anti-collision sur le NPZ de sortie (`_2`, `_3`, ...) afin de ne jamais ecraser un resultat nnUNet precedent pour le meme NDE et le meme modele.
+
+**Contexte :**
+Le flux nnUNet demandait encore deux interactions a chaque inference: choisir le modele puis choisir manuellement le fichier `.npz` de sortie. Le besoin etait de deplacer le choix du modele dans une fenetre de parametres dediee du menu `Inference`, de reutiliser ensuite ce modele sans reprompt, et de produire automatiquement un fichier de resultat nomme a partir du NDE et du modele sans ecraser les executions precedentes.
+
+**Decisions techniques :**
+1. Stocker le chemin du modele dans `ViewStateModel` plutot que dans la vue ou dans le service, afin de respecter le MVC existant et de beneficier de la persistance de session deja en place.
+2. Garder `NnUnetService` focalise sur l inference seule, et faire porter a `MasterController` les choix UI et le calcul du chemin de sortie automatique, afin de ne pas melanger logique d interface et logique pipeline.
+3. Accepter a la configuration aussi bien une archive `.zip` qu un dossier extrait, mais imposer au lancement un chemin deja configure et present sur disque, avec sortie auto incrementee pour eviter toute collision de NPZ.

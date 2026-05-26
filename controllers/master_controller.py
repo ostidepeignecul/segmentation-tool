@@ -71,6 +71,7 @@ from views.corrosion_settings_view import CorrosionSettingsView
 from views.nde_settings_view import NdeSettingsView
 from views.nde_open_options_dialog import NdeOpenOptionsDialog
 from views.endview_resize_dialog import EndviewResizeDialog
+from views.nnunet_settings_view import NnUnetSettingsView
 from views.overlay_class_remap_dialog import OverlayClassRemapDialog
 from views.overlay_settings_view import OverlaySettingsView
 from views.piece3d_view import Piece3DView
@@ -131,6 +132,7 @@ class MasterController:
         self.overlay_settings_view = OverlaySettingsView(self.main_window)
         self.nde_settings_view = NdeSettingsView(self.main_window)
         self.corrosion_settings_view = CorrosionSettingsView(self.main_window)
+        self.nnunet_settings_view = NnUnetSettingsView(self.main_window)
         self._volume_stack: Optional[QStackedLayout] = None
         self._piece3d_page: Optional[QWidget] = None
         self._piece3d_view: Optional[Piece3DView] = None
@@ -348,6 +350,8 @@ class MasterController:
             self.ui.actionInterpolate.triggered.connect(self._on_corrosion_interpolation_requested_from_menu)
         if hasattr(self.ui, "actionnnunet"):
             self.ui.actionnnunet.triggered.connect(self._on_run_nnunet)
+        if hasattr(self.ui, "actionSettings"):
+            self.ui.actionSettings.triggered.connect(self._on_open_nnunet_settings)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
         if hasattr(self.ui, "actionSession_selector"):
             self.ui.actionSession_selector.triggered.connect(self._open_session_dialog)
@@ -657,6 +661,16 @@ class MasterController:
         self.nde_settings_view.clean_outliers_contour_smoothing_changed.connect(
             self._on_clean_outliers_contour_smoothing_changed
         )
+        self.nnunet_settings_view.model_path_changed.connect(
+            self._on_nnunet_model_path_changed
+        )
+        self.nnunet_settings_view.choose_zip_requested.connect(
+            self._on_choose_nnunet_model_zip_requested
+        )
+        self.nnunet_settings_view.choose_directory_requested.connect(
+            self._on_choose_nnunet_model_directory_requested
+        )
+
     def _register_shortcuts(self) -> None:
         """Global keyboard shortcuts (active anywhere in the window)."""
         parent = self.main_window
@@ -883,27 +897,27 @@ class MasterController:
             QMessageBox.warning(self.main_window, "nnUNet", "NDE volume unavailable.")
             return
 
-        model_path, _ = QFileDialog.getOpenFileName(
-            self.main_window,
-            "Choose nnUNet model (zip or folder)",
-            "",
-            "nnUNet models (*.zip);;All files (*)",
+        model_path = self.view_state_model.set_nnunet_model_path(
+            getattr(self.view_state_model, "nnunet_model_path", "")
         )
         if not model_path:
+            QMessageBox.warning(
+                self.main_window,
+                "nnUNet",
+                "Configure a model first from Inference > Settings.",
+            )
             return
-
-        suggested_save_path = self._suggest_nnunet_output_path(model_path)
-        save_path, _ = QFileDialog.getSaveFileName(
-            self.main_window,
-            "Save nnUNet result (.npz)",
-            suggested_save_path,
-            "NPZ Files (*.npz)",
-        )
-        if not save_path:
+        if not Path(model_path).exists():
+            QMessageBox.warning(
+                self.main_window,
+                "nnUNet",
+                "The configured nnUNet model was not found. Update it from Inference > Settings.",
+            )
             return
 
         raw_volume = getattr(self.nde_model, "volume", None)
         dataset_id = self.nde_model.metadata.get("path") if self.nde_model.metadata else "current"
+        save_path = self._suggest_nnunet_output_path(model_path)
 
         def _on_success(result: NnUnetResult) -> None:
             self._nnunet_ui_signals.success.emit(result)
@@ -936,12 +950,26 @@ class MasterController:
         nde_stem = self._sanitize_output_stem(nde_file.stem, fallback="nde")
         model_name = model_file.stem if model_file.suffix else model_file.name
         model_stem = self._sanitize_output_stem(model_name, fallback="model")
-        return str(nde_file.with_name(f"{nde_stem}_{model_stem}.npz"))
+        output_path = nde_file.with_name(f"{nde_stem}_{model_stem}.npz")
+        return str(self._next_available_output_path(output_path))
 
     @staticmethod
     def _sanitize_output_stem(value: str, *, fallback: str) -> str:
         """Sanitize a filename stem for a Windows-friendly NPZ output path."""
         return sanitize_filename_component(value, fallback=fallback)
+
+    @staticmethod
+    def _next_available_output_path(path: Path) -> Path:
+        """Return a non-conflicting NPZ path by appending an increment when needed."""
+        candidate = Path(path)
+        if not candidate.exists():
+            return candidate
+        index = 2
+        while True:
+            suffixed = candidate.with_name(f"{candidate.stem}_{index}{candidate.suffix}")
+            if not suffixed.exists():
+                return suffixed
+            index += 1
 
     def _on_export_overlay_npz(self) -> None:
         """Export the current overlay to a standalone NPZ file."""
@@ -1429,6 +1457,62 @@ class MasterController:
         self.corrosion_settings_view.show()
         self.corrosion_settings_view.raise_()
         self.corrosion_settings_view.activateWindow()
+
+    def _on_open_nnunet_settings(self) -> None:
+        """Open the nnUNet settings dialog."""
+        self.nnunet_settings_view.set_model_path(
+            getattr(self.view_state_model, "nnunet_model_path", "")
+        )
+        self.nnunet_settings_view.show()
+        self.nnunet_settings_view.raise_()
+        self.nnunet_settings_view.activateWindow()
+
+    def _on_nnunet_model_path_changed(self, value: str) -> None:
+        """Persist the configured nnUNet model path in the view-state model."""
+        normalized = self.view_state_model.set_nnunet_model_path(value)
+        if normalized != value:
+            self.nnunet_settings_view.set_model_path(normalized)
+
+    def _on_choose_nnunet_model_zip_requested(self) -> None:
+        """Open a file dialog to configure an exported nnUNet model archive."""
+        selected_path, _ = QFileDialog.getOpenFileName(
+            self.main_window,
+            "Choose nnUNet model zip",
+            self._nnunet_model_dialog_start_path(),
+            "nnUNet models (*.zip);;All files (*)",
+        )
+        if not selected_path:
+            return
+        normalized = self.view_state_model.set_nnunet_model_path(selected_path)
+        self.nnunet_settings_view.set_model_path(normalized)
+
+    def _on_choose_nnunet_model_directory_requested(self) -> None:
+        """Open a directory dialog to configure an extracted nnUNet model folder."""
+        selected_path = QFileDialog.getExistingDirectory(
+            self.main_window,
+            "Choose nnUNet model folder",
+            self._nnunet_model_dialog_start_path(),
+        )
+        if not selected_path:
+            return
+        normalized = self.view_state_model.set_nnunet_model_path(selected_path)
+        self.nnunet_settings_view.set_model_path(normalized)
+
+    def _nnunet_model_dialog_start_path(self) -> str:
+        """Return the best-effort starting path for nnUNet model dialogs."""
+        configured_path = str(getattr(self.view_state_model, "nnunet_model_path", "") or "").strip()
+        if configured_path:
+            path = Path(configured_path).expanduser()
+            if path.exists():
+                return str(path if path.is_dir() else path.parent)
+            fallback_parent = path.parent if path.suffix else path
+            fallback_text = str(fallback_parent).strip()
+            if fallback_text:
+                return fallback_text
+        try:
+            return str(Path(self._require_nde_path()).parent)
+        except Exception:
+            return str(Path.cwd())
 
     def _on_corrosion_interpolation_requested_from_menu(self) -> None:
         algo = getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")
