@@ -2552,8 +2552,8 @@ class MasterController:
     def _sync_cscan_labels(self) -> None:
         """Keep the C-scan dock and toggle action aligned with corrosion state."""
         is_corrosion = bool(self.view_state_model.corrosion_active)
-        dock_title = "Map corrosion" if is_corrosion else "C-Scan"
-        action_text = "Toggle map corrosion" if is_corrosion else "Toggle c-scan"
+        dock_title = "Corrosion map" if is_corrosion else "C-Scan"
+        action_text = "Toggle corrosion map" if is_corrosion else "Toggle c-scan"
         self.dock_layout_controller.cscan_dock.setWindowTitle(dock_title)
         if hasattr(self.ui, "actionToggle_C_Scan"):
             self.ui.actionToggle_C_Scan.setText(action_text)
@@ -2717,12 +2717,10 @@ class MasterController:
         self._clear_session_runtime_state(remove_autosaves=True)
         self._refresh_session_dialog()
 
-        self._sync_tools_labels()
-        self._clear_annotation_position_label()
-
         axis_order = loaded_model.metadata.get("axis_order", [])
         positions = loaded_model.metadata.get("positions") or {}
         self.view_state_model.set_axis_order(axis_order)
+        self._nde_path = file_path
         axes_info = []
         for idx, name in enumerate(axis_order):
             shape_len = volume.shape[idx] if idx < len(volume.shape) else "?"
@@ -2737,10 +2735,8 @@ class MasterController:
         )
         self.ascan_service.log_preview(self.logger, self.nde_model, volume)
 
-        self._refresh_views()
-        self._nde_path = file_path
+        self._after_session_switch(rebuild_volume_view=True)
         self._update_main_window_title()
-        self._update_endview_label()
         self._sync_apply_volume_range_view()
 
         processing_label = self.nde_signal_processing_service.describe_selection(
@@ -3515,7 +3511,7 @@ class MasterController:
         self.corrosion_profile_controller.sync_anchors()
         self._restore_piece3d_state_from_view_state(sync_action=True)
 
-    def _after_session_switch(self) -> None:
+    def _after_session_switch(self, *, rebuild_volume_view: bool = False) -> None:
         """Synchronise l'état du modèle actif vers les vues."""
         self.annotation_controller.clear_apply_history()
         self._ensure_corrosion_runtime_cache()
@@ -3594,7 +3590,7 @@ class MasterController:
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
         self.tools_panel.set_nde_contrast(self.view_state_model.nde_contrast)
         self.tools_panel.set_nde_opacity_available(self._current_volume() is not None)
-        self._refresh_views(rebuild_volume_view=False)
+        self._refresh_views(rebuild_volume_view=rebuild_volume_view)
         self.corrosion_profile_controller.sync_anchors()
         self._restore_piece3d_state_from_view_state(sync_action=True)
 
@@ -4024,7 +4020,7 @@ class MasterController:
             or ((self.nde_model.metadata or {}).get("path") if self.nde_model is not None else "")
             or ""
         ).strip()
-        title = "Segmentation Tool"
+        title = "Corrosion Mapping"
         if nde_path:
             title = f"{title} - {nde_path}"
         self.main_window.setWindowTitle(title)

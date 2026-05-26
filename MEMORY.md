@@ -4579,3 +4579,20 @@ Le flux nnUNet demandait encore deux interactions a chaque inference: choisir le
 1. Stocker le chemin du modele dans `ViewStateModel` plutot que dans la vue ou dans le service, afin de respecter le MVC existant et de beneficier de la persistance de session deja en place.
 2. Garder `NnUnetService` focalise sur l inference seule, et faire porter a `MasterController` les choix UI et le calcul du chemin de sortie automatique, afin de ne pas melanger logique d interface et logique pipeline.
 3. Accepter a la configuration aussi bien une archive `.zip` qu un dossier extrait, mais imposer au lancement un chemin deja configure et present sur disque, avec sortie auto incrementee pour eviter toute collision de NPZ.
+
+### 2026-05-26 - Reset session NDE et renommage UI corrosion
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/master_controller.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#session`, `#nde`, `#corrosion`, `#cscan`, `#ui`, `#mvc`
+
+**Actions effectuees :**
+- Refactorise `controllers/master_controller.py` pour faire passer l ouverture d un nouveau `.nde` par `_after_session_switch(rebuild_volume_view=True)` apres `reset_for_new_dataset(...)`, afin de reappliquer tout le refresh session/UI au lieu d un simple `_refresh_views()`.
+- Etend `_after_session_switch()` avec un parametre `rebuild_volume_view` pour reutiliser le meme chemin de synchronisation sur un vrai changement de dataset sans casser les switches de session existants.
+- Renomme le libelle dynamique du dock C-scan corrosion en `Corrosion map` et l action associee en `Toggle corrosion map` dans `controllers/master_controller.py`.
+- Remplace le titre visuel de l application par `Corrosion Mapping` dans `controllers/master_controller.py`, `ui_mainwindow.py` et `untitled.ui`.
+
+**Contexte :**
+Quand un nouvel NDE etait ouvert alors que le layer actif precedent etait corrosion `raw` ou `interpolated`, certains controles restaient dans l etat de la session precedente et pouvaient bloquer l acces a `Analyze`. En parallele, le vocabulaire UI devait etre harmonise avec `Corrosion map` pour le dock C-scan corrosion et `Corrosion Mapping` pour le nom visible de l application.
+
+**Decisions techniques :**
+1. Reutiliser `_after_session_switch()` comme point unique de resynchronisation post-chargement NDE, afin d eviter des chemins de refresh partiels entre changement de dataset et changement de session.
+2. Introduire seulement un flag `rebuild_volume_view` sur cette methode commune, afin de conserver le comportement optimise des switches de session tout en reconstruisant correctement la scene volume lors d un nouveau dataset.
+3. Centraliser les renommages UI dans `MasterController` et les titres par defaut de la fenetre, afin que le nom affiche reste coherent aussi bien au runtime que dans l UI generee.

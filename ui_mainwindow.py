@@ -162,7 +162,7 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
-        MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
+        MainWindow.setWindowTitle(_translate("MainWindow", "Corrosion Mapping"))
         self.menuFichier.setTitle(_translate("MainWindow", "File"))
         self.menuOverlay.setTitle(_translate("MainWindow", "Overlay"))
         self.menuAnalyse.setTitle(_translate("MainWindow", "Analysis"))
