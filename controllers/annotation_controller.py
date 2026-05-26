@@ -84,6 +84,7 @@ class AnnotationController:
         self._on_overlay_updated = on_overlay_updated
         self._paint_stroke_last_point: Optional[tuple[int, int]] = None
         self._paint_stroke_preview_created: bool = False
+        self._last_overlay_render_signature: Optional[tuple[Any, ...]] = None
         self.on_paint_size_changed(self.view_state_model.paint_radius)
         self.set_outline_only(getattr(self.view_state_model, "show_outline_only", False))
         self.set_restriction_visible(getattr(self.view_state_model, "show_restriction", True))
@@ -187,9 +188,9 @@ class AnnotationController:
         self.annotation_view.set_overlay_outline_only(enabled)
         if self.annotation_secondary_view is not None:
             self.annotation_secondary_view.set_overlay_outline_only(enabled)
-        if self.annotation_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_corrosion_view):
             self.annotation_corrosion_view.set_overlay_outline_only(enabled)
-        if self.annotation_secondary_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_secondary_corrosion_view):
             self.annotation_secondary_corrosion_view.set_overlay_outline_only(enabled)
 
     def set_restriction_visible(self, enabled: bool) -> None:
@@ -214,12 +215,14 @@ class AnnotationController:
         )
         if not show_overlay:
             self.logger.info("Overlay hidden by toggle; clearing 2D/3D views.")
+            self._last_overlay_render_signature = None
+            self._apply_vector_overlay_layer_ids(set())
             self.annotation_view.set_overlay_stack(None)
             if self.annotation_secondary_view is not None:
                 self.annotation_secondary_view.set_overlay_stack(None)
-            if self.annotation_secondary_corrosion_view is not None:
+            if self._should_update_legacy_corrosion_view(self.annotation_secondary_corrosion_view):
                 self.annotation_secondary_corrosion_view.set_overlay_stack(None)
-            if self.annotation_corrosion_view is not None:
+            if self._should_update_legacy_corrosion_view(self.annotation_corrosion_view):
                 self.annotation_corrosion_view.set_overlay_stack(None)
             self.volume_view.set_overlay_stack(None)
             self._notify_overlay_updated()
@@ -233,12 +236,14 @@ class AnnotationController:
 
         if overlay_stack is None or not overlay_stack.layers:
             self.logger.info("No overlay stack available to push; clearing views.")
+            self._last_overlay_render_signature = None
+            self._apply_vector_overlay_layer_ids(set())
             self.annotation_view.set_overlay_stack(None)
             if self.annotation_secondary_view is not None:
                 self.annotation_secondary_view.set_overlay_stack(None)
-            if self.annotation_secondary_corrosion_view is not None:
+            if self._should_update_legacy_corrosion_view(self.annotation_secondary_corrosion_view):
                 self.annotation_secondary_corrosion_view.set_overlay_stack(None)
-            if self.annotation_corrosion_view is not None:
+            if self._should_update_legacy_corrosion_view(self.annotation_corrosion_view):
                 self.annotation_corrosion_view.set_overlay_stack(None)
             self.volume_view.set_overlay_stack(None)
             self._notify_overlay_updated()
@@ -255,6 +260,23 @@ class AnnotationController:
             palette_count,
         )
 
+        vector_layer_ids = self._resolve_vector_overlay_layer_ids(overlay_stack)
+        render_signature = self._build_overlay_render_signature(
+            overlay_stack,
+            vector_layer_ids=vector_layer_ids,
+            volume_overlay_enabled=show_volume_view_overlay,
+        )
+        if (
+            defer_volume
+            and not rebuild
+            and changed_slice is None
+            and render_signature == self._last_overlay_render_signature
+        ):
+            self.logger.info("Overlay stack unchanged; skipping redundant redraw.")
+            return
+
+        self._last_overlay_render_signature = render_signature
+        self._apply_vector_overlay_layer_ids(vector_layer_ids)
         self.annotation_view.set_overlay_stack(overlay_stack)
         secondary_overlay = None
         if (
@@ -266,9 +288,9 @@ class AnnotationController:
             )
         if self.annotation_secondary_view is not None:
             self.annotation_secondary_view.set_overlay_stack(secondary_overlay)
-        if self.annotation_secondary_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_secondary_corrosion_view):
             self.annotation_secondary_corrosion_view.set_overlay_stack(secondary_overlay)
-        if self.annotation_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_corrosion_view):
             self.annotation_corrosion_view.set_overlay_stack(overlay_stack)
         if show_volume_view_overlay:
             self.volume_view.set_overlay_stack(
@@ -308,6 +330,13 @@ class AnnotationController:
         if preview_stack is None or not preview_stack.layers:
             return
 
+        vector_layer_ids = self._resolve_vector_overlay_layer_ids(preview_stack)
+        self._last_overlay_render_signature = self._build_overlay_render_signature(
+            preview_stack,
+            vector_layer_ids=vector_layer_ids,
+            volume_overlay_enabled=bool(self.view_state_model.show_volume_view_overlay),
+        )
+        self._apply_vector_overlay_layer_ids(vector_layer_ids)
         self.annotation_view.set_overlay_stack(preview_stack)
         secondary_overlay = None
         if (
@@ -319,9 +348,9 @@ class AnnotationController:
             )
         if self.annotation_secondary_view is not None:
             self.annotation_secondary_view.set_overlay_stack(secondary_overlay)
-        if self.annotation_secondary_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_secondary_corrosion_view):
             self.annotation_secondary_corrosion_view.set_overlay_stack(secondary_overlay)
-        if self.annotation_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_corrosion_view):
             self.annotation_corrosion_view.set_overlay_stack(preview_stack)
         if self.view_state_model.show_volume_view_overlay:
             active_layer_id = preview_stack.active_layer_id
@@ -426,6 +455,78 @@ class AnnotationController:
                 visible_labels=self.annotation_model.get_visible_labels(),
             )
         return self.session_manager.build_active_overlay_stack()
+
+    def _resolve_vector_overlay_layer_ids(
+        self,
+        overlay_stack: Optional[OverlayStackData],
+    ) -> set[str]:
+        """Return visible corrosion interpolated layer ids that should be rendered as vector paths."""
+        if overlay_stack is None or not overlay_stack.layers or self.session_manager is None:
+            return set()
+        if not bool(getattr(self.view_state_model, "show_interpolated_profile_vectorized", True)):
+            return set()
+
+        active_layer_stack = self.session_manager.get_active_layer_stack()
+        if active_layer_stack is None:
+            return set()
+
+        vector_layer_ids: set[str] = set()
+        for overlay_layer in overlay_stack.layers:
+            layer_id = str(getattr(overlay_layer, "layer_id", "") or "")
+            if not layer_id:
+                continue
+            source_layer = active_layer_stack.get_layer(layer_id)
+            if source_layer is None:
+                continue
+            if str(getattr(source_layer, "layer_kind", "")).strip().casefold() != "corrosion":
+                continue
+            corrosion_state = getattr(source_layer, "corrosion_state", None)
+            stage = ViewStateModel.normalize_corrosion_session_stage(
+                getattr(corrosion_state, "stage", None)
+            )
+            if stage == "interpolated":
+                vector_layer_ids.add(layer_id)
+        return vector_layer_ids
+
+    def _apply_vector_overlay_layer_ids(self, layer_ids: set[str]) -> None:
+        """Push vector-rendered overlay layer ids to the displayed standard endviews."""
+        self.annotation_view.set_vector_overlay_layer_ids(layer_ids)
+        if self.annotation_secondary_view is not None:
+            self.annotation_secondary_view.set_vector_overlay_layer_ids(layer_ids)
+
+    @staticmethod
+    def _build_overlay_render_signature(
+        overlay_stack: Optional[OverlayStackData],
+        *,
+        vector_layer_ids: set[str],
+        volume_overlay_enabled: bool,
+    ) -> tuple[Any, ...]:
+        """Build a lightweight render signature that ignores active-layer-only changes."""
+        if overlay_stack is None or not overlay_stack.layers:
+            return (bool(volume_overlay_enabled), ())
+
+        layer_signatures: list[tuple[Any, ...]] = []
+        for layer in overlay_stack.layers:
+            visible_labels = (
+                tuple(sorted(int(label_id) for label_id in layer.visible_labels))
+                if layer.visible_labels is not None
+                else None
+            )
+            layer_signatures.append(
+                (
+                    str(layer.layer_id),
+                    id(layer.overlay),
+                    visible_labels,
+                    round(float(layer.opacity), 6),
+                    str(layer.layer_id) in vector_layer_ids,
+                )
+            )
+        return (bool(volume_overlay_enabled), tuple(layer_signatures))
+
+    @staticmethod
+    def _should_update_legacy_corrosion_view(view: Optional[EndviewViewCorrosion]) -> bool:
+        """Skip hidden legacy corrosion endviews to avoid useless redraws in layered workflow."""
+        return view is not None and view.isVisible()
 
     def _build_active_layer_overlay_data(
         self,
@@ -535,12 +636,14 @@ class AnnotationController:
         self.clear_apply_history()
         self.annotation_model.clear_overlay_cache()
         self._sync_active_layer_runtime_state()
+        self._last_overlay_render_signature = None
+        self._apply_vector_overlay_layer_ids(set())
         self.annotation_view.set_overlay_stack(None)
         if self.annotation_secondary_view is not None:
             self.annotation_secondary_view.set_overlay_stack(None)
-        if self.annotation_secondary_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_secondary_corrosion_view):
             self.annotation_secondary_corrosion_view.set_overlay_stack(None)
-        if self.annotation_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_corrosion_view):
             self.annotation_corrosion_view.set_overlay_stack(None)
         self.annotation_view.clear_roi_overlay()
         self.annotation_view.clear_temp_shapes()
@@ -559,9 +662,9 @@ class AnnotationController:
         self.annotation_view.set_overlay_opacity(alpha)
         if self.annotation_secondary_view is not None:
             self.annotation_secondary_view.set_overlay_opacity(alpha)
-        if self.annotation_secondary_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_secondary_corrosion_view):
             self.annotation_secondary_corrosion_view.set_overlay_opacity(alpha)
-        if self.annotation_corrosion_view is not None:
+        if self._should_update_legacy_corrosion_view(self.annotation_corrosion_view):
             self.annotation_corrosion_view.set_overlay_opacity(alpha)
         self.volume_view.set_overlay_opacity(alpha)
 

@@ -28,6 +28,7 @@ class ViewStateModel:
         self.show_volume: bool = True
         self.show_cross: bool = True
         self.show_endview_smooth: bool = True
+        self.show_interpolated_profile_vectorized: bool = True
         self.show_restriction: bool = True
         self.nnunet_model_path: str = ""
 
@@ -487,6 +488,9 @@ class ViewStateModel:
 
     def set_show_endview_smooth(self, visible: bool) -> None:
         self.show_endview_smooth = bool(visible)
+
+    def set_show_interpolated_profile_vectorized(self, visible: bool) -> None:
+        self.show_interpolated_profile_vectorized = bool(visible)
 
     def set_show_restriction(self, visible: bool) -> None:
         self.show_restriction = bool(visible)

@@ -4614,3 +4614,21 @@ Le besoin etait de reduire la pixelisation visuelle de l endview apres redimensi
 1. Appliquer le lissage uniquement sur le `QGraphicsPixmapItem` de l image NDE de base, afin de conserver des overlays, croix et reperes nets.
 2. Stocker l etat du toggle dans `ViewStateModel` plutot que dans la vue, afin de reutiliser le mecanisme de persistance/session existant sans logique parallele.
 3. Faire porter la propagation multi-vues a `EndviewController` et la synchronisation runtime a `MasterController`, afin de respecter la separation MVC et d eviter de dupliquer la logique dans chaque vue.
+
+### 2026-05-26 - Vectorisation optionnelle des profils interpolated en endview
+**Tags :** `#branch:feature/vectorise-profil`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/overlay_vectorization_service.py`, `#ui_mainwindow.py`, `#untitled.ui`, `#views/endview_view.py`, `#views/endview_view_corrosion.py`, `#overlay`, `#vectorisation`, `#corrosion`, `#endview`, `#ui`, `#performance`, `#mvc`, `#pyqt6`
+
+**Actions effectuées :**
+- Cree `services/overlay_vectorization_service.py` pour convertir un slice de masque overlay en polylignes vectorielles cachees, sans dependance Qt, reutilisables par plusieurs vues.
+- Etend `views/endview_view.py` pour gerer un rendu overlay par layer dans la scene, avec bascule selective de certains layers en `QGraphicsPathItem` cosmetiques au lieu d un pixmap raster.
+- Refactorise `views/endview_view_corrosion.py` pour reutiliser le service partage de vectorisation au lieu de maintenir sa propre logique de construction de chemins.
+- Ajoute `show_interpolated_profile_vectorized` dans `models/view_state_model.py`, puis branche un toggle `Toggle Vectorise` dans `untitled.ui`, `ui_mainwindow.py` et `controllers/master_controller.py`.
+- Etend `controllers/annotation_controller.py` pour detecter les layers corrosion au stage `interpolated`, propager leurs `layer_id` vers les endviews standard, ignorer les redraws inutiles via une signature de rendu, et eviter de refresh les vues corrosion legacy masquees.
+
+**Contexte :**
+Le workflow corrosion avait deja une vue legacy dediee qui affichait les profils interpolated sous forme de lignes cosmetiques, mais les endviews standard continuaient a rasteriser ces overlays comme des masques pleins. Le besoin etait d unifier l affichage pour obtenir dans les endviews classiques un rendu de profil plus fin et lisible, tout en laissant a l utilisateur un controle explicite via un toggle de menu et en limitant le cout des refresh overlays dans le workflow multi-layers.
+
+**Décisions techniques :**
+1. Extraire la vectorisation dans un service metier pur (`OverlayVectorizationService`) partage entre vues, afin de respecter la separation MVC et d eviter une duplication de logique Qt-specifique entre `EndviewView` et `EndviewViewCorrosion`.
+2. Ne vectoriser automatiquement que les layers corrosion dont le `stage` de session est `interpolated`, afin de preserver le rendu raster habituel des autres overlays et de faire du controleur la source de verite sur ce choix.
+3. Introduire dans `AnnotationController` une signature de rendu et un filtrage des vues corrosion legacy non visibles, afin de reduire les redraws inutiles dans le workflow a overlays empiles sans changer la logique metier des layers.

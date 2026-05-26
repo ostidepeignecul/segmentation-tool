@@ -90,6 +90,7 @@
     <addaction name="actionResize_endview"/>
     <addaction name="actionR_initialisation_docks"/>
     <addaction name="actionToggle_Smooth"/>
+    <addaction name="actionToggle_Vectorise"/>
    </widget>
    <widget class="QMenu" name="menuSession">
     <property name="title">
@@ -288,6 +289,11 @@
   <action name="actionToggle_Smooth">
    <property name="text">
     <string>Toggle Smooth</string>
+   </property>
+  </action>
+  <action name="actionToggle_Vectorise">
+   <property name="text">
+    <string>Toggle Vectorise</string>
    </property>
   </action>
  </widget>

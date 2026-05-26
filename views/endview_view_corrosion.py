@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from typing import Optional
-
-import numpy as np
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QMouseEvent, QPainterPath, QPen, QPixmap
+from PyQt6.QtGui import QColor, QMouseEvent, QPen, QPixmap
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem
 
 from models.overlay_data import OverlayData, OverlayStackData
@@ -22,8 +20,6 @@ class EndviewViewCorrosion(EndviewView):
     profile_double_clicked = pyqtSignal(object)
 
     _COSMETIC_LINE_WIDTH = 5
-    _LEFT_EXTENSION_PX = 0.5
-    _RIGHT_EXTENSION_PX = 0.5
     _ANCHOR_SIZE_PX = 1
 
     def __init__(self, parent=None) -> None:
@@ -68,42 +64,25 @@ class EndviewViewCorrosion(EndviewView):
             return
         for layer_index, layer in enumerate(self._overlay_stack.layers):
             overlay = layer.overlay
-            if overlay is None or overlay.mask_volume is None:
+            if overlay is None:
                 continue
-            if overlay.mask_volume.ndim != 3:
-                continue
-            depth = int(overlay.mask_volume.shape[0])
-            if depth <= 0 or self._current_slice < 0 or self._current_slice >= depth:
-                continue
-
-            slice_mask = np.asarray(overlay.mask_volume[self._current_slice], dtype=np.int32)
-            if slice_mask.ndim != 2:
-                continue
-            height, width = slice_mask.shape
-            labels_to_draw = (
-                set(int(label_id) for label_id in layer.visible_labels)
-                if layer.visible_labels is not None
-                else {int(lbl) for lbl in np.unique(slice_mask) if int(lbl) > 0}
+            payload = self._overlay_vectorization_service.build_layer_payload(
+                layer,
+                slice_idx=self._current_slice,
             )
-
-            for label in sorted(labels_to_draw):
-                if label <= 0:
-                    continue
-                paths = self._paths_for_label(slice_mask, label=label, width=width, height=height)
-                if not paths:
-                    continue
-
+            if payload is None or not payload.paths:
+                continue
+            for path_data in payload.paths:
                 pen = self._pen_for_label(
-                    label,
+                    path_data.label,
                     palette=overlay.palette,
                     layer_opacity=float(layer.opacity),
                 )
-                for path in paths:
-                    item = QGraphicsPathItem(path)
-                    item.setPen(pen)
-                    item.setZValue(6.0 + (layer_index * 0.01))
-                    self._scene.addItem(item)
-                    self._cosmetic_line_items.append(item)
+                item = QGraphicsPathItem(self._qpath_from_points(path_data.points))
+                item.setPen(pen)
+                item.setZValue(6.0 + (layer_index * 0.01))
+                self._scene.addItem(item)
+                self._cosmetic_line_items.append(item)
 
     def _clear_cosmetic_lines(self) -> None:
         for item in self._cosmetic_line_items:
@@ -191,67 +170,3 @@ class EndviewViewCorrosion(EndviewView):
         pen.setCosmetic(True)
         return pen
 
-    @staticmethod
-    def _paths_for_label(
-        slice_mask: np.ndarray,
-        *,
-        label: int,
-        width: int,
-        height: int,
-    ) -> list[QPainterPath]:
-        y_coords, x_coords = np.nonzero(slice_mask == int(label))
-        if y_coords.size == 0:
-            return []
-
-        sum_y = np.bincount(x_coords, weights=y_coords, minlength=width)
-        count_y = np.bincount(x_coords, minlength=width)
-        valid = count_y > 0
-        x_valid = np.nonzero(valid)[0]
-        if x_valid.size == 0:
-            return []
-
-        mean_y = np.zeros(width, dtype=np.float32)
-        mean_y[valid] = sum_y[valid] / count_y[valid]
-
-        paths: list[QPainterPath] = []
-        start = 0
-        while start < x_valid.size:
-            end = start
-            while end + 1 < x_valid.size and x_valid[end + 1] == x_valid[end] + 1:
-                end += 1
-            segment = x_valid[start : end + 1]
-            if segment.size == 1:
-                x = int(segment[0])
-                y = int(round(float(mean_y[x])))
-                if 0 <= x < width and 0 <= y < height:
-                    path = QPainterPath()
-                    center_x = x + 0.5
-                    y_pos = y + 0.5
-                    path.moveTo(center_x - EndviewViewCorrosion._LEFT_EXTENSION_PX, y_pos)
-                    path.lineTo(center_x + EndviewViewCorrosion._RIGHT_EXTENSION_PX, y_pos)
-                    paths.append(path)
-            elif segment.size >= 2:
-                path = QPainterPath()
-                x0 = int(segment[0])
-                y0 = int(round(float(mean_y[x0])))
-                y0 = max(0, min(height - 1, y0))
-                path.moveTo(
-                    (x0 + 0.5) - EndviewViewCorrosion._LEFT_EXTENSION_PX,
-                    y0 + 0.5,
-                )
-                last_x = x0
-                last_y = y0
-                for x in segment[1:]:
-                    xi = int(x)
-                    yi = int(round(float(mean_y[xi])))
-                    yi = max(0, min(height - 1, yi))
-                    path.lineTo(xi + 0.5, yi + 0.5)
-                    last_x = xi
-                    last_y = yi
-                path.lineTo(
-                    (last_x + 0.5) + EndviewViewCorrosion._RIGHT_EXTENSION_PX,
-                    last_y + 0.5,
-                )
-                paths.append(path)
-            start = end + 1
-        return paths

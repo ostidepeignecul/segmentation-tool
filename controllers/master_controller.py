@@ -409,6 +409,9 @@ class MasterController:
         if hasattr(self.ui, "actionToggle_Smooth"):
             self.ui.actionToggle_Smooth.setCheckable(True)
             self.ui.actionToggle_Smooth.toggled.connect(self._on_endview_smooth_toggled)
+        if hasattr(self.ui, "actionToggle_Vectorise"):
+            self.ui.actionToggle_Vectorise.setCheckable(True)
+            self.ui.actionToggle_Vectorise.toggled.connect(self._on_interpolated_profile_vectorized_toggled)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionR_initialisation_docks"):
@@ -2007,6 +2010,12 @@ class MasterController:
         self._set_action_checked(getattr(self.ui, "actionToggle_Smooth", None), enabled)
         self.endview_controller.set_smooth_enabled(enabled)
 
+    def _on_interpolated_profile_vectorized_toggled(self, enabled: bool) -> None:
+        """Toggle vector rendering for visible interpolated corrosion profiles."""
+        self.view_state_model.set_show_interpolated_profile_vectorized(enabled)
+        self._set_action_checked(getattr(self.ui, "actionToggle_Vectorise", None), enabled)
+        self.annotation_controller.refresh_overlay(defer_volume=True, rebuild=False)
+
     def _on_tool_mode_changed(self, mode: str) -> None:
         """Route the shared tool mode to the controller that owns the current context."""
         self.annotation_controller.on_tool_mode_changed(mode)
@@ -2471,6 +2480,10 @@ class MasterController:
         self._set_action_checked(
             getattr(self.ui, "actionToggle_Smooth", None),
             getattr(self.view_state_model, "show_endview_smooth", True),
+        )
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_Vectorise", None),
+            getattr(self.view_state_model, "show_interpolated_profile_vectorized", True),
         )
 
     def _apply_saved_colormaps(self) -> None:

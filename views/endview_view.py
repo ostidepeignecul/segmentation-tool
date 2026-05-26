@@ -7,12 +7,13 @@ from typing import Any, Dict, Optional, Tuple, Mapping
 
 import numpy as np
 from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QImage, QMouseEvent, QPixmap, QPen
+from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainterPath, QPixmap, QPen
 from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
@@ -25,6 +26,7 @@ from PyQt6.QtWidgets import (
 
 from models.overlay_data import OverlayData, OverlayLayerData, OverlayStackData
 from services.ruler_display_service import RulerDisplayService
+from services.overlay_vectorization_service import OverlayVectorizationService
 from views.color_axis_ruler import AxisTitleLabel, ColorAxisRuler
 
 
@@ -38,6 +40,8 @@ class _PixmapBundle:
 
 class EndviewView(QFrame):
     """Displays a slice of the NDE volume with basic interactions."""
+
+    _VECTOR_OVERLAY_LINE_WIDTH = 5
 
     slice_changed = pyqtSignal(int)
     mouse_clicked = pyqtSignal(object, object)
@@ -60,6 +64,10 @@ class EndviewView(QFrame):
         self._colormap_name: str = "Gray"
         self._colormap_lut: Optional[np.ndarray] = None
         self._pixmaps = _PixmapBundle()
+        self._vector_overlay_layer_ids: set[str] = set()
+        self._overlay_layer_items: list[QGraphicsPixmapItem] = []
+        self._vector_overlay_items: list[QGraphicsPathItem] = []
+        self._overlay_vectorization_service = OverlayVectorizationService()
         self._display_size: Optional[Tuple[int, int]] = None
         self._zoom_factor: float = 1.0
         self._navigation_axis_name: str = "Slice"
@@ -199,6 +207,8 @@ class EndviewView(QFrame):
             self._current_slice = 0
             self._image_item.setPixmap(QPixmap())
             self._overlay_item.setPixmap(QPixmap())
+            self._clear_dynamic_overlay_items()
+            self._overlay_vectorization_service.clear_cache()
             self._set_navigation_bounds(0, 0)
             self._set_navigation_value(0)
             self._set_navigation_enabled(False)
@@ -258,11 +268,13 @@ class EndviewView(QFrame):
     def set_overlay_stack(self, overlay_stack: Optional[OverlayStackData]) -> None:
         """Set an ordered overlay stack and redraw the current slice."""
         self._overlay_stack = overlay_stack
+        self._overlay_vectorization_service.clear_cache()
         if overlay_stack is None or not overlay_stack.layers:
             self._mask_volume = None
             self._overlay_palette = {}
             self._visible_labels = None
             self._overlay_item.setPixmap(QPixmap())
+            self._clear_dynamic_overlay_items()
             return
 
         primary_layer = overlay_stack.layers[-1]
@@ -284,11 +296,20 @@ class EndviewView(QFrame):
             value = 1.0
         self._overlay_opacity = max(0.0, min(1.0, value))
         self._overlay_item.setOpacity(self._overlay_opacity)
+        for item in self._overlay_layer_items:
+            item.setOpacity(self._overlay_opacity)
+        for item in self._vector_overlay_items:
+            item.setOpacity(self._overlay_opacity)
 
     def set_overlay_outline_only(self, enabled: bool) -> None:
         """Render overlays as label contours only when enabled."""
         self._overlay_outline_only = bool(enabled)
         self._refresh_overlay_pixmap()
+
+    def set_vector_overlay_layer_ids(self, layer_ids: Optional[set[str]]) -> None:
+        """Store which overlay layers should be rendered as cosmetic vector paths."""
+        normalized_ids = {str(layer_id) for layer_id in (layer_ids or set()) if str(layer_id).strip()}
+        self._vector_overlay_layer_ids = normalized_ids
 
     def set_nde_opacity(self, opacity: float) -> None:
         """Set base NDE slice opacity (0.0 - 1.0)."""
@@ -534,11 +555,100 @@ class EndviewView(QFrame):
     def _refresh_overlay_pixmap(self) -> None:
         if self._overlay_stack is None or not self._overlay_stack.layers or self._volume is None:
             self._overlay_item.setPixmap(QPixmap())
+            self._clear_dynamic_overlay_items()
             return
-        overlay_slice = self._compose_stack_slice_rgba(self._current_slice)
-        overlay_pixmap = self._mask_to_pixmap(overlay_slice)
-        self._pixmaps.overlay = overlay_pixmap
-        self._overlay_item.setPixmap(overlay_pixmap)
+        self._overlay_item.setPixmap(QPixmap())
+        self._clear_dynamic_overlay_items()
+        height, width = self._volume.shape[1:3]
+        for layer_index, layer in enumerate(self._overlay_stack.layers):
+            overlay = layer.overlay
+            if overlay is None or overlay.mask_volume is None:
+                continue
+            if str(layer.layer_id) in self._vector_overlay_layer_ids:
+                self._add_vector_overlay_layer_items(
+                    layer,
+                    layer_index=layer_index,
+                )
+                continue
+            layer_rgba = self._compose_overlay_layer_slice_rgba(layer, self._current_slice, height, width)
+            if layer_rgba is None or layer_rgba.size == 0:
+                continue
+            overlay_pixmap = self._mask_to_pixmap(layer_rgba)
+            if overlay_pixmap.isNull():
+                continue
+            item = QGraphicsPixmapItem(overlay_pixmap)
+            item.setOpacity(self._overlay_opacity)
+            item.setZValue(1.0 + (layer_index * 0.01))
+            self._scene.addItem(item)
+            self._overlay_layer_items.append(item)
+
+    def _clear_dynamic_overlay_items(self) -> None:
+        for item in self._overlay_layer_items:
+            self._scene.removeItem(item)
+        self._overlay_layer_items.clear()
+        for item in self._vector_overlay_items:
+            self._scene.removeItem(item)
+        self._vector_overlay_items.clear()
+
+    def _add_vector_overlay_layer_items(
+        self,
+        layer: OverlayLayerData,
+        *,
+        layer_index: int,
+    ) -> None:
+        payload = self._overlay_vectorization_service.build_layer_payload(
+            layer,
+            slice_idx=self._current_slice,
+        )
+        if payload is None or not payload.paths:
+            return
+
+        overlay = layer.overlay
+        if overlay is None:
+            return
+        z_value = 1.0 + (layer_index * 0.01)
+        for path_data in payload.paths:
+            pen = self._vector_pen_for_label(
+                path_data.label,
+                palette=overlay.palette,
+                layer_opacity=float(layer.opacity),
+            )
+            item = QGraphicsPathItem(self._qpath_from_points(path_data.points))
+            item.setPen(pen)
+            item.setOpacity(self._overlay_opacity)
+            item.setZValue(z_value)
+            self._scene.addItem(item)
+            self._vector_overlay_items.append(item)
+
+    def _vector_pen_for_label(
+        self,
+        label: int,
+        *,
+        palette: dict[int, tuple[int, int, int, int]],
+        layer_opacity: float,
+    ) -> QPen:
+        b, g, r, a = palette.get(int(label), (255, 0, 255, 200))
+        alpha = int(
+            max(
+                0,
+                min(255, round(float(a) * float(layer_opacity))),
+            )
+        )
+        pen = QPen(QColor(int(r), int(g), int(b), alpha))
+        pen.setWidth(self._VECTOR_OVERLAY_LINE_WIDTH)
+        pen.setCosmetic(True)
+        return pen
+
+    @staticmethod
+    def _qpath_from_points(points: tuple[tuple[float, float], ...]) -> QPainterPath:
+        path = QPainterPath()
+        if not points:
+            return path
+        x0, y0 = points[0]
+        path.moveTo(float(x0), float(y0))
+        for x, y in points[1:]:
+            path.lineTo(float(x), float(y))
+        return path
 
     @staticmethod
     def _normalize_slice_for_display(array: np.ndarray) -> np.ndarray:
