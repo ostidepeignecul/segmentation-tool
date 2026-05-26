@@ -109,6 +109,8 @@ class Ui_MainWindow(object):
         self.actionExport_all.setObjectName("actionExport_all")
         self.actionSettings = QtGui.QAction(parent=MainWindow)
         self.actionSettings.setObjectName("actionSettings")
+        self.actionToggle_Smooth = QtGui.QAction(parent=MainWindow)
+        self.actionToggle_Smooth.setObjectName("actionToggle_Smooth")
         self.menuFichier.addAction(self.actionopen_nde)
         self.menuFichier.addSeparator()
         self.menuFichier.addAction(self.actionOuvrir_une_session)
@@ -149,6 +151,7 @@ class Ui_MainWindow(object):
         self.menuAffichage.addSeparator()
         self.menuAffichage.addAction(self.actionResize_endview)
         self.menuAffichage.addAction(self.actionR_initialisation_docks)
+        self.menuAffichage.addAction(self.actionToggle_Smooth)
         self.menuSession.addAction(self.actionSession_selector)
         self.menubar.addAction(self.menuFichier.menuAction())
         self.menubar.addAction(self.menuAffichage.menuAction())
@@ -205,6 +208,7 @@ class Ui_MainWindow(object):
         self.actionToggle_restriction.setText(_translate("MainWindow", "Toggle restriction"))
         self.actionExport_all.setText(_translate("MainWindow", "Export all"))
         self.actionSettings.setText(_translate("MainWindow", "Settings"))
+        self.actionToggle_Smooth.setText(_translate("MainWindow", "Toggle Smooth"))
 
 
 if __name__ == "__main__":

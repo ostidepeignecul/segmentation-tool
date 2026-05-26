@@ -89,6 +89,7 @@
     <addaction name="separator"/>
     <addaction name="actionResize_endview"/>
     <addaction name="actionR_initialisation_docks"/>
+    <addaction name="actionToggle_Smooth"/>
    </widget>
    <widget class="QMenu" name="menuSession">
     <property name="title">
@@ -282,6 +283,11 @@
   <action name="actionSettings">
    <property name="text">
     <string>Settings</string>
+   </property>
+  </action>
+  <action name="actionToggle_Smooth">
+   <property name="text">
+    <string>Toggle Smooth</string>
    </property>
   </action>
  </widget>

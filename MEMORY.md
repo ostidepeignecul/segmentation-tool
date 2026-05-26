@@ -4596,3 +4596,21 @@ Quand un nouvel NDE etait ouvert alors que le layer actif precedent etait corros
 1. Reutiliser `_after_session_switch()` comme point unique de resynchronisation post-chargement NDE, afin d eviter des chemins de refresh partiels entre changement de dataset et changement de session.
 2. Introduire seulement un flag `rebuild_volume_view` sur cette methode commune, afin de conserver le comportement optimise des switches de session tout en reconstruisant correctement la scene volume lors d un nouveau dataset.
 3. Centraliser les renommages UI dans `MasterController` et les titres par defaut de la fenetre, afin que le nom affiche reste coherent aussi bien au runtime que dans l UI generee.
+
+### 2026-05-26 - Toggle smooth visuel pour les endviews
+**Tags :** `#branch:feature/smooth-image`, `#MEMORY.md`, `#untitled.ui`, `#ui_mainwindow.py`, `#models/view_state_model.py`, `#views/endview_view.py`, `#controllers/endview_controller.py`, `#controllers/master_controller.py`, `#endview`, `#smoothing`, `#ui`, `#mvc`, `#pyqt6`
+
+**Actions effectuees :**
+- Ajoute dans `untitled.ui` et `ui_mainwindow.py` une action `Toggle Smooth` dans le menu `View`.
+- Etend `models/view_state_model.py` avec un etat `show_endview_smooth` active par defaut afin de persister le toggle dans l etat de vue et les sessions.
+- Ajoute dans `views/endview_view.py` un setter `set_smooth_enabled()` qui bascule uniquement le mode de transformation du pixmap NDE de base entre `SmoothTransformation` et `FastTransformation`.
+- Etend `controllers/endview_controller.py` pour propager ce toggle a toutes les endviews standard, corrosion et secondaires.
+- Branche `actionToggle_Smooth` dans `controllers/master_controller.py`, avec synchronisation de l action menu et reapplication du lissage pendant l initialisation, les refresh de vues et les restaurations de session.
+
+**Contexte :**
+Le besoin etait de reduire la pixelisation visuelle de l endview apres redimensionnement ou zoom, sans toucher aux donnees, aux coordonnees ni au code metier. Le changement devait rester strictement cosmetique, desactivable depuis le menu `View`, et coherent avec la persistance d etat deja utilisee par les sessions.
+
+**Decisions techniques :**
+1. Appliquer le lissage uniquement sur le `QGraphicsPixmapItem` de l image NDE de base, afin de conserver des overlays, croix et reperes nets.
+2. Stocker l etat du toggle dans `ViewStateModel` plutot que dans la vue, afin de reutiliser le mecanisme de persistance/session existant sans logique parallele.
+3. Faire porter la propagation multi-vues a `EndviewController` et la synchronisation runtime a `MasterController`, afin de respecter la separation MVC et d eviter de dupliquer la logique dans chaque vue.

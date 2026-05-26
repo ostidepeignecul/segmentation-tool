@@ -71,6 +71,7 @@ class EndviewView(QFrame):
         self._ruler_display_unit: str = RulerDisplayService.DISPLAY_UNIT_PIXELS
         self._horizontal_axis_resolution_mm: Optional[float] = None
         self._vertical_axis_resolution_mm: Optional[float] = None
+        self._smooth_enabled: bool = True
 
         self._scene = QGraphicsScene(self)
         self._view = QGraphicsView(self._scene)
@@ -95,6 +96,7 @@ class EndviewView(QFrame):
         self._nde_opacity: float = 1.0
         self._nde_contrast: float = 1.0
         self._image_item.setOpacity(self._nde_opacity)
+        self.set_smooth_enabled(self._smooth_enabled)
         self._scene.addItem(self._image_item)
         self._overlay_opacity: float = 1.0
         self._overlay_item = QGraphicsPixmapItem()
@@ -305,6 +307,17 @@ class EndviewView(QFrame):
             value = 1.0
         self._nde_contrast = max(0.0, min(2.0, value))
         self._refresh_pixmaps()
+
+    def set_smooth_enabled(self, enabled: bool) -> None:
+        """Toggle visual smoothing on the base NDE pixmap only."""
+        self._smooth_enabled = bool(enabled)
+        mode = (
+            Qt.TransformationMode.SmoothTransformation
+            if self._smooth_enabled
+            else Qt.TransformationMode.FastTransformation
+        )
+        self._image_item.setTransformationMode(mode)
+        self._image_item.update()
 
     def update_image(self) -> None:
         """Force re-rendering the base slice."""

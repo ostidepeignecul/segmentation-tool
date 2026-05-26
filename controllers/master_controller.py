@@ -199,6 +199,9 @@ class MasterController:
             primary=self._primary_view_name,
             secondary=self._secondary_view_name,
         )
+        self.endview_controller.set_smooth_enabled(
+            getattr(self.view_state_model, "show_endview_smooth", True)
+        )
 
         self.annotation_service = AnnotationService()
 
@@ -403,6 +406,9 @@ class MasterController:
         if hasattr(self.ui, "actionToggle_restriction"):
             self.ui.actionToggle_restriction.setCheckable(True)
             self.ui.actionToggle_restriction.toggled.connect(self._on_restriction_toggled)
+        if hasattr(self.ui, "actionToggle_Smooth"):
+            self.ui.actionToggle_Smooth.setCheckable(True)
+            self.ui.actionToggle_Smooth.toggled.connect(self._on_endview_smooth_toggled)
         if hasattr(self.ui, "actionResize_endview"):
             self.ui.actionResize_endview.triggered.connect(self._on_resize_endview)
         if hasattr(self.ui, "actionR_initialisation_docks"):
@@ -1995,6 +2001,12 @@ class MasterController:
         self.annotation_controller.set_restriction_visible(enabled)
         self._set_action_checked(getattr(self.ui, "actionToggle_restriction", None), enabled)
 
+    def _on_endview_smooth_toggled(self, enabled: bool) -> None:
+        """Handle visual smoothing on the endview base image."""
+        self.view_state_model.set_show_endview_smooth(enabled)
+        self._set_action_checked(getattr(self.ui, "actionToggle_Smooth", None), enabled)
+        self.endview_controller.set_smooth_enabled(enabled)
+
     def _on_tool_mode_changed(self, mode: str) -> None:
         """Route the shared tool mode to the controller that owns the current context."""
         self.annotation_controller.on_tool_mode_changed(mode)
@@ -2455,6 +2467,10 @@ class MasterController:
         self._set_action_checked(
             getattr(self.ui, "actionToggle_restriction", None),
             getattr(self.view_state_model, "show_restriction", True),
+        )
+        self._set_action_checked(
+            getattr(self.ui, "actionToggle_Smooth", None),
+            getattr(self.view_state_model, "show_endview_smooth", True),
         )
 
     def _apply_saved_colormaps(self) -> None:
@@ -3452,6 +3468,9 @@ class MasterController:
         )
         self.endview_controller.set_nde_opacity(self.view_state_model.nde_alpha)
         self.endview_controller.set_nde_contrast(self.view_state_model.nde_contrast)
+        self.endview_controller.set_smooth_enabled(
+            getattr(self.view_state_model, "show_endview_smooth", True)
+        )
         self.tools_panel.set_nde_opacity(self.view_state_model.nde_alpha)
         self.tools_panel.set_nde_contrast(self.view_state_model.nde_contrast)
         self.tools_panel.set_nde_opacity_available(True)
@@ -3536,6 +3555,9 @@ class MasterController:
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
         self._sync_display_toggle_actions()
         self._sync_coordinate_view_labels()
+        self.endview_controller.set_smooth_enabled(
+            getattr(self.view_state_model, "show_endview_smooth", True)
+        )
         current_tool_mode = self.view_state_model.tool_mode or self.tools_panel.current_tool_mode()
         if current_tool_mode:
             self.tools_panel.select_tool_mode(current_tool_mode)
