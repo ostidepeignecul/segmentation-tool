@@ -309,6 +309,8 @@ class MasterController:
 
         self._connect_actions()
         self._connect_signals()
+        self.tools_panel.set_layer_controls_visible(False)
+        self.overlay_settings_view.set_layer_controls_visible(False)
         self._register_shortcuts()
         self.annotation_controller.apply_overlay_opacity()
         self.ascan_controller.set_overlay_opacity(self.view_state_model.overlay_alpha)
@@ -850,9 +852,57 @@ class MasterController:
         algo = getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")
         self._on_corrosion_interpolation_requested(algo)
         if self._current_corrosion_session_stage() == CORROSION_STAGE_INTERPOLATED:
-            return "Automatic corrosion analysis and interpolation completed."
+            active_layer = self.session_manager.get_active_layer()
+            if active_layer is None:
+                return "Automatic corrosion analysis and interpolation completed."
+            return self._cleanup_demo_layers_after_ai_pipeline(keep_layer_id=str(active_layer.id))
 
         return "Automatic corrosion analysis completed, but interpolation did not complete."
+
+    def _cleanup_demo_layers_after_ai_pipeline(self, *, keep_layer_id: str) -> str:
+        """Demo-only cleanup: keep only the final interpolated corrosion layer."""
+        normalized_keep_id = str(keep_layer_id or "").strip()
+        if not normalized_keep_id:
+            return "Automatic corrosion analysis and interpolation completed, but demo cleanup was skipped."
+
+        layer_stack = self.session_manager.get_active_layer_stack()
+        if layer_stack is None:
+            return "Automatic corrosion analysis and interpolation completed, but demo cleanup was skipped."
+
+        removable_layers = [
+            (str(layer.id), str(layer.name or "Layer"))
+            for layer in list(layer_stack.layers)
+            if str(layer.id) != normalized_keep_id
+        ]
+        removed_names: list[str] = []
+        for layer_id, layer_name in removable_layers:
+            if self.session_manager.delete_layer(
+                layer_id,
+                annotation_model=self.annotation_model,
+                view_state_model=self.view_state_model,
+            ):
+                removed_names.append(layer_name)
+
+        if not self.session_manager.switch_active_layer(
+            normalized_keep_id,
+            annotation_model=self.annotation_model,
+            view_state_model=self.view_state_model,
+        ):
+            return "Automatic corrosion analysis and interpolation completed, but final layer selection failed."
+
+        if not self.session_manager.rename_layer(normalized_keep_id, "Corrosion profile"):
+            return "Automatic corrosion analysis and interpolation completed, but final layer renaming failed."
+
+        self._clear_active_layer_runtime_edits()
+        self._after_layer_stack_changed(defer_volume=True)
+
+        if removed_names:
+            removed_summary = ", ".join(removed_names)
+            return (
+                "Automatic corrosion analysis, interpolation, and demo cleanup completed. "
+                f"Kept only Corrosion profile and removed: {removed_summary}."
+            )
+        return "Automatic corrosion analysis, interpolation, and demo cleanup completed. Kept only Corrosion profile."
 
     def _handle_nnunet_error(self, payload: Any) -> None:
         """Display AI inference errors once they have been marshalled back to the UI thread."""

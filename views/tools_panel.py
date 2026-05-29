@@ -134,6 +134,7 @@ class ToolsPanel(QFrame):
         self._layer_placeholder_two: Optional[QWidget] = None
         self._layer_placeholder_three: Optional[QWidget] = None
         self._active_layer_id: Optional[str] = None
+        self._layer_controls_visible: bool = True
 
         self._primary_min: int = 0
         self._primary_max: int = 0
@@ -362,6 +363,7 @@ class ToolsPanel(QFrame):
             self._layer_delete_button = QPushButton("Delete", self._label_text_container)
             self._layer_delete_button.clicked.connect(self._on_delete_active_layer)
             self._label_text_layout.addWidget(self._layer_delete_button)
+            self.set_layer_controls_visible(self._layer_controls_visible)
 
             labels_title = QLabel("Labels", self._label_text_container)
             self._label_text_layout.addWidget(labels_title)
@@ -535,6 +537,17 @@ class ToolsPanel(QFrame):
                 self._layer_visibility_buttons[layer_id].setFixedHeight(max_height)
 
         self._update_layer_buttons_enabled()
+
+    def set_layer_controls_visible(self, visible: bool) -> None:
+        """Show or hide demo-only layer management buttons."""
+        self._layer_controls_visible = bool(visible)
+        for button in (
+            self._layer_add_button,
+            self._layer_duplicate_button,
+            self._layer_delete_button,
+        ):
+            if button is not None:
+                button.setVisible(self._layer_controls_visible)
 
     def _on_layer_selected(self, layer_id: str, checked: bool) -> None:
         if not checked:

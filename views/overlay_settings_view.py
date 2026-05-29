@@ -192,6 +192,13 @@ class OverlaySettingsView(QDialog):
             self.ensure_layer(layer_id, name, visible=visible, active=is_active)
         self._update_layer_buttons_enabled()
 
+    def set_layer_controls_visible(self, visible: bool) -> None:
+        """Show or hide demo-only layer management buttons."""
+        is_visible = bool(visible)
+        self._layer_add_button.setVisible(is_visible)
+        self._layer_duplicate_button.setVisible(is_visible)
+        self._layer_delete_button.setVisible(is_visible)
+
     def ensure_layer(
         self,
         layer_id: str,
