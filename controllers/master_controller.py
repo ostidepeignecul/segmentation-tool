@@ -823,10 +823,10 @@ class MasterController:
                 f"AI inference completed, NPZ displayed: {payload.output_path}",
                 timeout_ms=5000,
             )
-            QMessageBox.information(
-                self.main_window,
-                "AI inference",
-                f"Result saved and displayed:\n{payload.output_path}\n\n{corrosion_summary}",
+            self.logger.info(
+                "AI inference completed: %s | %s",
+                payload.output_path,
+                corrosion_summary,
             )
         except Exception as exc:
             self._handle_nnunet_error(exc)
