@@ -23,7 +23,7 @@ class ViewStateModel:
         self.show_overlay: bool = True
         self.show_overlay_ascan: bool = True
         self.show_outline_only: bool = False
-        self.show_volume_view_overlay: bool = True
+        self.show_volume_view_overlay: bool = False
         self.show_volume_planes: bool = True
         self.show_volume: bool = True
         self.show_cross: bool = True

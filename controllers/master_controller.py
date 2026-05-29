@@ -474,7 +474,7 @@ class MasterController:
             getattr(self.view_state_model, "clean_outliers_enabled", False)
         )
         self.tools_panel.set_volume_view_overlay_checked(
-            getattr(self.view_state_model, "show_volume_view_overlay", True)
+            getattr(self.view_state_model, "show_volume_view_overlay", False)
         )
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
         self.tools_panel.set_overlay_opacity(self.view_state_model.overlay_alpha)
@@ -3589,7 +3589,7 @@ class MasterController:
             getattr(self.view_state_model, "clean_outliers_enabled", False)
         )
         self.tools_panel.set_volume_view_overlay_checked(
-            getattr(self.view_state_model, "show_volume_view_overlay", True)
+            getattr(self.view_state_model, "show_volume_view_overlay", False)
         )
         self.tools_panel.set_paint_size(self.view_state_model.paint_radius)
         self._sync_display_toggle_actions()
@@ -3685,9 +3685,7 @@ class MasterController:
 
         # Prépare la session avec les données brutes (pas d'interpolation)
         name = self._build_corrosion_raw_session_name()
-        self.view_state_model.corrosion_piece_view_enabled = self._workflow_result_has_piece3d_data(
-            result
-        )
+        self._preserve_piece3d_visibility(result)
 
         new_session_id = self.session_manager.create_from_models(
             name=name,
@@ -3749,9 +3747,7 @@ class MasterController:
         # Met à jour le view_state avec les données interpolées
         self._apply_corrosion_session_result(interp_result, stage="interpolated")
 
-        self.view_state_model.corrosion_piece_view_enabled = self._workflow_result_has_piece3d_data(
-            interp_result
-        )
+        self._preserve_piece3d_visibility(interp_result)
         new_session_id = self.session_manager.create_from_models(
             name=self._build_corrosion_interpolated_session_name(),
             annotation_model=self.annotation_model,
@@ -3776,9 +3772,7 @@ class MasterController:
         self.corrosion_profile_edit_service.reset()
         self.mask_modification_controller.reset()
         self._apply_corrosion_session_result(result, stage="raw")
-        self.view_state_model.corrosion_piece_view_enabled = self._workflow_result_has_piece3d_data(
-            result
-        )
+        self._preserve_piece3d_visibility(result)
         created_layer_id = self.session_manager.create_layer_from_model_state(
             name=self._build_corrosion_raw_layer_name(),
             annotation_model=self.annotation_model,
@@ -3836,9 +3830,7 @@ class MasterController:
             return
 
         self._apply_corrosion_session_result(interp_result, stage="interpolated")
-        self.view_state_model.corrosion_piece_view_enabled = self._workflow_result_has_piece3d_data(
-            interp_result
-        )
+        self._preserve_piece3d_visibility(interp_result)
         created_layer_id = self.session_manager.create_layer_from_model_state(
             name=self._build_corrosion_interpolated_layer_name(),
             annotation_model=self.annotation_model,
@@ -3867,6 +3859,13 @@ class MasterController:
             result.piece_volume_legacy_interpolated,
         )
         return any(volume is not None and volume.size > 0 for volume in volumes)
+
+    def _preserve_piece3d_visibility(self, result: CorrosionWorkflowResult) -> None:
+        """Keep piece3D closed by default, but preserve an explicit user-opened state."""
+        self.view_state_model.corrosion_piece_view_enabled = bool(
+            getattr(self.view_state_model, "corrosion_piece_view_enabled", False)
+            and self._workflow_result_has_piece3d_data(result)
+        )
 
     def _on_piece3d_toggled(self, checked: bool) -> None:
         """Show/hide the embedded piece3D view inside the Volume dock."""
