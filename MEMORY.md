@@ -4651,3 +4651,19 @@ Le profil corrosion raw devait rester uniquement une carte de peaks, et le profi
 1. Faire des peak maps A/B la source de verite des profils raw et interpolated, puis limiter le mask overlay a une representation de compatibilite/affichage.
 2. Interdire au rendu interpolated et au preview `mod` de reconstruire le profil par moyenne de pixels rasterises; le rendu vectoriel lit les Y directement depuis `CorrosionProfileData`.
 3. Conserver un fallback mask pour les overlays non peak-map, mais choisir un pixel existant par colonne plutot qu une moyenne, afin d eviter tout recentrage implicite du profil.
+
+### 2026-05-29 - Renommage dock corrosion et compactage du tools panel
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/master_controller.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#ui`, `#dock`, `#toolspanel`, `#pyqt6`
+
+**Actions effectuees :**
+- Renomme le libelle dynamique du dock C-scan corrosion en `Thickness CScan` et l action associee en `Toggle Thickness CScan` dans `controllers/master_controller.py`.
+- Reduit la largeur de base du tools panel dans `toolspanel.ui` pour obtenir un dock plus compact.
+- Ajoute un `QTabWidget` dans `toolspanel.ui` et regenere `ui_toolspanel.py` pour refleter la nouvelle organisation du panneau.
+
+**Contexte :**
+Le libelle `Corrosion map` ne correspondait plus au vocabulaire souhaite pour la vue corrosion, qui doit maintenant etre exposee comme une `Thickness CScan`. En parallele, le tools panel prenait trop de largeur et devait etre restructure avec des onglets pour mieux utiliser l espace disponible.
+
+**Decisions techniques :**
+1. Centraliser le renommage runtime du dock et de son action dans `MasterController`, afin que le texte suive directement l etat corrosion actif sans dupliquer la logique dans les vues.
+2. Porter la restructuration du tools panel dans le fichier Designer `toolspanel.ui`, puis laisser `ui_toolspanel.py` etre la sortie generee correspondante, afin de garder une source de verite UI unique.
+3. Limiter cette entree memoire aux changements staged reels du jour, pour tracer separement le renommage du dock et le compactage du panneau d outils sans melanger d autres travaux.

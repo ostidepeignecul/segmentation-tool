@@ -2581,8 +2581,8 @@ class MasterController:
     def _sync_cscan_labels(self) -> None:
         """Keep the C-scan dock and toggle action aligned with corrosion state."""
         is_corrosion = bool(self.view_state_model.corrosion_active)
-        dock_title = "Corrosion map" if is_corrosion else "C-Scan"
-        action_text = "Toggle corrosion map" if is_corrosion else "Toggle c-scan"
+        dock_title = "Thickness CScan" if is_corrosion else "C-Scan"
+        action_text = "Toggle Thickness CScan" if is_corrosion else "Toggle c-scan"
         self.dock_layout_controller.cscan_dock.setWindowTitle(dock_title)
         if hasattr(self.ui, "actionToggle_C_Scan"):
             self.ui.actionToggle_C_Scan.setText(action_text)
