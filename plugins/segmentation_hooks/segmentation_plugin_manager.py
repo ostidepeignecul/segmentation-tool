@@ -301,6 +301,7 @@ class PipelinePluginManager(IPluginManager[PipelineInput, R_Final]):
         pipeline_input = pipeline_input
         total_steps = len(self._cfg.workflow)
         current_step = 0
+        status_callback = self._get_status_callback(pipeline_input)
 
         # If we are at step 0, the step_output is the input itself (since the step_output is whats fed to the current step)
         step_input = pipeline_input
@@ -317,6 +318,15 @@ class PipelinePluginManager(IPluginManager[PipelineInput, R_Final]):
                 logger.info("Skipping optional step %s", step)
                 continue
 
+            self._emit_status(
+                status_callback,
+                {
+                    "stage_key": step.value,
+                    "message": self._build_step_message(step),
+                    "step_index": current_step + 1,
+                    "step_total": total_steps,
+                },
+            )
             logger.debug(
                 f"Running {step} via {plugin_cls.plugin_id} - Registry: {self._cfg.registry_id}"
             )
@@ -328,6 +338,35 @@ class PipelinePluginManager(IPluginManager[PipelineInput, R_Final]):
                 # If we are at the last step, we need to set the pipeline_output to the step_output
                 pipeline_output = step_output
         return pipeline_output
+
+    @staticmethod
+    def _build_step_message(step: HookType) -> str:
+        step_messages = {
+            HookType.SEGMENTATION_PREPROCESS: "Pretraitement du volume...",
+            HookType.SEGMENTATION_INFERENCE: "Inference du modele...",
+            HookType.SEGMENTATION_POSTPROCESS: "Post-traitement du masque...",
+        }
+        return step_messages.get(step, f"Execution de l'etape {step.value}...")
+
+    @staticmethod
+    def _get_status_callback(
+        pipeline_input: PipelineInput,
+    ) -> Callable[[dict[str, Any]], None] | None:
+        callback = pipeline_input.metadata.get("status_callback")
+        return callback if callable(callback) else None
+
+    @staticmethod
+    def _emit_status(
+        callback: Callable[[dict[str, Any]], None] | None,
+        payload: dict[str, Any],
+    ) -> None:
+        if callback is None:
+            return
+
+        try:
+            callback(payload)
+        except Exception:
+            logger.debug("Unable to emit pipeline status update.", exc_info=True)
 
     # -- validation ------------------------------------------------
     def _validate_config(self, cfg: PipelineConfig) -> None:

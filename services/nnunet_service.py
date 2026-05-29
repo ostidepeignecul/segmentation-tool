@@ -40,6 +40,7 @@ class NnUnetService:
         chunk_parts: int = 8,
         on_success: Callable[[NnUnetResult], None],
         on_error: Callable[[Exception], None],
+        on_status: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         """Execute nnUNet pipeline asynchronously and persist the NPZ result."""
         model_path = Path(model_path)
@@ -52,6 +53,12 @@ class NnUnetService:
         output_path = Path(output_path)
         if output_path.suffix.lower() != ".npz":
             output_path = output_path.with_suffix(".npz")
+
+        self._emit_status(
+            on_status,
+            stage_key="prepare",
+            message="Preparation du pipeline IA...",
+        )
 
         # Heavy imports (nnunetv2) are deferred to call time and also register plugins.
         try:
@@ -84,6 +91,7 @@ class NnUnetService:
             raw_data_array=raw_volume if raw_volume is not None else volume,
             pipeline_context={"exported_model_folder": str(model_path)},
             dataset_id=dataset_id,
+            metadata={"status_callback": on_status},
         )
 
         def _cleanup():
@@ -103,6 +111,11 @@ class NnUnetService:
                 labels_mapping = res.labels_mapping if isinstance(res.labels_mapping, dict) else {}
 
                 output_path.parent.mkdir(parents=True, exist_ok=True)
+                self._emit_status(
+                    on_status,
+                    stage_key="save",
+                    message="Sauvegarde du resultat IA...",
+                )
                 # stocker le mapping complet (dict) dans une case objet pour le recharger aisément
                 np.savez_compressed(
                     output_path,
@@ -126,3 +139,32 @@ class NnUnetService:
                 _cleanup()
 
         manager.execute(seg_inp, metadata=None, completion_callback=_handle_result)
+
+    def _emit_status(
+        self,
+        callback: Callable[[dict[str, Any]], None] | None,
+        *,
+        stage_key: str,
+        message: str,
+        current: int | None = None,
+        total: int | None = None,
+        eta_seconds: float | None = None,
+    ) -> None:
+        if callback is None:
+            return
+
+        payload: dict[str, Any] = {
+            "stage_key": str(stage_key or "").strip(),
+            "message": str(message or "").strip(),
+        }
+        if current is not None:
+            payload["current"] = int(current)
+        if total is not None:
+            payload["total"] = int(total)
+        if eta_seconds is not None:
+            payload["eta_seconds"] = float(eta_seconds)
+
+        try:
+            callback(payload)
+        except Exception:
+            self.logger.debug("Unable to emit nnUNet status update.", exc_info=True)

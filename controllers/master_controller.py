@@ -74,6 +74,7 @@ from views.endview_resize_dialog import EndviewResizeDialog
 from views.nnunet_settings_view import NnUnetSettingsView
 from views.overlay_class_remap_dialog import OverlayClassRemapDialog
 from views.overlay_settings_view import OverlaySettingsView
+from views.pipeline_status_dialog import PipelineStatusDialog
 from views.piece3d_view import Piece3DView
 from views.session_bundle_export_dialog import SessionBundleExportDialog
 from utils.filename_utils import sanitize_filename_component
@@ -84,10 +85,20 @@ class NnUnetUiSignals(QObject):
 
     success = pyqtSignal(object)
     error = pyqtSignal(object)
+    status = pyqtSignal(object)
 
 
 class MasterController:
     """Coordinates models and the Designer-built UI without embedding business logic."""
+
+    _NNUNET_PIPELINE_STAGES = (
+        ("prepare", "Preparation"),
+        ("segmentation_preprocess", "Pretraitement"),
+        ("segmentation_inference", "Inference"),
+        ("segmentation_postprocess", "Post-traitement"),
+        ("save", "Sauvegarde"),
+        ("display", "Affichage"),
+    )
 
     def __init__(self, main_window: Optional[QMainWindow] = None) -> None:
         self.logger = logging.getLogger(__name__)
@@ -133,6 +144,7 @@ class MasterController:
         self.nde_settings_view = NdeSettingsView(self.main_window)
         self.corrosion_settings_view = CorrosionSettingsView(self.main_window)
         self.nnunet_settings_view = NnUnetSettingsView(self.main_window)
+        self.pipeline_status_dialog = PipelineStatusDialog(self.main_window)
         self._volume_stack: Optional[QStackedLayout] = None
         self._piece3d_page: Optional[QWidget] = None
         self._piece3d_view: Optional[Piece3DView] = None
@@ -148,11 +160,13 @@ class MasterController:
         self._annotation_axis_mode: str = "Auto"
         self._primary_view_name: str = "D-Scan"
         self._secondary_view_name: str = "B-Scan"
+        self._nnunet_inference_running: bool = False
         self.main_window.closeEvent = self._on_main_window_close_event  # type: ignore[method-assign]
         self._app = QApplication.instance()
         self._nnunet_ui_signals = NnUnetUiSignals()
         self._nnunet_ui_signals.success.connect(self._handle_nnunet_success)
         self._nnunet_ui_signals.error.connect(self._handle_nnunet_error)
+        self._nnunet_ui_signals.status.connect(self._handle_nnunet_status)
         if self._app is not None:
             self._app.aboutToQuit.connect(self._on_app_about_to_quit)
 
@@ -806,12 +820,76 @@ class MasterController:
             self._on_overlay_toggled(True)
         return mask_volume
 
+    def _show_nnunet_pipeline_popup(self) -> None:
+        """Reset and display the nnUNet pipeline popup."""
+        self.pipeline_status_dialog.configure_stages(self._NNUNET_PIPELINE_STAGES)
+        self.pipeline_status_dialog.start("Inference IA en cours...")
+
+    def _hide_nnunet_pipeline_popup(self) -> None:
+        """Hide the nnUNet pipeline popup if it is visible."""
+        if self.pipeline_status_dialog.isVisible():
+            self.pipeline_status_dialog.hide()
+
+    def _set_nnunet_running(self, running: bool) -> None:
+        """Prevent overlapping inference runs from the menu action."""
+        self._nnunet_inference_running = bool(running)
+        action = getattr(self.ui, "actionnnunet", None)
+        if action is not None:
+            action.setEnabled(not self._nnunet_inference_running)
+
+    def _emit_nnunet_status(
+        self,
+        *,
+        stage_key: str,
+        message: str,
+        current: int | None = None,
+        total: int | None = None,
+        eta_seconds: float | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "stage_key": str(stage_key or "").strip(),
+            "message": str(message or "").strip(),
+        }
+        if current is not None:
+            payload["current"] = int(current)
+        if total is not None:
+            payload["total"] = int(total)
+        if eta_seconds is not None:
+            payload["eta_seconds"] = float(eta_seconds)
+        self._nnunet_ui_signals.status.emit(payload)
+
+    def _handle_nnunet_status(self, payload: Any) -> None:
+        """Refresh the pipeline popup from worker-thread status updates."""
+        if not isinstance(payload, dict):
+            return
+
+        stage_key = str(payload.get("stage_key") or "").strip() or "prepare"
+        message = str(payload.get("message") or "").strip() or "Inference IA en cours..."
+        current = payload.get("current")
+        total = payload.get("total")
+        eta_seconds = payload.get("eta_seconds")
+
+        normalized_current = int(current) if current is not None else None
+        normalized_total = int(total) if total is not None else None
+        normalized_eta = float(eta_seconds) if eta_seconds is not None else None
+        self.pipeline_status_dialog.set_status(
+            stage_key,
+            message,
+            current=normalized_current,
+            total=normalized_total,
+            eta_seconds=normalized_eta,
+        )
+
     def _handle_nnunet_success(self, payload: Any) -> None:
         """Load the saved AI inference NPZ and chain the corrosion workflow."""
         if not isinstance(payload, NnUnetResult):
             self._handle_nnunet_error(RuntimeError("Invalid nnUNet result."))
             return
         try:
+            self._emit_nnunet_status(
+                stage_key="display",
+                message="Affichage du resultat IA...",
+            )
             self._load_overlay_from_file(
                 payload.output_path,
                 preserve_labels=True,
@@ -828,8 +906,12 @@ class MasterController:
                 payload.output_path,
                 corrosion_summary,
             )
+            self.pipeline_status_dialog.finish("Inference IA terminee.")
         except Exception as exc:
             self._handle_nnunet_error(exc)
+        finally:
+            self._set_nnunet_running(False)
+            self._hide_nnunet_pipeline_popup()
 
     def _run_corrosion_workflow_after_ai_inference(self) -> str:
         """Automatically run corrosion analysis then interpolation on the AI result."""
@@ -907,6 +989,9 @@ class MasterController:
     def _handle_nnunet_error(self, payload: Any) -> None:
         """Display AI inference errors once they have been marshalled back to the UI thread."""
         exc = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
+        self.pipeline_status_dialog.fail("Inference IA interrompue.")
+        self._set_nnunet_running(False)
+        self._hide_nnunet_pipeline_popup()
         QMessageBox.critical(self.main_window, "AI inference", str(exc))
         self.status_message("AI inference failed", timeout_ms=5000)
 
@@ -973,6 +1058,14 @@ class MasterController:
 
     def _on_run_nnunet(self) -> None:
         """Lance l'inférence nnUNet sur le volume NDE chargé."""
+        if self._nnunet_inference_running:
+            QMessageBox.information(
+                self.main_window,
+                "AI inference",
+                "An AI inference is already running.",
+            )
+            return
+
         if self.nde_model is None:
             QMessageBox.warning(self.main_window, "AI inference", "Load an NDE before starting inference.")
             return
@@ -1010,7 +1103,12 @@ class MasterController:
         def _on_error(exc: Exception) -> None:
             self._nnunet_ui_signals.error.emit(exc)
 
+        def _on_status(update: dict[str, Any]) -> None:
+            self._nnunet_ui_signals.status.emit(update)
+
         try:
+            self._set_nnunet_running(True)
+            self._show_nnunet_pipeline_popup()
             self.status_message("AI inference in progress...", timeout_ms=4000)
             self.nnunet_service.run_inference(
                 volume=volume,
@@ -1020,8 +1118,11 @@ class MasterController:
                 dataset_id=str(dataset_id) if dataset_id else "current",
                 on_success=_on_success,
                 on_error=_on_error,
+                on_status=_on_status,
             )
         except Exception as exc:
+            self._set_nnunet_running(False)
+            self._hide_nnunet_pipeline_popup()
             QMessageBox.critical(self.main_window, "AI inference", str(exc))
 
     def _suggest_nnunet_output_path(self, model_path: str | Path) -> str:

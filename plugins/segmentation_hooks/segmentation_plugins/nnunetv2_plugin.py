@@ -537,11 +537,36 @@ class nnUNetv2IteratorInference(StepPlugin[nnUNetPreprocessOutput, InferenceOutp
             predictor, imgs, props, prev_preds
         )
 
+        status_callback = sinp.metadata.get("status_callback")
+
+        def _emit_inference_progress(
+            current: int,
+            total: int,
+            elapsed: float,
+            eta: float,
+        ) -> None:
+            if not callable(status_callback):
+                return
+            try:
+                status_callback(
+                    {
+                        "stage_key": HookType.SEGMENTATION_INFERENCE.value,
+                        "message": "Inference du modele...",
+                        "current": int(current),
+                        "total": int(total),
+                        "elapsed_seconds": float(elapsed),
+                        "eta_seconds": float(eta),
+                    }
+                )
+            except Exception:
+                logger.debug("Unable to emit nnUNet inference progress.", exc_info=True)
+
         wrapped_iterator = ProgressIterator(
             iterator,  # dummy iterable; we update manually
             total=total_slices,
             name="nnUNet-inference-iter",
             log_every=1,
+            progress_callback=_emit_inference_progress,
         )
 
         # ------------------------------------------------------------------

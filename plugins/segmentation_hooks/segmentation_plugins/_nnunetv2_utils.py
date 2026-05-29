@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 from typing import Tuple
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import shutil
 from plugins.hook_types import nnUNetModelTypes
 
@@ -266,11 +266,13 @@ class ProgressIterator(Iterator[dict[str, Any]]):  # each item is *at least* a d
         *,
         name: str = "nnUNet",
         log_every: int | None = None,
+        progress_callback: Callable[[int, int, float, float], None] | None = None,
     ) -> None:
         self._inner = iter(base_iter)
         self._total = max(total, 1)
         self._name = name
         self._log_every = log_every
+        self._progress_callback = progress_callback
         self._n = 0
         self._t0 = self._t_prev = time.perf_counter()
 
@@ -332,6 +334,11 @@ class ProgressIterator(Iterator[dict[str, Any]]):  # each item is *at least* a d
             f"{R}Mem usage: {mem} {R} "
             f"({self._n / elapsed:5.2f} it/s)",
         )
+        if self._progress_callback is not None:
+            try:
+                self._progress_callback(self._n, self._total, elapsed, eta)
+            except Exception:
+                log.debug("Unable to emit nnUNet iterator progress update.", exc_info=True)
         self._t_prev = now
 
 
