@@ -1,4 +1,4 @@
-"""Floating window to configure nnUNet inference settings."""
+"""Floating window to configure AI inference settings."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 
 
 class NnUnetSettingsView(QDialog):
-    """Floating window to configure the nnUNet model path."""
+    """Floating window to configure the AI inference model path."""
 
     model_path_changed = pyqtSignal(str)
     choose_zip_requested = pyqtSignal()
@@ -26,7 +26,7 @@ class NnUnetSettingsView(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("nnUNet settings")
+        self.setWindowTitle("AI inference settings")
         self.setModal(False)
         self.setMinimumWidth(560)
 
@@ -38,18 +38,18 @@ class NnUnetSettingsView(QDialog):
 
         self._model_path_edit = QLineEdit(self)
         self._model_path_edit.setPlaceholderText(
-            "Choose an exported nnUNet model .zip or an extracted model folder"
+            "Choose an exported AI model .zip or an extracted model folder"
         )
         form.addRow(QLabel("Model path"), self._model_path_edit)
         layout.addLayout(form)
 
-        hint = QLabel("Accepted inputs: exported model .zip or extracted model folder.", self)
+        hint = QLabel("Accepted inputs: exported AI model .zip or extracted model folder.", self)
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
         browse_row = QHBoxLayout()
-        self._choose_zip_btn = QPushButton("Choose zip", self)
-        self._choose_folder_btn = QPushButton("Choose folder", self)
+        self._choose_zip_btn = QPushButton("Choose model zip", self)
+        self._choose_folder_btn = QPushButton("Choose model folder", self)
         self._clear_btn = QPushButton("Clear", self)
         browse_row.addWidget(self._choose_zip_btn)
         browse_row.addWidget(self._choose_folder_btn)

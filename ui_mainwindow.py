@@ -183,7 +183,7 @@ class Ui_MainWindow(object):
         self.actionCorrosion_analyse.setText(_translate("MainWindow", "Analyze"))
         self.actionParam_tres_2.setText(_translate("MainWindow", "Overlay settings"))
         self.actionExporter_npz.setText(_translate("MainWindow", "Export .npz"))
-        self.actionnnunet.setText(_translate("MainWindow", "nnunet"))
+        self.actionnnunet.setText(_translate("MainWindow", "Run AI inference"))
         self.actionExporter_endviews.setText(_translate("MainWindow", "Export endviews"))
         self.actionSplit_flaw_noflaw.setText(_translate("MainWindow", "Split flaw-noflaw"))
         self.actionToggle_tools_panel.setText(_translate("MainWindow", "Toggle tools panel"))

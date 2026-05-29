@@ -805,7 +805,7 @@ class MasterController:
         return mask_volume
 
     def _handle_nnunet_success(self, payload: Any) -> None:
-        """Load the saved nnUNet NPZ through the standard overlay-import path."""
+        """Load the saved AI inference NPZ and chain the corrosion workflow."""
         if not isinstance(payload, NnUnetResult):
             self._handle_nnunet_error(RuntimeError("Invalid nnUNet result."))
             return
@@ -816,23 +816,49 @@ class MasterController:
                 force_visible=True,
             )
             self._rename_active_layer("AI result")
+            corrosion_summary = self._run_corrosion_workflow_after_ai_inference()
             self.status_message(
-                f"nnUNet completed, NPZ displayed: {payload.output_path}",
+                f"AI inference completed, NPZ displayed: {payload.output_path}",
                 timeout_ms=5000,
             )
             QMessageBox.information(
                 self.main_window,
-                "nnUNet",
-                f"Result saved and displayed:\n{payload.output_path}",
+                "AI inference",
+                f"Result saved and displayed:\n{payload.output_path}\n\n{corrosion_summary}",
             )
         except Exception as exc:
             self._handle_nnunet_error(exc)
 
+    def _run_corrosion_workflow_after_ai_inference(self) -> str:
+        """Automatically run corrosion analysis then interpolation on the AI result."""
+        if not self.view_state_model.can_run_corrosion_analysis():
+            return "Automatic corrosion workflow skipped: the active layer is not analyzable."
+
+        labels = self._get_corrosion_labels()
+        if len(labels) < 2:
+            return "Automatic corrosion workflow skipped: at least two labels are required."
+
+        label_a = getattr(self.view_state_model, "corrosion_label_a", None)
+        label_b = getattr(self.view_state_model, "corrosion_label_b", None)
+        if label_a is None or label_b is None or int(label_a) == int(label_b):
+            return "Automatic corrosion workflow skipped: choose two distinct corrosion labels."
+
+        self._on_run_corrosion_analysis()
+        if self._current_corrosion_session_stage() != CORROSION_STAGE_RAW:
+            return "AI result loaded, but automatic corrosion analysis did not produce a raw layer."
+
+        algo = getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")
+        self._on_corrosion_interpolation_requested(algo)
+        if self._current_corrosion_session_stage() == CORROSION_STAGE_INTERPOLATED:
+            return "Automatic corrosion analysis and interpolation completed."
+
+        return "Automatic corrosion analysis completed, but interpolation did not complete."
+
     def _handle_nnunet_error(self, payload: Any) -> None:
-        """Display nnUNet errors once they have been marshalled back to the UI thread."""
+        """Display AI inference errors once they have been marshalled back to the UI thread."""
         exc = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
-        QMessageBox.critical(self.main_window, "nnUNet", str(exc))
-        self.status_message("nnUNet inference failed", timeout_ms=5000)
+        QMessageBox.critical(self.main_window, "AI inference", str(exc))
+        self.status_message("AI inference failed", timeout_ms=5000)
 
     def _on_remap_classes(self) -> None:
         """Open the in-memory class remap dialog for the last imported NPZ overlay."""
@@ -898,12 +924,12 @@ class MasterController:
     def _on_run_nnunet(self) -> None:
         """Lance l'inférence nnUNet sur le volume NDE chargé."""
         if self.nde_model is None:
-            QMessageBox.warning(self.main_window, "nnUNet", "Load an NDE before starting inference.")
+            QMessageBox.warning(self.main_window, "AI inference", "Load an NDE before starting inference.")
             return
 
         volume = self._current_volume()
         if volume is None:
-            QMessageBox.warning(self.main_window, "nnUNet", "NDE volume unavailable.")
+            QMessageBox.warning(self.main_window, "AI inference", "NDE volume unavailable.")
             return
 
         model_path = self.view_state_model.set_nnunet_model_path(
@@ -912,14 +938,14 @@ class MasterController:
         if not model_path:
             QMessageBox.warning(
                 self.main_window,
-                "nnUNet",
+                "AI inference",
                 "Configure a model first from Inference > Settings.",
             )
             return
         if not Path(model_path).exists():
             QMessageBox.warning(
                 self.main_window,
-                "nnUNet",
+                "AI inference",
                 "The configured nnUNet model was not found. Update it from Inference > Settings.",
             )
             return
@@ -935,7 +961,7 @@ class MasterController:
             self._nnunet_ui_signals.error.emit(exc)
 
         try:
-            self.status_message("nnUNet inference in progress...", timeout_ms=4000)
+            self.status_message("AI inference in progress...", timeout_ms=4000)
             self.nnunet_service.run_inference(
                 volume=volume,
                 raw_volume=raw_volume,
@@ -946,7 +972,7 @@ class MasterController:
                 on_error=_on_error,
             )
         except Exception as exc:
-            QMessageBox.critical(self.main_window, "nnUNet", str(exc))
+            QMessageBox.critical(self.main_window, "AI inference", str(exc))
 
     def _suggest_nnunet_output_path(self, model_path: str | Path) -> str:
         """Build the default nnUNet NPZ path from the current NDE and selected model."""
@@ -1486,9 +1512,9 @@ class MasterController:
         """Open a file dialog to configure an exported nnUNet model archive."""
         selected_path, _ = QFileDialog.getOpenFileName(
             self.main_window,
-            "Choose nnUNet model zip",
+            "Choose AI model zip",
             self._nnunet_model_dialog_start_path(),
-            "nnUNet models (*.zip);;All files (*)",
+            "AI model archives (*.zip);;All files (*)",
         )
         if not selected_path:
             return
@@ -1499,7 +1525,7 @@ class MasterController:
         """Open a directory dialog to configure an extracted nnUNet model folder."""
         selected_path = QFileDialog.getExistingDirectory(
             self.main_window,
-            "Choose nnUNet model folder",
+            "Choose AI model folder",
             self._nnunet_model_dialog_start_path(),
         )
         if not selected_path:

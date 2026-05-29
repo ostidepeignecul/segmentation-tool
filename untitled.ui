@@ -148,7 +148,7 @@
   </action>
   <action name="actionnnunet">
    <property name="text">
-    <string>nnunet</string>
+    <string>Run AI inference</string>
    </property>
   </action>
   <action name="actionExporter_endviews">
