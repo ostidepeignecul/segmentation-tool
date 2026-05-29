@@ -16,7 +16,7 @@ class ViewStateModel:
         self.overlay_alpha: float = 0.4
         self.nde_alpha: float = 1.0
         self.nde_contrast: float = 1.0
-        self.ruler_display_unit: str = "px"
+        self.ruler_display_unit: str = "mm"
         self.colormap: Optional[str] = None
         self.endview_colormap: str = "Gris"
         self.cscan_colormap: str = "Gris"

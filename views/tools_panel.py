@@ -402,6 +402,17 @@ class ToolsPanel(QFrame):
             self._layer_group.setExclusive(True)
 
     def _sync_layer_button_placeholders(self) -> None:
+        if not self._layer_controls_visible:
+            for placeholder in (
+                self._layer_placeholder_one,
+                self._layer_placeholder_two,
+                self._layer_placeholder_three,
+            ):
+                if placeholder is not None:
+                    placeholder.setVisible(False)
+                    placeholder.setFixedHeight(0)
+            return
+
         button_height = max(
             int(self._layer_add_button.sizeHint().height()) if self._layer_add_button is not None else 0,
             int(self._layer_duplicate_button.sizeHint().height())
@@ -417,6 +428,7 @@ class ToolsPanel(QFrame):
             self._layer_placeholder_three,
         ):
             if placeholder is not None:
+                placeholder.setVisible(True)
                 placeholder.setFixedHeight(button_height)
 
     def _clear_label_widgets(self) -> None:
@@ -548,6 +560,7 @@ class ToolsPanel(QFrame):
         ):
             if button is not None:
                 button.setVisible(self._layer_controls_visible)
+        self._sync_layer_button_placeholders()
 
     def _on_layer_selected(self, layer_id: str, checked: bool) -> None:
         if not checked:

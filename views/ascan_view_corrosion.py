@@ -86,7 +86,7 @@ class AScanViewCorrosion(AScanView):
         )
 
         label_x = (x_min + x_max) / 2.0
-        label_y = max(0.0, y_measure - 10.0)
+        label_y = max(0.0, y_measure - 14.0)
         self._measurement_label.setText(label)
         self._measurement_label.setPos(label_x, label_y)
         self._set_measurement_visible(True)
