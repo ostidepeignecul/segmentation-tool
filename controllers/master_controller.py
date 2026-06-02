@@ -541,6 +541,9 @@ class MasterController:
             self.mask_modification_controller.on_active_label_changed
         )
         self.corrosion_settings_view.label_a_changed.connect(self._on_corrosion_label_a_changed)
+        self.corrosion_settings_view.analysis_mode_changed.connect(
+            self._on_corrosion_analysis_mode_changed
+        )
         self.corrosion_settings_view.peak_mode_a_changed.connect(
             self._on_corrosion_peak_selection_mode_a_changed
         )
@@ -1641,6 +1644,10 @@ class MasterController:
         normalized = self.view_state_model.set_corrosion_interpolation_algo(algo)
         self.corrosion_settings_view.set_interpolation_algo(normalized)
 
+    def _on_corrosion_analysis_mode_changed(self, mode: str) -> None:
+        normalized = self.view_state_model.set_corrosion_analysis_mode(mode)
+        self.corrosion_settings_view.set_analysis_mode(normalized)
+
     def _on_corrosion_peak_selection_mode_a_changed(self, mode: str) -> None:
         normalized = self.view_state_model.set_corrosion_peak_selection_mode_a(mode)
         self.corrosion_settings_view.set_peak_selection_modes(
@@ -2390,6 +2397,9 @@ class MasterController:
         self.corrosion_settings_view.set_peak_selection_modes(
             current_a=self.view_state_model.get_corrosion_peak_selection_mode_a(),
             current_b=self.view_state_model.get_corrosion_peak_selection_mode_b(),
+        )
+        self.corrosion_settings_view.set_analysis_mode(
+            self.view_state_model.get_corrosion_analysis_mode()
         )
         self.corrosion_settings_view.set_interpolation_algo(
             getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")

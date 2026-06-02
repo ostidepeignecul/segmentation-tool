@@ -34,6 +34,7 @@ CORROSION_LAYER_VIEW_STATE_KEYS = (
     "corrosion_raw_peak_index_map_b",
     "corrosion_ascan_support_map",
     "corrosion_interpolation_algo",
+    "corrosion_analysis_mode",
     "corrosion_peak_selection_mode",
     "corrosion_peak_selection_mode_a",
     "corrosion_peak_selection_mode_b",

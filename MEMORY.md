@@ -4685,3 +4685,21 @@ Le workflow attendu etait de pouvoir cliquer sur un mask en mode `Mod` pour le c
 1. Introduire un flag `mod_apply_auto` distinct de `apply_auto`, afin de separer le choix de relabel automatique en mode `Mod` du choix d application immediate global.
 2. Reutiliser `MaskModificationController.on_relabel_selected_component_requested()` comme pipeline unique de previsualisation du relabel, afin de conserver le meme passage par `TempMaskModel` et `Apply`.
 3. Faire remonter depuis `on_drag_finished()` un bool indiquant si l interaction a reellement cree une preview, afin d eviter qu un ancien etat pending declenche un auto-apply parasite.
+
+### 2026-06-02 - Mode corrosion AC-AB et selection positionnelle asymetrique
+**Tags :** `#branch:feature/mode-ac-ab`, `#MEMORY.md`, `#config/constants.py`, `#controllers/cscan_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_session_manager.py`, `#services/cscan_corrosion_service.py`, `#services/distance_measurement.py`, `#services/peak_plateau.py`, `#views/corrosion_settings_view.py`, `#corrosion`, `#peaks`, `#ac-ab`, `#pessimistic`, `#ui`, `#mvc`
+
+**Actions effectuées :**
+- Ajoute un mode d analyse corrosion `AC-AB` dans `config/constants.py`, `models/view_state_model.py`, `views/corrosion_settings_view.py`, `controllers/master_controller.py`, `controllers/cscan_controller.py`, `services/cscan_corrosion_service.py`, `services/distance_measurement.py` et `services/annotation_session_manager.py`, avec persistance du choix dans l etat et propagation complete jusqu au calcul des peak maps.
+- Etend `views/corrosion_settings_view.py` avec un nouveau combobox `Analysis mode` (`Normal` / `AC-AB`) relie au `MasterController`, afin d activer explicitement le comportement dedie au cas ou la peinture est incluse dans le frontwall.
+- Refactorise `services/peak_plateau.py` pour ajouter une selection positionnelle des pics locaux du label A en mode `AC-AB`, en choisissant le candidat le plus bas restant au-dessus de B quand B existe, puis le plus bas tout court quand B manque dans la colonne.
+- Modifie la resolution `pessimistic` dans `services/peak_plateau.py` pour devenir asymetrique selon le label resolu : le label A choisit la bande la plus basse au-dessus de B, tandis que le label B choisit la bande la plus haute sous A, avec fallback positionnel quand le label oppose manque localement.
+- Fait transiter le nouveau `analysis_mode` dans `services/cscan_corrosion_service.py` et `services/distance_measurement.py` sans changer le reste du pipeline corrosion ni le format des peak maps resultantes.
+
+**Contexte :**
+Le workflow corrosion devait mieux gerer les colonnes ambiguës quand le label A contient soit plusieurs bandes de masque, soit plusieurs pics A-scan internes parce que la peinture est comprise dans le frontwall. Les heuristiques precedentes favorisaient encore trop souvent le pic le plus fort ou la bande la plus haute, meme quand la relation metier attendue etait positionnelle par rapport au label oppose.
+
+**Décisions techniques :**
+1. Ajouter un mode d analyse global `AC-AB` distinct des modes `max_peak` / `optimistic` / `pessimistic`, afin de separer le cas "deux pics dans une meme bande A" du cas "plusieurs bandes disconnectees".
+2. Limiter `AC-AB` au label A et faire de la position relative a B la regle principale de selection (`A` le plus bas restant au-dessus de `B`), afin de rester aligne avec l invariant metier frontwall/backwall.
+3. Rendre `pessimistic` asymetrique entre A et B et lui permettre de fonctionner meme sans reference opposee dans la colonne courante, pour obtenir un fallback stable sur les colonnes ou un label localement manque.

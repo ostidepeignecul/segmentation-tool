@@ -11,7 +11,7 @@ import math
 import cv2
 import time
 
-from config.constants import normalize_corrosion_peak_selection_mode
+from config.constants import normalize_corrosion_analysis_mode, normalize_corrosion_peak_selection_mode
 from services.peak_plateau import peak_indices_from_masked_pair
 
 
@@ -37,6 +37,7 @@ class DistanceMeasurementService:
         masks: np.ndarray,
         class_A: int,
         class_B: int,
+        analysis_mode: str = "normal",
         peak_selection_mode_a: str = "max_peak",
         peak_selection_mode_b: Optional[str] = None,
         support_map: Optional[np.ndarray] = None,
@@ -54,6 +55,7 @@ class DistanceMeasurementService:
             masks=masks,
             class_A=class_A,
             class_B=class_B,
+            analysis_mode=analysis_mode,
             peak_selection_mode_a=peak_selection_mode_a,
             peak_selection_mode_b=peak_selection_mode_b,
             support_map=support_map,
@@ -69,6 +71,7 @@ class DistanceMeasurementService:
         masks: np.ndarray,
         class_A: int,
         class_B: int,
+        analysis_mode: str = "normal",
         peak_selection_mode_a: str = "max_peak",
         peak_selection_mode_b: Optional[str] = None,
         support_map: Optional[np.ndarray] = None,
@@ -91,6 +94,7 @@ class DistanceMeasurementService:
 
         if peak_selection_mode_b is None:
             peak_selection_mode_b = peak_selection_mode_a
+        normalized_analysis_mode = normalize_corrosion_analysis_mode(analysis_mode)
         normalized_mode_a = normalize_corrosion_peak_selection_mode(peak_selection_mode_a)
         normalized_mode_b = normalize_corrosion_peak_selection_mode(peak_selection_mode_b)
 
@@ -125,6 +129,7 @@ class DistanceMeasurementService:
                 slice_mask,
                 class_A,
                 class_B,
+                analysis_mode=normalized_analysis_mode,
                 selection_mode_a=normalized_mode_a,
                 selection_mode_b=normalized_mode_b,
             )

@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from config.constants import (
     format_label_text,
+    normalize_corrosion_analysis_mode,
     normalize_corrosion_peak_selection_mode,
     normalize_interpolation_algo,
     CORROSION_STAGE_BASE,
@@ -28,10 +29,12 @@ class CorrosionSettingsView(QDialog):
 
     label_a_changed = pyqtSignal(object)
     label_b_changed = pyqtSignal(object)
+    analysis_mode_changed = pyqtSignal(str)
     peak_mode_a_changed = pyqtSignal(str)
     peak_mode_b_changed = pyqtSignal(str)
     interpolation_algo_changed = pyqtSignal(str)
 
+    _DEFAULT_ANALYSIS_MODE = "normal"
     _DEFAULT_PEAK_MODE = "max_peak"
     _DEFAULT_INTERP_ALGO = "1d_dual_axis"
 
@@ -48,11 +51,13 @@ class CorrosionSettingsView(QDialog):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         self._label_a_combo = QComboBox(self)
+        self._analysis_mode_combo = QComboBox(self)
         self._peak_mode_a_combo = QComboBox(self)
         self._label_b_combo = QComboBox(self)
         self._peak_mode_b_combo = QComboBox(self)
         self._interp_algo_combo = QComboBox(self)
 
+        self._analysis_mode_combo.addItems(["Normal", "AC-AB"])
         self._peak_mode_a_combo.addItems(["Max peak", "Optimistic", "Pessimistic"])
         self._peak_mode_b_combo.addItems(["Max peak", "Optimistic", "Pessimistic"])
         self._interp_algo_combo.addItems(
@@ -68,6 +73,7 @@ class CorrosionSettingsView(QDialog):
         )
 
         form.addRow(QLabel("Label A"), self._label_a_combo)
+        form.addRow(QLabel("Analysis mode"), self._analysis_mode_combo)
         form.addRow(QLabel("Label A mode"), self._peak_mode_a_combo)
         form.addRow(QLabel("Label B"), self._label_b_combo)
         form.addRow(QLabel("Label B mode"), self._peak_mode_b_combo)
@@ -79,6 +85,7 @@ class CorrosionSettingsView(QDialog):
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, 0, alignment=Qt.AlignmentFlag.AlignRight)
 
+        self._prepare_analysis_mode_combo(self._analysis_mode_combo)
         self._prepare_peak_mode_combo(self._peak_mode_a_combo)
         self._prepare_peak_mode_combo(self._peak_mode_b_combo)
         self._prepare_interpolation_combo(self._interp_algo_combo)
@@ -126,6 +133,19 @@ class CorrosionSettingsView(QDialog):
             self._DEFAULT_INTERP_ALGO,
         )
 
+    def set_analysis_mode(self, mode: str) -> None:
+        self._set_mode_combo_value(
+            self._analysis_mode_combo,
+            mode,
+            self._DEFAULT_ANALYSIS_MODE,
+        )
+
+    def current_analysis_mode(self) -> str:
+        return self._combo_mode_value(
+            self._analysis_mode_combo,
+            normalize_corrosion_analysis_mode,
+        )
+
     def current_peak_selection_mode_a(self) -> str:
         return self._combo_mode_value(self._peak_mode_a_combo, normalize_corrosion_peak_selection_mode)
 
@@ -152,6 +172,7 @@ class CorrosionSettingsView(QDialog):
 
         for widget in (
             self._label_a_combo,
+            self._analysis_mode_combo,
             self._peak_mode_a_combo,
             self._label_b_combo,
             self._peak_mode_b_combo,
@@ -168,6 +189,7 @@ class CorrosionSettingsView(QDialog):
     def _wire_signals(self) -> None:
         self._label_a_combo.currentIndexChanged.connect(self._on_label_a_changed)
         self._label_b_combo.currentIndexChanged.connect(self._on_label_b_changed)
+        self._analysis_mode_combo.currentIndexChanged.connect(self._on_analysis_mode_changed)
         self._peak_mode_a_combo.currentIndexChanged.connect(self._on_peak_mode_a_changed)
         self._peak_mode_b_combo.currentIndexChanged.connect(self._on_peak_mode_b_changed)
         self._interp_algo_combo.currentIndexChanged.connect(self._on_interpolation_algo_changed)
@@ -177,6 +199,9 @@ class CorrosionSettingsView(QDialog):
 
     def _on_label_b_changed(self, _index: int) -> None:
         self.label_b_changed.emit(self._label_b_combo.currentData())
+
+    def _on_analysis_mode_changed(self, _index: int) -> None:
+        self.analysis_mode_changed.emit(self.current_analysis_mode())
 
     def _on_peak_mode_a_changed(self, _index: int) -> None:
         self.peak_mode_a_changed.emit(self.current_peak_selection_mode_a())
@@ -190,6 +215,11 @@ class CorrosionSettingsView(QDialog):
     def _prepare_peak_mode_combo(self, combo: QComboBox) -> None:
         for idx in range(combo.count()):
             mode = normalize_corrosion_peak_selection_mode(combo.itemText(idx))
+            combo.setItemData(idx, mode)
+
+    def _prepare_analysis_mode_combo(self, combo: QComboBox) -> None:
+        for idx in range(combo.count()):
+            mode = normalize_corrosion_analysis_mode(combo.itemText(idx))
             combo.setItemData(idx, mode)
 
     def _prepare_interpolation_combo(self, combo: QComboBox) -> None:

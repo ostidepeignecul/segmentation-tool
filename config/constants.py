@@ -105,6 +105,19 @@ def normalize_corrosion_peak_selection_mode(mode: Optional[str]) -> str:
     return aliases.get(value, "max_peak")
 
 
+def normalize_corrosion_analysis_mode(mode: Optional[str]) -> str:
+    """Normalize the corrosion analysis mode to a stable internal key."""
+    value = str(mode or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "normal": "normal",
+        "standard": "normal",
+        "default": "normal",
+        "ac_ab": "ac_ab",
+        "acab": "ac_ab",
+    }
+    return aliases.get(value, "normal")
+
+
 def normalize_interpolation_algo(algo: Optional[str]) -> str:
     """Normalize the interpolation algorithm name to a stable internal key."""
     value = str(algo or "").strip().casefold().replace("-", "_").replace(" ", "_")

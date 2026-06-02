@@ -1,6 +1,6 @@
 from typing import Optional, Tuple, Any, Iterable
 
-from config.constants import DEFAULT_ACTIVE_LABEL_ID, normalize_corrosion_peak_selection_mode, normalize_interpolation_algo, CORROSION_STAGE_BASE, CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED
+from config.constants import DEFAULT_ACTIVE_LABEL_ID, normalize_corrosion_analysis_mode, normalize_corrosion_peak_selection_mode, normalize_interpolation_algo, CORROSION_STAGE_BASE, CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED
 
 
 class ViewStateModel:
@@ -93,6 +93,7 @@ class ViewStateModel:
         self.corrosion_raw_distance_map: Optional[Any] = None
         self.corrosion_ascan_support_map: Optional[Any] = None
         self.corrosion_interpolation_algo: str = "1d_dual_axis"
+        self.corrosion_analysis_mode: str = "normal"
         self.corrosion_peak_selection_mode: str = "max_peak"
         self.corrosion_peak_selection_mode_a: str = "max_peak"
         self.corrosion_peak_selection_mode_b: str = "max_peak"
@@ -520,6 +521,16 @@ class ViewStateModel:
     def set_corrosion_interpolation_algo(self, algo: Optional[str]) -> str:
         normalized = normalize_interpolation_algo(algo)
         self.corrosion_interpolation_algo = normalized
+        return normalized
+
+    def get_corrosion_analysis_mode(self) -> str:
+        return normalize_corrosion_analysis_mode(
+            getattr(self, "corrosion_analysis_mode", "normal")
+        )
+
+    def set_corrosion_analysis_mode(self, mode: Optional[str]) -> str:
+        normalized = normalize_corrosion_analysis_mode(mode)
+        self.corrosion_analysis_mode = normalized
         return normalized
 
     def set_corrosion_peak_selection_mode(self, mode: Optional[str]) -> str:

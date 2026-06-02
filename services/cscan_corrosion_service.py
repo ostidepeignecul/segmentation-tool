@@ -21,7 +21,11 @@ from scipy.interpolate import (
 )
 from scipy.spatial import QhullError
 
-from config.constants import MASK_COLORS_BGRA, normalize_interpolation_algo
+from config.constants import (
+    MASK_COLORS_BGRA,
+    normalize_corrosion_analysis_mode,
+    normalize_interpolation_algo,
+)
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
 from services.cscan_service import CScanService
@@ -155,6 +159,7 @@ class CScanCorrosionService(CScanService):
         output_directory: str,
         class_A_id: int,
         class_B_id: int,
+        analysis_mode: str = "normal",
         peak_selection_mode_a: str = "max_peak",
         peak_selection_mode_b: Optional[str] = None,
         label_palette: Optional[Dict[int, Tuple[int, int, int, int]]] = None,
@@ -172,11 +177,13 @@ class CScanCorrosionService(CScanService):
         ascan_support_map = self.build_ascan_support_map(
             support_volume_data if support_volume_data is not None else volume_data
         )
+        normalized_analysis_mode = normalize_corrosion_analysis_mode(analysis_mode)
         distance_map, peak_index_map_a, peak_index_map_b = self._distance_service.measure_distance_and_peaks_vectorized(
             volume=volume_data,
             masks=mask_stack,
             class_A=class_A_id,
             class_B=class_B_id,
+            analysis_mode=normalized_analysis_mode,
             peak_selection_mode_a=peak_selection_mode_a,
             peak_selection_mode_b=peak_selection_mode_b,
             support_map=ascan_support_map,
@@ -1449,6 +1456,7 @@ class CorrosionWorkflowService:
         *,
         label_a: Optional[int] = None,
         label_b: Optional[int] = None,
+        analysis_mode: str = "normal",
         peak_selection_mode_a: str = "max_peak",
         peak_selection_mode_b: Optional[str] = None,
     ) -> CorrosionWorkflowResult:
@@ -1552,6 +1560,7 @@ class CorrosionWorkflowService:
                 output_directory=output_directory,
                 class_A_id=class_A_id,
                 class_B_id=class_B_id,
+                analysis_mode=analysis_mode,
                 peak_selection_mode_a=peak_selection_mode_a,
                 peak_selection_mode_b=peak_selection_mode_b,
                 label_palette=palette_source,
