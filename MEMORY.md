@@ -4667,3 +4667,21 @@ Le libelle `Corrosion map` ne correspondait plus au vocabulaire souhaite pour la
 1. Centraliser le renommage runtime du dock et de son action dans `MasterController`, afin que le texte suive directement l etat corrosion actif sans dupliquer la logique dans les vues.
 2. Porter la restructuration du tools panel dans le fichier Designer `toolspanel.ui`, puis laisser `ui_toolspanel.py` etre la sortie generee correspondante, afin de garder une source de verite UI unique.
 3. Limiter cette entree memoire aux changements staged reels du jour, pour tracer separement le renommage du dock et le compactage du panneau d outils sans melanger d autres travaux.
+
+### 2026-06-02 - Mode Mod auto relabel et checkbox dediee
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/mask_modification_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/tools_panel.py`, `#mod-tool`, `#labels`, `#apply-auto`, `#ui`, `#mvc`, `#pyqt6`
+
+**Actions effectuées :**
+- Ajoute un etat `mod_apply_auto` dans `models/view_state_model.py` avec setter dedie, pour persister separement l automatisation propre au mode `Mod`.
+- Etend `toolspanel.ui`, `ui_toolspanel.py` et `views/tools_panel.py` pour exposer et cabler une nouvelle checkbox `Mod apply auto` jusqu au `MasterController`.
+- Branche `controllers/master_controller.py` pour initialiser et restaurer cette checkbox depuis le `ViewStateModel`, puis relier son signal au `MaskModificationController`.
+- Modifie `controllers/mask_modification_controller.py` pour qu un clic simple en mode `Mod` puisse relabeller automatiquement le composant selectionne vers le label actif quand `mod_apply_auto` est coche.
+- Ajuste le retour de `on_drag_finished()` et le routing de `MasterController` afin que l auto-apply global ne se declenche que lorsqu une vraie preview `mod` a ete creee pendant l interaction courante.
+
+**Contexte :**
+Le workflow attendu etait de pouvoir cliquer sur un mask en mode `Mod` pour le convertir directement vers le label actif, sans ouvrir le menu contextuel `Change label`, tout en conservant le pipeline temporaire standard et le bouton `Apply`. Le comportement devait aussi rester compatible avec le checkbox global `Apply auto`, qui doit continuer a appliquer immediatement seulement lorsqu il est deja actif.
+
+**Décisions techniques :**
+1. Introduire un flag `mod_apply_auto` distinct de `apply_auto`, afin de separer le choix de relabel automatique en mode `Mod` du choix d application immediate global.
+2. Reutiliser `MaskModificationController.on_relabel_selected_component_requested()` comme pipeline unique de previsualisation du relabel, afin de conserver le meme passage par `TempMaskModel` et `Apply`.
+3. Faire remonter depuis `on_drag_finished()` un bool indiquant si l interaction a reellement cree une preview, afin d eviter qu un ancien etat pending declenche un auto-apply parasite.

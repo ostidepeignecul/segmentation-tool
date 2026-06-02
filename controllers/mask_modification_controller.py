@@ -47,6 +47,7 @@ class MaskModificationController:
         self._mod_press_slice_idx: Optional[int] = None
         self._mod_press_label: Optional[int] = None
         self._mod_drag_started: bool = False
+        self._mod_preview_created_in_interaction: bool = False
 
     def reset(self, *, restore_overlay: bool = False) -> None:
         self.mask_modification_service.reset()
@@ -125,6 +126,7 @@ class MaskModificationController:
         self._mod_press_slice_idx = slice_idx
         self._mod_press_label = int(label)
         self._mod_drag_started = False
+        self._mod_preview_created_in_interaction = False
 
     def on_drag_moved(self, pos: Any) -> None:
         if not self._is_mod_mode():
@@ -173,10 +175,12 @@ class MaskModificationController:
             return
         self._set_position_label(x, y)
         self._store_mod_preview_slice(slice_idx=slice_idx, updated_slice=updated_slice)
+        self._mod_preview_created_in_interaction = True
         self.refresh_preview(changed_slice=slice_idx)
         self.sync_anchors()
 
-    def on_drag_finished(self, pos: Any) -> None:
+    def on_drag_finished(self, pos: Any) -> bool:
+        preview_created = bool(self._mod_preview_created_in_interaction)
         point = self._parse_pos(pos)
         if (
             self._mod_press_pos is not None
@@ -196,9 +200,11 @@ class MaskModificationController:
                 )
                 if selected_idx is not None:
                     self._set_position_label(int(release_point[0]), int(release_point[1]))
+                    preview_created = self._apply_mod_auto_relabel(source_label=int(self._mod_press_label))
         self.mask_modification_service.end_drag()
         self._reset_mod_pointer_state()
         self.sync_anchors()
+        return preview_created
 
     def on_double_clicked(self, pos: Any) -> None:
         if not self._is_mod_mode():
@@ -372,6 +378,10 @@ class MaskModificationController:
             self._status_message("Changement de label previsualise. Applique pour valider.", timeout_ms=1800)
         return True
 
+    def on_mod_apply_auto_toggled(self, enabled: bool) -> None:
+        """Persist the mod-specific auto relabel toggle in the shared view state."""
+        self.view_state_model.set_mod_apply_auto(enabled)
+
     def has_pending_edits(self) -> bool:
         return self.mask_modification_service.has_pending_edits()
 
@@ -425,6 +435,7 @@ class MaskModificationController:
         self._mod_press_slice_idx = None
         self._mod_press_label = None
         self._mod_drag_started = False
+        self._mod_preview_created_in_interaction = False
 
     def _parse_context_request(
         self,
@@ -606,8 +617,22 @@ class MaskModificationController:
     def _is_apply_auto_enabled(self) -> bool:
         return bool(getattr(self.view_state_model, "apply_auto", False))
 
+    def _is_mod_apply_auto_enabled(self) -> bool:
+        return bool(getattr(self.view_state_model, "mod_apply_auto", False))
+
     def _is_corrosion_layer_mode(self) -> bool:
         return bool(getattr(self.view_state_model, "corrosion_active", False))
+
+    def _apply_mod_auto_relabel(self, *, source_label: int) -> bool:
+        if not self._is_mod_apply_auto_enabled():
+            return False
+        target_label = self._active_label_for_mod()
+        if target_label is None or int(target_label) == int(source_label):
+            return False
+        changed = self.on_relabel_selected_component_requested(int(target_label))
+        if changed:
+            self._mod_preview_created_in_interaction = True
+        return changed
 
     @staticmethod
     def _parse_pos(pos: Any) -> Optional[tuple[int, int]]:

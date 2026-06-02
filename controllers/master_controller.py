@@ -441,6 +441,7 @@ class MasterController:
             nde_contrast_slider=self._tools_ui.horizontalSlider_7,
             nde_contrast_spinbox=self._tools_ui.spinBox_5,
             apply_auto_checkbox=getattr(self._tools_ui, "checkBox_5", None),
+            mod_apply_auto_checkbox=getattr(self._tools_ui, "checkBox_9", None),
             force_threshold_erase_checkbox=getattr(self._tools_ui, "checkBox_4", None),
             apply_volume_checkbox=self._tools_ui.checkBox,
             threshold_auto_checkbox=self._tools_ui.checkBox_2,
@@ -464,6 +465,9 @@ class MasterController:
             getattr(self.view_state_model, "force_threshold_erase", False)
         )
         self.tools_panel.set_apply_auto_checked(getattr(self.view_state_model, "apply_auto", False))
+        self.tools_panel.set_mod_apply_auto_checked(
+            getattr(self.view_state_model, "mod_apply_auto", False)
+        )
         self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
         self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
         self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)
@@ -502,6 +506,9 @@ class MasterController:
             self.annotation_controller.on_force_threshold_erase_toggled
         )
         self.tools_panel.apply_auto_toggled.connect(self.annotation_controller.on_apply_auto_toggled)
+        self.tools_panel.mod_apply_auto_toggled.connect(
+            self.mask_modification_controller.on_mod_apply_auto_toggled
+        )
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
         self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
         self.tools_panel.closing_mask_toggled.connect(self._on_closing_mask_toggled)
@@ -2084,10 +2091,8 @@ class MasterController:
         if self.corrosion_profile_controller.is_profile_mod_active():
             self.corrosion_profile_controller.on_drag_finished(pos)
             return
-        self.mask_modification_controller.on_drag_finished(pos)
-        if not self.mask_modification_controller.has_pending_edits():
-            return
-        self._apply_annotation_preview_if_needed(True)
+        preview_created = self.mask_modification_controller.on_drag_finished(pos)
+        self._apply_annotation_preview_if_needed(preview_created)
 
     def _apply_annotation_preview_if_needed(self, preview_created: bool) -> None:
         """Auto-commit the temp annotation preview when the toggle is enabled."""
@@ -3553,6 +3558,9 @@ class MasterController:
             getattr(self.view_state_model, "force_threshold_erase", False)
         )
         self.tools_panel.set_apply_auto_checked(getattr(self.view_state_model, "apply_auto", False))
+        self.tools_panel.set_mod_apply_auto_checked(
+            getattr(self.view_state_model, "mod_apply_auto", False)
+        )
         self.tools_panel.set_threshold_auto_checked(self.view_state_model.threshold_auto)
         self.tools_panel.set_apply_volume_checked(self.view_state_model.apply_volume)
         self.tools_panel.set_roi_persistence_checked(self.view_state_model.roi_persistence)

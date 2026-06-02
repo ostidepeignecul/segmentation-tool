@@ -56,6 +56,7 @@ class ViewStateModel:
         self.annotation_action: str = "draw"
         self.force_threshold_erase: bool = False
         self.apply_auto: bool = False
+        self.mod_apply_auto: bool = False
         self.active_label: Optional[int] = int(DEFAULT_ACTIVE_LABEL_ID)
         self.label_overwrite_targets: dict[int, Optional[int]] = {0: None}
         self.roi_thin_line_max_width: int = 2
@@ -180,6 +181,9 @@ class ViewStateModel:
 
     def set_apply_auto(self, enabled: bool) -> None:
         self.apply_auto = bool(enabled)
+
+    def set_mod_apply_auto(self, enabled: bool) -> None:
+        self.mod_apply_auto = bool(enabled)
 
     def set_threshold(self, threshold: int) -> None:
         self.threshold = int(threshold)
