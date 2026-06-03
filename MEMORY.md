@@ -4703,3 +4703,21 @@ Le workflow corrosion devait mieux gerer les colonnes ambiguës quand le label A
 1. Ajouter un mode d analyse global `AC-AB` distinct des modes `max_peak` / `optimistic` / `pessimistic`, afin de separer le cas "deux pics dans une meme bande A" du cas "plusieurs bandes disconnectees".
 2. Limiter `AC-AB` au label A et faire de la position relative a B la regle principale de selection (`A` le plus bas restant au-dessus de `B`), afin de rester aligne avec l invariant metier frontwall/backwall.
 3. Rendre `pessimistic` asymetrique entre A et B et lui permettre de fonctionner meme sans reference opposee dans la colonne courante, pour obtenir un fallback stable sur les colonnes ou un label localement manque.
+
+### 2026-06-02 - Popup de chargement simple pour nnUNet, corrosion et interpolation
+**Tags :** `#branch:feature/loading`, `#MEMORY.md`, `#controllers/master_controller.py`, `#views/loading_popup_view.py`, `#loading`, `#nnunet`, `#corrosion`, `#interpolation`, `#logging`, `#ui`, `#mvc`, `#pyqt6`
+
+**Actions effectuées :**
+- Ajoute `views/loading_popup_view.py` avec un `QDialog` modal minimaliste contenant un message, une barre de progression indeterminee et une zone de log optionnelle en lecture seule.
+- Ajoute dans `controllers/master_controller.py` des helpers centralises pour ouvrir/fermer ce popup, traiter les evenements UI pendant l affichage, et attacher/detacher un handler de logs temporaire.
+- Branche le popup sur le workflow `nnUNet` afin d afficher un etat bloquant pendant l inference et de remonter les dernieres lignes utiles du logger `nnunet` et du plugin dans la fenetre.
+- Reutilise le meme popup pour l analyse corrosion et l interpolation avec un message simple, sans exposer les etapes fines ni ajouter de logique de progression dans les services.
+- Nettoie systematiquement le popup et le handler de logs sur succes, erreur, ou echec immediat au demarrage de `nnUNet`.
+
+**Contexte :**
+Les operations longues avaient surtout un retour via la status bar et la console. Le besoin etait d afficher un feedback visuel simple pendant `nnUNet`, l analyse corrosion et l interpolation, tout en laissant `nnUNet` montrer une partie de ses logs sans disperser du code de progression dans plusieurs couches.
+
+**Décisions techniques :**
+1. Centraliser toute l orchestration du popup dans `MasterController`, afin de respecter le role MVC du controller pour les dialogs et de ne pas injecter de logique UI dans les services.
+2. Creer un `QDialog` dedie au lieu d un `QProgressDialog`, afin de supporter proprement une zone de log optionnelle pour `nnUNet` tout en gardant une version tres simple pour corrosion et interpolation.
+3. Limiter la capture de logs au seul workflow `nnUNet` via un handler temporaire filtre par prefixes de logger, afin de reutiliser les logs existants sans transformer les autres workflows en pipeline de progression detaille.

@@ -71,6 +71,7 @@ from views.corrosion_settings_view import CorrosionSettingsView
 from views.nde_settings_view import NdeSettingsView
 from views.nde_open_options_dialog import NdeOpenOptionsDialog
 from views.endview_resize_dialog import EndviewResizeDialog
+from views.loading_popup_view import LoadingPopupLogHandler, LoadingPopupView
 from views.nnunet_settings_view import NnUnetSettingsView
 from views.overlay_class_remap_dialog import OverlayClassRemapDialog
 from views.overlay_settings_view import OverlaySettingsView
@@ -153,6 +154,9 @@ class MasterController:
         self._nnunet_ui_signals = NnUnetUiSignals()
         self._nnunet_ui_signals.success.connect(self._handle_nnunet_success)
         self._nnunet_ui_signals.error.connect(self._handle_nnunet_error)
+        self._loading_popup: Optional[LoadingPopupView] = None
+        self._loading_log_handler: Optional[LoadingPopupLogHandler] = None
+        self._loading_log_target: Optional[logging.Logger] = None
         if self._app is not None:
             self._app.aboutToQuit.connect(self._on_app_about_to_quit)
 
@@ -826,6 +830,7 @@ class MasterController:
                 force_visible=True,
             )
             self._rename_active_layer("AI result")
+            self._close_loading_popup()
             self.status_message(
                 f"nnUNet completed, NPZ displayed: {payload.output_path}",
                 timeout_ms=5000,
@@ -840,9 +845,63 @@ class MasterController:
 
     def _handle_nnunet_error(self, payload: Any) -> None:
         """Display nnUNet errors once they have been marshalled back to the UI thread."""
+        self._close_loading_popup()
         exc = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
         QMessageBox.critical(self.main_window, "nnUNet", str(exc))
         self.status_message("nnUNet inference failed", timeout_ms=5000)
+
+    def _show_loading_popup(
+        self,
+        *,
+        title: str,
+        message: str,
+        log_prefixes: tuple[str, ...] | None = None,
+    ) -> None:
+        self._close_loading_popup()
+        popup = LoadingPopupView(
+            title=title,
+            message=message,
+            parent=self.main_window,
+            show_log=bool(log_prefixes),
+        )
+        self._loading_popup = popup
+        if log_prefixes:
+            handler = LoadingPopupLogHandler(
+                popup,
+                allowed_logger_prefixes=log_prefixes,
+            )
+            target_logger = logging.getLogger()
+            target_logger.addHandler(handler)
+            self._loading_log_handler = handler
+            self._loading_log_target = target_logger
+        popup.show()
+        popup.raise_()
+        popup.activateWindow()
+        self._process_ui_events()
+
+    def _close_loading_popup(self) -> None:
+        handler = self._loading_log_handler
+        target_logger = self._loading_log_target
+        self._loading_log_handler = None
+        self._loading_log_target = None
+        if handler is not None and target_logger is not None:
+            try:
+                target_logger.removeHandler(handler)
+            except Exception:
+                pass
+            handler.close()
+
+        popup = self._loading_popup
+        self._loading_popup = None
+        if popup is not None:
+            popup.finish()
+            popup.deleteLater()
+            self._process_ui_events()
+
+    def _process_ui_events(self) -> None:
+        app = self._app if self._app is not None else QApplication.instance()
+        if app is not None:
+            app.processEvents()
 
     def _on_remap_classes(self) -> None:
         """Open the in-memory class remap dialog for the last imported NPZ overlay."""
@@ -945,6 +1004,15 @@ class MasterController:
             self._nnunet_ui_signals.error.emit(exc)
 
         try:
+            self._show_loading_popup(
+                title="nnUNet",
+                message="Inference nnUNet en cours...",
+                log_prefixes=(
+                    "nnunet",
+                    "plugins.segmentation_hooks.segmentation_plugins.nnunetv2_plugin",
+                    "plugins.segmentation_hooks.segmentation_plugins._nnunetv2_utils",
+                ),
+            )
             self.status_message("nnUNet inference in progress...", timeout_ms=4000)
             self.nnunet_service.run_inference(
                 volume=volume,
@@ -956,6 +1024,7 @@ class MasterController:
                 on_error=_on_error,
             )
         except Exception as exc:
+            self._close_loading_popup()
             QMessageBox.critical(self.main_window, "nnUNet", str(exc))
 
     def _suggest_nnunet_output_path(self, model_path: str | Path) -> str:
@@ -1553,7 +1622,14 @@ class MasterController:
             annotation_model=self.annotation_model,
             view_state_model=self.view_state_model,
         )
-        self.cscan_controller.run_corrosion_analysis()
+        self._show_loading_popup(
+            title="Corrosion",
+            message="Analyse corrosion en cours...",
+        )
+        try:
+            self.cscan_controller.run_corrosion_analysis()
+        finally:
+            self._close_loading_popup()
         self._sync_cscan_labels()
 
     def _sync_apply_volume_range_view(self) -> None:
@@ -3817,11 +3893,18 @@ class MasterController:
         nde_model = self.nde_model if hasattr(self, "nde_model") else None
         self.status_message(f"Interpolation ({algo}) in progress...", 2000)
 
-        interp_result = self.corrosion_workflow_service.run_interpolation(
-            raw_result=raw,
-            algo=algo,
-            nde_model=nde_model,
+        self._show_loading_popup(
+            title="Interpolation",
+            message=f"Interpolation ({algo}) en cours...",
         )
+        try:
+            interp_result = self.corrosion_workflow_service.run_interpolation(
+                raw_result=raw,
+                algo=algo,
+                nde_model=nde_model,
+            )
+        finally:
+            self._close_loading_popup()
 
         if not interp_result.ok:
             self.status_message(interp_result.message, 5000)
