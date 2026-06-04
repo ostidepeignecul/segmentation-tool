@@ -1,11 +1,12 @@
 import logging
 import copy
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, QRunnable, Qt, QThreadPool, pyqtSignal
 from PyQt6.QtGui import QColor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -71,7 +72,11 @@ from views.corrosion_settings_view import CorrosionSettingsView
 from views.nde_settings_view import NdeSettingsView
 from views.nde_open_options_dialog import NdeOpenOptionsDialog
 from views.endview_resize_dialog import EndviewResizeDialog
-from views.loading_popup_view import LoadingPopupLogHandler, LoadingPopupView
+from views.loading_popup_view import (
+    ExternalLoadingPopupProcess,
+    LoadingPopupLogHandler,
+    LoadingPopupView,
+)
 from views.nnunet_settings_view import NnUnetSettingsView
 from views.overlay_class_remap_dialog import OverlayClassRemapDialog
 from views.overlay_settings_view import OverlaySettingsView
@@ -85,6 +90,28 @@ class NnUnetUiSignals(QObject):
 
     success = pyqtSignal(object)
     error = pyqtSignal(object)
+
+
+class CorrosionWorkflowSignals(QObject):
+    """Bridge corrosion worker completion back onto the UI thread."""
+
+    finished = pyqtSignal(object)
+    error = pyqtSignal(object)
+
+
+class CorrosionWorkflowWorker(QRunnable):
+    """Run a corrosion workflow service call outside the UI thread."""
+
+    def __init__(self, task: Callable[[], CorrosionWorkflowResult]) -> None:
+        super().__init__()
+        self._task = task
+        self.signals = CorrosionWorkflowSignals()
+
+    def run(self) -> None:
+        try:
+            self.signals.finished.emit(self._task())
+        except Exception as exc:  # noqa: BLE001 - propagated to the UI thread.
+            self.signals.error.emit(exc)
 
 
 class MasterController:
@@ -155,8 +182,11 @@ class MasterController:
         self._nnunet_ui_signals.success.connect(self._handle_nnunet_success)
         self._nnunet_ui_signals.error.connect(self._handle_nnunet_error)
         self._loading_popup: Optional[LoadingPopupView] = None
+        self._external_loading_popup: Optional[ExternalLoadingPopupProcess] = None
         self._loading_log_handler: Optional[LoadingPopupLogHandler] = None
         self._loading_log_target: Optional[logging.Logger] = None
+        self._corrosion_workflow_worker: Optional[CorrosionWorkflowWorker] = None
+        self._corrosion_workflow_busy: bool = False
         if self._app is not None:
             self._app.aboutToQuit.connect(self._on_app_about_to_quit)
 
@@ -898,10 +928,93 @@ class MasterController:
             popup.deleteLater()
             self._process_ui_events()
 
+    def _show_external_loading_popup(self, *, title: str, message: str) -> None:
+        self._close_external_loading_popup()
+        try:
+            self._external_loading_popup = ExternalLoadingPopupProcess.start(
+                title=title,
+                message=message,
+            )
+        except Exception:
+            self._external_loading_popup = None
+            self.logger.exception("Unable to start external loading popup.")
+            self._show_loading_popup(title=title, message=message)
+
+    def _close_external_loading_popup(self) -> None:
+        popup = self._external_loading_popup
+        self._external_loading_popup = None
+        if popup is not None:
+            popup.close()
+
+    def _close_corrosion_loading_popup(self) -> None:
+        self._close_external_loading_popup()
+        self._close_loading_popup()
+
     def _process_ui_events(self) -> None:
         app = self._app if self._app is not None else QApplication.instance()
         if app is not None:
             app.processEvents()
+
+    def _start_corrosion_workflow_worker(
+        self,
+        *,
+        title: str,
+        message: str,
+        task: Callable[[], CorrosionWorkflowResult],
+        on_finished: Callable[[CorrosionWorkflowResult], None],
+    ) -> bool:
+        if self._corrosion_workflow_busy:
+            self.status_message("A corrosion workflow is already running.", 3000)
+            return False
+
+        worker = CorrosionWorkflowWorker(task)
+        worker.setAutoDelete(False)
+        self._corrosion_workflow_worker = worker
+
+        def handle_finished(result: object) -> None:
+            error = None
+            try:
+                if not isinstance(result, CorrosionWorkflowResult):
+                    self.status_message("Corrosion workflow returned an invalid result.", 5000)
+                    return
+                on_finished(result)
+            except Exception as exc:  # noqa: BLE001 - keep UI responsive and report failure.
+                error = exc
+            finally:
+                self._finish_corrosion_workflow_worker(worker)
+            if error is not None:
+                self._handle_corrosion_workflow_error(error)
+
+        def handle_error(payload: object) -> None:
+            self._finish_corrosion_workflow_worker(worker)
+            exc = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
+            self._handle_corrosion_workflow_error(exc)
+
+        worker.signals.finished.connect(handle_finished)
+        worker.signals.error.connect(handle_error)
+
+        self._set_corrosion_workflow_busy(True)
+        self._show_external_loading_popup(title=title, message=message)
+        QThreadPool.globalInstance().start(worker)
+        return True
+
+    def _finish_corrosion_workflow_worker(self, worker: CorrosionWorkflowWorker) -> None:
+        if self._corrosion_workflow_worker is worker:
+            self._corrosion_workflow_worker = None
+        self._close_corrosion_loading_popup()
+        self._set_corrosion_workflow_busy(False)
+
+    def _handle_corrosion_workflow_error(self, exc: Exception) -> None:
+        self.logger.error(
+            "Corrosion workflow failed",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        QMessageBox.critical(self.main_window, "Corrosion", str(exc))
+        self.status_message("Corrosion workflow failed", timeout_ms=5000)
+
+    def _set_corrosion_workflow_busy(self, busy: bool) -> None:
+        self._corrosion_workflow_busy = bool(busy)
+        self._sync_corrosion_workflow_controls()
 
     def _on_remap_classes(self) -> None:
         """Open the in-memory class remap dialog for the last imported NPZ overlay."""
@@ -1608,11 +1721,23 @@ class MasterController:
 
     def _on_run_corrosion_analysis(self) -> None:
         """Persist the active layer before launching corrosion analysis."""
+        if self._corrosion_workflow_busy:
+            self.status_message("A corrosion workflow is already running.", 3000)
+            return
         if not self.view_state_model.can_run_corrosion_analysis():
             self.status_message(
                 "Analyze est disponible uniquement depuis un layer standard.",
                 3000,
             )
+            self._sync_corrosion_workflow_controls()
+            return
+
+        volume = self._current_volume()
+        nde_model = self.nde_model if hasattr(self, "nde_model") else None
+        if volume is None or nde_model is None:
+            self.logger.error("Corrosion analysis aborted: volume or NDE model missing.")
+            self.view_state_model.deactivate_corrosion()
+            self.status_message("Corrosion analysis aborted: volume or NDE model missing.", 5000)
             self._sync_corrosion_workflow_controls()
             return
 
@@ -1622,15 +1747,45 @@ class MasterController:
             annotation_model=self.annotation_model,
             view_state_model=self.view_state_model,
         )
-        self._show_loading_popup(
+        self.logger.info("Corrosion analysis: started")
+        self.status_message("Corrosion analysis in progress...", 2000)
+        label_a = getattr(self.view_state_model, "corrosion_label_a", None)
+        label_b = getattr(self.view_state_model, "corrosion_label_b", None)
+        analysis_mode = self.view_state_model.get_corrosion_analysis_mode()
+        peak_selection_mode_a = self.view_state_model.get_corrosion_peak_selection_mode_a()
+        peak_selection_mode_b = self.view_state_model.get_corrosion_peak_selection_mode_b()
+
+        self._start_corrosion_workflow_worker(
             title="Corrosion",
             message="Analyse corrosion en cours...",
+            task=lambda: self.corrosion_workflow_service.run(
+                nde_model=nde_model,
+                annotation_model=self.annotation_model,
+                volume=volume,
+                label_a=label_a,
+                label_b=label_b,
+                analysis_mode=analysis_mode,
+                peak_selection_mode_a=peak_selection_mode_a,
+                peak_selection_mode_b=peak_selection_mode_b,
+            ),
+            on_finished=self._handle_corrosion_analysis_result,
         )
-        try:
-            self.cscan_controller.run_corrosion_analysis()
-        finally:
-            self._close_loading_popup()
+
+    def _handle_corrosion_analysis_result(self, result: CorrosionWorkflowResult) -> None:
+        self.cscan_controller.last_corrosion_result = result
+        if not result.ok:
+            self.logger.error(result.message)
+            self.status_message(result.message, 5000)
+            self.view_state_model.deactivate_corrosion()
+            self._sync_cscan_labels()
+            self._sync_corrosion_workflow_controls()
+            return
+
+        self.status_message(result.message, 3000)
+        self.logger.info("Corrosion analysis: completed")
+        self._on_corrosion_completed(result)
         self._sync_cscan_labels()
+        self._sync_corrosion_workflow_controls()
 
     def _sync_apply_volume_range_view(self) -> None:
         """Sync apply-to-volume range bounds/values into the settings dialog."""
@@ -1658,6 +1813,7 @@ class MasterController:
 
     def _on_app_about_to_quit(self) -> None:
         """Persist UI docking layout before Qt application shutdown."""
+        self._close_corrosion_loading_popup()
         try:
             self.dock_layout_controller.save_layout_state()
         except Exception:
@@ -3179,12 +3335,16 @@ class MasterController:
 
     def _sync_corrosion_workflow_controls(self) -> None:
         stage = self._current_corrosion_session_stage()
-        analyze_enabled = stage == CORROSION_STAGE_BASE
-        interpolate_enabled = stage == CORROSION_STAGE_RAW
+        workflow_busy = bool(getattr(self, "_corrosion_workflow_busy", False))
+        analyze_enabled = stage == CORROSION_STAGE_BASE and not workflow_busy
+        interpolate_enabled = stage == CORROSION_STAGE_RAW and not workflow_busy
 
         analyze_tip = ""
         interpolate_tip = ""
-        if stage == CORROSION_STAGE_RAW:
+        if workflow_busy:
+            analyze_tip = "A corrosion workflow is already running."
+            interpolate_tip = analyze_tip
+        elif stage == CORROSION_STAGE_RAW:
             analyze_tip = "The raw corrosion layer has already been analyzed."
         elif stage == CORROSION_STAGE_INTERPOLATED:
             analyze_tip = "The interpolated corrosion layer is finalized."
@@ -3205,6 +3365,7 @@ class MasterController:
             interpolate_action.setStatusTip(interpolate_tip)
 
         self.corrosion_settings_view.set_workflow_state(stage)
+        self.corrosion_settings_view.setEnabled(not workflow_busy)
 
     @staticmethod
     def _corrosion_raw_display_name() -> str:
@@ -3862,6 +4023,9 @@ class MasterController:
 
     def _on_corrosion_interpolation_requested(self, algo: str) -> None:
         """Apply the selected interpolation algorithm and create a derived layer."""
+        if self._corrosion_workflow_busy:
+            self.status_message("A corrosion workflow is already running.", 3000)
+            return
         algo = self.view_state_model.set_corrosion_interpolation_algo(algo)
         self.corrosion_settings_view.set_interpolation_algo(algo)
         if not self.view_state_model.can_run_corrosion_interpolation():
@@ -3893,21 +4057,24 @@ class MasterController:
         nde_model = self.nde_model if hasattr(self, "nde_model") else None
         self.status_message(f"Interpolation ({algo}) in progress...", 2000)
 
-        self._show_loading_popup(
+        self._start_corrosion_workflow_worker(
             title="Interpolation",
             message=f"Interpolation ({algo}) en cours...",
-        )
-        try:
-            interp_result = self.corrosion_workflow_service.run_interpolation(
+            task=lambda: self.corrosion_workflow_service.run_interpolation(
                 raw_result=raw,
                 algo=algo,
                 nde_model=nde_model,
-            )
-        finally:
-            self._close_loading_popup()
+            ),
+            on_finished=self._handle_corrosion_interpolation_result,
+        )
 
+    def _handle_corrosion_interpolation_result(
+        self,
+        interp_result: CorrosionWorkflowResult,
+    ) -> None:
         if not interp_result.ok:
             self.status_message(interp_result.message, 5000)
+            self._sync_corrosion_workflow_controls()
             return
 
         self._apply_corrosion_session_result(interp_result, stage="interpolated")
@@ -3924,9 +4091,11 @@ class MasterController:
         )
         if created_layer_id is None:
             self.status_message("Unable to create the corrosion interpolated layer.", 5000)
+            self._sync_corrosion_workflow_controls()
             return
         self._after_layer_stack_changed()
         self.status_message(interp_result.message, 3000)
+        self._sync_corrosion_workflow_controls()
 
     def _current_volume(self) -> Optional[Any]:
         if self.nde_model is None:

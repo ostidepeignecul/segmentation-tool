@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
+import sys
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -17,6 +20,57 @@ from PyQt6.QtWidgets import (
 )
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class ExternalLoadingPopupProcess:
+    """Own the standalone loading popup process used while the UI thread is blocked."""
+
+    def __init__(self, process: subprocess.Popen) -> None:
+        self._process: Optional[subprocess.Popen] = process
+
+    @classmethod
+    def start(cls, *, title: str, message: str) -> "ExternalLoadingPopupProcess":
+        script_path = Path(__file__).with_name("loading_popup_process.py")
+        if not script_path.exists():
+            raise FileNotFoundError(f"Loading popup process script not found: {script_path}")
+
+        creationflags = 0
+        if sys.platform.startswith("win"):
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                str(script_path),
+                "--title",
+                str(title or "Loading"),
+                "--message",
+                str(message or "Operation in progress..."),
+            ],
+            cwd=str(script_path.parent.parent),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        return cls(process)
+
+    def close(self) -> None:
+        process = self._process
+        self._process = None
+        if process is None or process.poll() is not None:
+            return
+        try:
+            process.terminate()
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2.0)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
 
 
 class LoadingPopupView(QDialog):

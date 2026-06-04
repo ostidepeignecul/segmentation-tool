@@ -15,7 +15,7 @@ Avant toute action, consulter la mémoire pour contexte et historique.
 ### Stratégie Hybride
 1.  **Priorité 1 : Ragbrew MCP (`search_memory`)**
     *   **Fréquence** : Exécuter **UNIQUEMENT si le mot `rag` est explicitement présent dans le prompt**.
-    *   **Outil MCP** : `search_memory(query="Question ou Sujets", top_k=5)`
+    *   **Outil MCP** : `search_memory(query="Question ou Sujets", top_k=15)`
     *   **Détail chunk** : Si un résultat est pertinent, utiliser `get_memory_chunk(chunk_id="...")` pour le texte complet.
     *   *Exemple* : `search_memory(query="Logique de redimensionnement endview resize")`
 2.  **Fallback : MEMORY.md en lecture directe** (Si MCP indisponible)
@@ -98,6 +98,6 @@ Avant de coder :
 
 ### Workflow type
 
-1. **Consulter** : `search_memory(query="sujet", top_k=5)` → résultats avec scores
+1. **Consulter** : `search_memory(query="sujet", top_k=15)` → résultats avec scores
 2. **Approfondir** : `get_memory_chunk(chunk_id="...")` → texte complet
 3. **Documenter** : Écrire dans MEMORY.md → `rebuild_index()` → `get_memory_status()`

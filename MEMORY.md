@@ -4721,3 +4721,21 @@ Les operations longues avaient surtout un retour via la status bar et la console
 1. Centraliser toute l orchestration du popup dans `MasterController`, afin de respecter le role MVC du controller pour les dialogs et de ne pas injecter de logique UI dans les services.
 2. Creer un `QDialog` dedie au lieu d un `QProgressDialog`, afin de supporter proprement une zone de log optionnelle pour `nnUNet` tout en gardant une version tres simple pour corrosion et interpolation.
 3. Limiter la capture de logs au seul workflow `nnUNet` via un handler temporaire filtre par prefixes de logger, afin de reutiliser les logs existants sans transformer les autres workflows en pipeline de progression detaille.
+
+### 2026-06-03 - Popup externe non bloquant pour corrosion et interpolation
+**Tags :** `#branch:feature/loading`, `#MEMORY.md`, `#controllers/master_controller.py`, `#views/loading_popup_view.py`, `#views/loading_popup_process.py`, `#loading`, `#corrosion`, `#interpolation`, `#popup`, `#pyqt6`, `#qthreadpool`, `#subprocess`, `#mvc`
+
+**Actions effectuées :**
+- Ajoute un worker Qt `CorrosionWorkflowWorker` dans `controllers/master_controller.py` pour executer le calcul corrosion/interpolation hors du thread UI et renvoyer le resultat par signaux.
+- Ajoute `ExternalLoadingPopupProcess` dans `views/loading_popup_view.py` pour lancer un popup de chargement dans un sous-processus Python separe.
+- Ajoute `views/loading_popup_process.py`, entrypoint PyQt autonome qui affiche le popup non modal et reste anime meme quand le thread UI principal pousse les overlays dans les vues.
+- Branche les workflows analyse corrosion et interpolation sur le popup externe, avec fallback vers le popup interne si le sous-processus ne demarre pas.
+- Nettoie le popup externe lors de la fin du workflow et a la fermeture de l application pour eviter un processus orphelin.
+
+**Contexte :**
+Le popup interne Qt restait visible mais gelait pendant le push des overlays/layers et les rafraichissements de vues, car ces operations doivent s executer dans le thread UI principal. Le besoin etait de conserver un indicateur visuel fluide pendant toute l operation, calcul inclus et application du resultat dans les vues incluse.
+
+**Décisions techniques :**
+1. Utiliser `QThreadPool` uniquement pour deplacer le calcul service hors UI, puis garder l application des resultats dans `MasterController` afin de respecter les contraintes Qt et MVC.
+2. Deplacer l animation du popup corrosion/interpolation dans un sous-processus PyQt separe, car un widget du meme thread UI ne peut pas repeindre pendant `set_overlay_stack`, `set_projection` ou `_after_layer_stack_changed`.
+3. Conserver le popup interne existant pour `nnUNet`, qui a besoin de la zone de logs et dont le flux est deja pilote par callbacks/signaux, tout en reutilisant le popup interne comme fallback si le popup externe echoue.
