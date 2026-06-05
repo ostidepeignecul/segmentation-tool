@@ -46,6 +46,7 @@ class CorrosionProfileEditService:
         self._controls_a: Dict[int, List[Tuple[int, int]]] = {}
         self._controls_b: Dict[int, List[Tuple[int, int]]] = {}
         self._overlay_cache: Optional[np.ndarray] = None
+        self._active_target_is_a: Optional[bool] = None
         self._drag_active: bool = False
         self._drag_target_is_a: Optional[bool] = None
         self._drag_slice_idx: Optional[int] = None
@@ -110,6 +111,7 @@ class CorrosionProfileEditService:
         self._preserve_existing_gaps = bool(preserve_existing_gaps)
         self._controls_a.clear()
         self._controls_b.clear()
+        self._active_target_is_a = None
         self._drag_active = False
         self._drag_target_is_a = None
         self._drag_slice_idx = None
@@ -128,18 +130,55 @@ class CorrosionProfileEditService:
         )
         return True
 
-    def resolve_target_from_active_label(self, active_label: Optional[int]) -> Optional[bool]:
-        if active_label is None or self._label_ids is None:
+    def active_target(self) -> Optional[bool]:
+        """Return the corrosion profile target selected from the last clicked line."""
+        return self._active_target_is_a
+
+    def set_active_target(self, target_is_a: Optional[bool]) -> None:
+        self._active_target_is_a = None if target_is_a is None else bool(target_is_a)
+
+    def resolve_target_at_point(
+        self,
+        *,
+        slice_idx: int,
+        x_pos: int,
+        y_pos: int,
+    ) -> Optional[bool]:
+        """Resolve the editable corrosion profile line from the clicked overlay position."""
+        if self._label_ids is None or self._image_shape is None:
             return None
-        try:
-            label = int(active_label)
-        except Exception:
+        height, width = self._image_shape
+        if height <= 0 or width <= 0:
             return None
-        if label == int(self._label_ids[0]):
-            return True
-        if label == int(self._label_ids[1]):
-            return False
-        return None
+
+        z = int(slice_idx)
+        x = int(max(0, min(width - 1, int(x_pos))))
+        y = int(max(0, min(height - 1, int(y_pos))))
+        label_a, label_b = (int(self._label_ids[0]), int(self._label_ids[1]))
+
+        overlay_slice = self._overlay_slice(z)
+        if overlay_slice is not None:
+            direct_label = int(overlay_slice[y, x])
+            if direct_label == label_a:
+                return True
+            if direct_label == label_b:
+                return False
+
+            nearest = self._nearest_overlay_target(
+                overlay_slice=overlay_slice,
+                x_pos=x,
+                y_pos=y,
+                label_a=label_a,
+                label_b=label_b,
+            )
+            if nearest is not None:
+                return nearest
+
+        return self._nearest_peak_row_target(
+            slice_idx=z,
+            x_pos=x,
+            y_pos=y,
+        )
 
     def anchor_points(self, *, slice_idx: int, target_is_a: bool) -> list[tuple[int, int]]:
         controls = self._controls_for(slice_idx=slice_idx, target_is_a=target_is_a, create=True)
@@ -164,6 +203,7 @@ class CorrosionProfileEditService:
         )
         if anchor_idx is None:
             return False
+        self._active_target_is_a = bool(target_is_a)
         self._drag_active = True
         self._drag_target_is_a = bool(target_is_a)
         self._drag_slice_idx = int(slice_idx)
@@ -263,6 +303,77 @@ class CorrosionProfileEditService:
         self._write_slice_from_controls(
             slice_idx=slice_idx,
             target_is_a=target_is_a,
+            controls=controls,
+        )
+        self._active_target_is_a = bool(target_is_a)
+        self._dirty = True
+        return True
+
+    def move_existing_peak_at_point(
+        self,
+        *,
+        slice_idx: int,
+        target_is_a: Optional[bool],
+        x_pos: int,
+        y_pos: int,
+    ) -> bool:
+        """Move an existing peak in the clicked X column without creating a new column."""
+        if self._image_shape is None:
+            return False
+        height, width = self._image_shape
+        if height <= 0 or width <= 0:
+            return False
+
+        z = int(slice_idx)
+        x = int(max(0, min(width - 1, int(x_pos))))
+        y = int(max(0, min(height - 1, int(y_pos))))
+        resolved_target = (
+            bool(target_is_a)
+            if target_is_a is not None
+            else self._resolve_existing_peak_target_in_column(
+                slice_idx=z,
+                x_pos=x,
+                y_pos=y,
+            )
+        )
+        if resolved_target is None:
+            return False
+
+        row = self._row_for(slice_idx=z, target_is_a=resolved_target)
+        if row is None or x >= row.shape[0]:
+            return False
+        old_y = int(row[x])
+        if old_y < 0 or old_y >= height:
+            return False
+
+        controls = self._controls_for(slice_idx=z, target_is_a=resolved_target, create=True)
+        if not controls:
+            return False
+
+        self._active_target_is_a = bool(resolved_target)
+        if old_y == y:
+            return False
+
+        updated_controls: list[tuple[int, int]] = []
+        replaced = False
+        for ctrl_x, ctrl_y in controls:
+            cx = int(ctrl_x)
+            if cx == x:
+                if not replaced:
+                    updated_controls.append((x, y))
+                    replaced = True
+                continue
+            updated_controls.append((cx, int(ctrl_y)))
+        if not replaced:
+            insert_at = 0
+            while insert_at < len(updated_controls) and updated_controls[insert_at][0] < x:
+                insert_at += 1
+            updated_controls.insert(insert_at, (x, y))
+
+        controls[:] = sorted(updated_controls, key=lambda item: int(item[0]))
+        self._write_slice_from_controls(
+            slice_idx=z,
+            target_is_a=resolved_target,
             controls=controls,
         )
         self._dirty = True
@@ -395,6 +506,116 @@ class CorrosionProfileEditService:
         if z < 0 or z >= data.shape[0]:
             return None
         return data[z]
+
+    def _overlay_slice(self, slice_idx: int) -> Optional[np.ndarray]:
+        if self._overlay_cache is None or self._image_shape is None:
+            return None
+        overlay = np.asarray(self._overlay_cache, dtype=np.uint8)
+        if overlay.ndim != 3:
+            return None
+        z = int(slice_idx)
+        if z < 0 or z >= overlay.shape[0]:
+            return None
+        expected_shape = (int(self._image_shape[0]), int(self._image_shape[1]))
+        overlay_slice = overlay[z]
+        if overlay_slice.shape != expected_shape:
+            return None
+        return overlay_slice
+
+    def _nearest_overlay_target(
+        self,
+        *,
+        overlay_slice: np.ndarray,
+        x_pos: int,
+        y_pos: int,
+        label_a: int,
+        label_b: int,
+    ) -> Optional[bool]:
+        height, width = overlay_slice.shape
+        radius = int(self.LINE_HIT_TOLERANCE_PX)
+        x = int(max(0, min(width - 1, int(x_pos))))
+        y = int(max(0, min(height - 1, int(y_pos))))
+        y0 = max(0, y - radius)
+        y1 = min(height, y + radius + 1)
+        x0 = max(0, x - radius)
+        x1 = min(width, x + radius + 1)
+        window = overlay_slice[y0:y1, x0:x1]
+        if window.size == 0:
+            return None
+
+        best_target: Optional[bool] = None
+        best_d2: Optional[int] = None
+        max_d2 = radius * radius
+        for target_is_a, label in ((True, int(label_a)), (False, int(label_b))):
+            coords = np.argwhere(window == int(label))
+            if coords.size == 0:
+                continue
+            dy = coords[:, 0] + y0 - y
+            dx = coords[:, 1] + x0 - x
+            distances = (dx * dx) + (dy * dy)
+            min_d2 = int(np.min(distances))
+            if min_d2 > max_d2:
+                continue
+            if best_d2 is None or min_d2 < best_d2:
+                best_d2 = min_d2
+                best_target = bool(target_is_a)
+        return best_target
+
+    def _nearest_peak_row_target(
+        self,
+        *,
+        slice_idx: int,
+        x_pos: int,
+        y_pos: int,
+    ) -> Optional[bool]:
+        if self._image_shape is None:
+            return None
+        height, width = self._image_shape
+        x = int(max(0, min(width - 1, int(x_pos))))
+        y = int(max(0, min(height - 1, int(y_pos))))
+        best_target: Optional[bool] = None
+        best_distance: Optional[int] = None
+        for target_is_a in (True, False):
+            row = self._row_for(slice_idx=slice_idx, target_is_a=target_is_a)
+            if row is None or x >= row.shape[0]:
+                continue
+            y_line = int(row[x])
+            if y_line < 0 or y_line >= height:
+                continue
+            distance = abs(int(y_line) - y)
+            if distance > int(self.LINE_HIT_TOLERANCE_PX):
+                continue
+            if best_distance is None or distance < best_distance:
+                best_distance = int(distance)
+                best_target = bool(target_is_a)
+        return best_target
+
+    def _resolve_existing_peak_target_in_column(
+        self,
+        *,
+        slice_idx: int,
+        x_pos: int,
+        y_pos: int,
+    ) -> Optional[bool]:
+        if self._image_shape is None:
+            return None
+        height, width = self._image_shape
+        x = int(max(0, min(width - 1, int(x_pos))))
+        y = int(max(0, min(height - 1, int(y_pos))))
+        best_target: Optional[bool] = None
+        best_distance: Optional[int] = None
+        for target_is_a in (True, False):
+            row = self._row_for(slice_idx=slice_idx, target_is_a=target_is_a)
+            if row is None or x >= row.shape[0]:
+                continue
+            y_line = int(row[x])
+            if y_line < 0 or y_line >= height:
+                continue
+            distance = abs(int(y_line) - y)
+            if best_distance is None or distance < best_distance:
+                best_distance = int(distance)
+                best_target = bool(target_is_a)
+        return best_target
 
     def _build_default_controls(self, *, row: np.ndarray) -> list[tuple[int, int]]:
         if self._image_shape is None:

@@ -78,18 +78,22 @@ class CorrosionProfileController:
         if not self.ensure_context():
             return
 
-        target_is_a = self.corrosion_profile_edit_service.resolve_target_from_active_label(
-            self.view_state_model.active_label
+        target_is_a = self.corrosion_profile_edit_service.resolve_target_at_point(
+            slice_idx=int(self.view_state_model.current_slice),
+            x_pos=x,
+            y_pos=y,
         )
         if target_is_a is None:
-            self._status_message("Selectionne le label corrosion a editer (A ou B).", timeout_ms=2000)
+            self._status_message("Clique sur le profil corrosion a editer.", timeout_ms=2000)
             return
+        self.corrosion_profile_edit_service.set_active_target(target_is_a)
         if not self.corrosion_profile_edit_service.start_drag(
             slice_idx=int(self.view_state_model.current_slice),
             target_is_a=target_is_a,
             x_pos=x,
             y_pos=y,
         ):
+            self.sync_anchors()
             return
         self._set_position_label(x, y)
         self.sync_anchors()
@@ -128,12 +132,15 @@ class CorrosionProfileController:
         if not self.ensure_context():
             return
 
-        target_is_a = self.corrosion_profile_edit_service.resolve_target_from_active_label(
-            self.view_state_model.active_label
+        target_is_a = self.corrosion_profile_edit_service.resolve_target_at_point(
+            slice_idx=int(self.view_state_model.current_slice),
+            x_pos=x,
+            y_pos=y,
         )
         if target_is_a is None:
-            self._status_message("Selectionne le label corrosion a editer (A ou B).", timeout_ms=2000)
+            self._status_message("Clique sur le profil corrosion a editer.", timeout_ms=2000)
             return
+        self.corrosion_profile_edit_service.set_active_target(target_is_a)
         created = self.corrosion_profile_edit_service.add_anchor_on_line(
             slice_idx=int(self.view_state_model.current_slice),
             target_is_a=target_is_a,
@@ -149,6 +156,34 @@ class CorrosionProfileController:
         self.refresh_preview()
         self.sync_anchors()
         self._status_message("Anchor added.", timeout_ms=1000)
+
+    def on_ctrl_left_clicked(self, pos: Any) -> None:
+        """Move the existing corrosion peak in the clicked X column to the click Y."""
+        if not self.is_profile_mod_active():
+            return
+        point = self._parse_pos(pos)
+        if point is None:
+            return
+        x, y = point
+        if not self.ensure_context():
+            return
+
+        moved = self.corrosion_profile_edit_service.move_existing_peak_at_point(
+            slice_idx=int(self.view_state_model.current_slice),
+            target_is_a=self.corrosion_profile_edit_service.active_target(),
+            x_pos=x,
+            y_pos=y,
+        )
+        self._set_position_label(x, y)
+        self.sync_anchors()
+        if not moved:
+            self._status_message(
+                "Aucun peak existant a deplacer dans cette colonne.",
+                timeout_ms=1800,
+            )
+            return
+        self.refresh_preview()
+        self.sync_anchors()
 
     def ensure_context(self) -> bool:
         volume = self._get_volume()
@@ -200,9 +235,7 @@ class CorrosionProfileController:
         if not self.ensure_context():
             self.endview_controller.clear_corrosion_profile_anchors()
             return
-        target_is_a = self.corrosion_profile_edit_service.resolve_target_from_active_label(
-            self.view_state_model.active_label
-        )
+        target_is_a = self.corrosion_profile_edit_service.active_target()
         if target_is_a is None:
             self.endview_controller.clear_corrosion_profile_anchors()
             return
@@ -317,7 +350,7 @@ class CorrosionProfileController:
 
         volume = self._get_volume()
         if volume is not None:
-            self.cscan_controller.update_views(volume)
+            self.cscan_controller.update_views(volume, preserve_view=True)
         self.annotation_controller.refresh_overlay(defer_volume=False, rebuild=True)
         self.sync_anchors()
         self._status_message("Profil corrosion applique.", timeout_ms=2000)

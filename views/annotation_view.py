@@ -28,6 +28,7 @@ class AnnotationView(EndviewView):
     mod_drag_finished = pyqtSignal(object)
     mod_double_clicked = pyqtSignal(object)
     mod_context_requested = pyqtSignal(object)
+    mod_ctrl_left_clicked = pyqtSignal(object)
     paint_stroke_started = pyqtSignal(object)
     paint_stroke_moved = pyqtSignal(object)
     paint_stroke_finished = pyqtSignal(object)
@@ -452,6 +453,14 @@ class AnnotationView(EndviewView):
                             | Qt.KeyboardModifier.AltModifier
                         )
                     )
+                    if (
+                        event.type() == QEvent.Type.MouseButtonPress
+                        and event.button() == Qt.MouseButton.LeftButton
+                        and coords is not None
+                        and ctrl_only
+                    ):
+                        self.mod_ctrl_left_clicked.emit(coords)
+                        return True
                     if (
                         event.type() == QEvent.Type.MouseButtonPress
                         and event.button() == Qt.MouseButton.LeftButton

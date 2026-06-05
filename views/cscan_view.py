@@ -194,6 +194,7 @@ class CScanView(QFrame):
         value_range: Optional[Tuple[float, float]] = None,
         colormaps: Optional[Tuple[str, ...]] = None,
         value_scale_mm: Optional[float] = None,
+        preserve_view: bool = False,
     ) -> None:
         """Display the projection (Z, X)."""
         if projection is None or projection.size == 0:
@@ -208,18 +209,48 @@ class CScanView(QFrame):
             self._clear_rulers()
             return
 
-        self._projection = np.asarray(projection, dtype=np.float32)
+        previous_shape = None if self._projection is None else tuple(self._projection.shape)
+        previous_crosshair = self._current_crosshair
+        previous_pan_center = (
+            QPointF(float(self._pan_center_scene.x()), float(self._pan_center_scene.y()))
+            if self._pan_center_scene is not None
+            else None
+        )
+        previous_zoom_factor = float(self._zoom_factor)
+
+        new_projection = np.asarray(projection, dtype=np.float32)
+        preserve_current_view = (
+            bool(preserve_view)
+            and previous_shape is not None
+            and previous_shape == tuple(new_projection.shape)
+        )
+
+        self._projection = new_projection
         self._value_scale_mm = value_scale_mm
         if value_range is None:
             value_range = (float(self._projection.min()), float(self._projection.max()))
         self._value_range = value_range
         self._panning = False
-        self._pan_center_scene = None
-        self._zoom_factor = 1.0
-        self._current_crosshair = (
-            self._projection.shape[0] // 2,
-            self._projection.shape[1] // 2,
-        )
+        if preserve_current_view:
+            self._pan_center_scene = previous_pan_center
+            self._zoom_factor = previous_zoom_factor
+            if previous_crosshair is not None:
+                self._current_crosshair = (
+                    max(0, min(self._projection.shape[0] - 1, int(previous_crosshair[0]))),
+                    max(0, min(self._projection.shape[1] - 1, int(previous_crosshair[1]))),
+                )
+            else:
+                self._current_crosshair = (
+                    self._projection.shape[0] // 2,
+                    self._projection.shape[1] // 2,
+                )
+        else:
+            self._pan_center_scene = None
+            self._zoom_factor = 1.0
+            self._current_crosshair = (
+                self._projection.shape[0] // 2,
+                self._projection.shape[1] // 2,
+            )
         self._render_pixmap()
         self._update_cursor(*self._current_crosshair)
 

@@ -4756,3 +4756,23 @@ Le popup de chargement affichait deja un message et une barre indeterminee, mais
 1. Placer le chronometre dans la View partagee `LoadingPopupView`, afin de respecter MVC : le controller continue seulement d ouvrir/fermer le popup et les services restent sans logique UI.
 2. Utiliser `QElapsedTimer` pour mesurer le temps et un `QTimer` parenté au dialog pour rafraichir l affichage toutes les secondes, afin de rester dans le cycle Qt normal.
 3. Ne pas ajouter de parametre de configuration ni de branchement specifique dans `MasterController`, pour que le popup interne `nnUNet`, le popup externe corrosion/interpolation et le fallback interne heritent du meme comportement.
+
+### 2026-06-05 - Mod corrosion au clic, apply Enter et deplacement de peak
+**Tags :** `#branch:feature/amelioration-mod`, `#MEMORY.md`, `#controllers/corrosion_profile_controller.py`, `#controllers/cscan_controller.py`, `#controllers/master_controller.py`, `#services/corrosion_profile_edit_service.py`, `#views/annotation_view.py`, `#views/cscan_view.py`, `#mod-tool`, `#corrosion`, `#raw`, `#interpolated`, `#peakmap`, `#cscan`, `#keyboard`, `#mvc`, `#pyqt6`
+
+**Actions effectuées :**
+- Modifie le flux `Mod` des layers corrosion `raw` et `interpolated` pour choisir la cible A/B depuis le profil clique, plutot que depuis le label actif du panneau.
+- Ajoute dans `services/corrosion_profile_edit_service.py` une detection de cible par overlay/peak map et un etat `active_target` utilise par les anchors et les edits pending.
+- Route `Enter` et `Return` dans `controllers/master_controller.py` vers le commit des edits corrosion pending avant de retomber sur le apply normal des masques temporaires.
+- Ajoute un parametre `preserve_view` dans `controllers/cscan_controller.py` et `views/cscan_view.py` afin de conserver zoom, pan et crosshair du C-scan pendant l apply du profil corrosion.
+- Ajoute un signal `mod_ctrl_left_clicked` dans `views/annotation_view.py` et le branche dans `controllers/master_controller.py` vers le controller corrosion uniquement.
+- Ajoute dans `services/corrosion_profile_edit_service.py` le deplacement ponctuel d un peak existant dans la colonne cliquee, sans creation de nouveau peak si la colonne est vide.
+
+**Contexte :**
+L edition des profils corrosion dans les layers `raw` et `interpolated` devait retrouver l ergonomie du `Mod` standard : travailler sur l objet clique, appliquer avec `Enter`, et ne pas perturber le zoom C-scan pendant la validation. Un besoin supplementaire etait de corriger rapidement un peak deja present dans une colonne par `Ctrl+clic gauche`, sans passer par les anchors ni creer de donnees nouvelles.
+
+**Décisions techniques :**
+1. Garder la source de verite dans les peak maps pending du service corrosion, afin que le raw et l interpolated restent coherents avec le rendu vectorise et le commit metier.
+2. Conserver `active_label` du ToolsPanel hors du flux corrosion `Mod`, et stocker la cible A/B courante dans `CorrosionProfileEditService` comme contexte d edition.
+3. Limiter `preserve_view=True` au commit du profil corrosion, afin de ne pas supprimer les resets de zoom attendus lors des changements reels de projection, session, analyse ou interpolation.
+4. Faire de `Ctrl+clic gauche` une interaction dediee au `Mod` corrosion : la View emet seulement un signal d intention, le Controller route selon le contexte, et le Service applique la mutation metier de peak map.

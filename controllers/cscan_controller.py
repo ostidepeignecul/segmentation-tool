@@ -176,7 +176,7 @@ class CScanController:
         return int(x), y
 
     # --- Update projections --------------------------------------------------------
-    def update_views(self, volume: Optional[np.ndarray]) -> None:
+    def update_views(self, volume: Optional[np.ndarray], *, preserve_view: bool = False) -> None:
         """Met à jour la projection standard et corrosion selon l'état courant."""
         if volume is None:
             return
@@ -217,6 +217,7 @@ class CScanController:
                 value_range,
                 colormaps=("Corrosion",),
                 value_scale_mm=ultrasound_resolution_mm,
+                preserve_view=preserve_view,
             )
         else:
             self.view_state_model.deactivate_corrosion()
@@ -226,6 +227,7 @@ class CScanController:
                     standard_projection,
                     standard_range,
                     colormaps=("Gray", "OmniScan"),
+                    preserve_view=preserve_view,
                 )
 
     # --- Corrosion workflow --------------------------------------------------------

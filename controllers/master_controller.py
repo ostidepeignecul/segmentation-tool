@@ -604,6 +604,7 @@ class MasterController:
         self.annotation_view.mod_drag_finished.connect(self._on_mod_drag_finished)
         self.annotation_view.mod_double_clicked.connect(self._on_mod_double_clicked)
         self.annotation_view.mod_context_requested.connect(self._on_mod_context_requested)
+        self.annotation_view.mod_ctrl_left_clicked.connect(self._on_mod_ctrl_left_clicked)
         self.annotation_view.restriction_rect_changed.connect(
             self.annotation_controller.on_restriction_rect_changed
         )
@@ -738,8 +739,8 @@ class MasterController:
             (QKeySequence(QKeySequence.StandardKey.Undo), self._on_annotation_undo_requested),
             (QKeySequence("Ctrl+Shift+Z"), self._on_annotation_redo_requested),
             (QKeySequence(Qt.Key.Key_Escape), self._on_selection_cancel_requested),
-            (QKeySequence(Qt.Key.Key_Return), self.annotation_controller.on_apply_all_temp_masks_requested),
-            (QKeySequence(Qt.Key.Key_Enter), self.annotation_controller.on_apply_all_temp_masks_requested),
+            (QKeySequence(Qt.Key.Key_Return), self._on_apply_all_temp_masks_requested),
+            (QKeySequence(Qt.Key.Key_Enter), self._on_apply_all_temp_masks_requested),
         ]
         for seq, handler in mapping:
             sc = QShortcut(seq, parent)
@@ -2071,6 +2072,21 @@ class MasterController:
         if self.annotation_controller.on_apply_temp_mask_requested():
             self._mark_active_session_dirty()
 
+    def _on_apply_all_temp_masks_requested(self) -> None:
+        """Apply the active edit workflow from the Enter/Return shortcut."""
+        if (
+            self.corrosion_profile_controller.is_profile_mod_active()
+            or self.corrosion_profile_edit_service.has_pending_edits()
+        ):
+            if self.corrosion_profile_edit_service.has_pending_edits():
+                if not self.corrosion_profile_controller.commit_pending_edits():
+                    self.status_message(
+                        "Unable to apply the pending corrosion edits.",
+                        5000,
+                    )
+            return
+        self.annotation_controller.on_apply_all_temp_masks_requested()
+
     def _on_selection_cancel_requested(self) -> None:
         """Cancel mod pending edits first, then fallback to ROI/temp cancel."""
         if self.corrosion_profile_controller.on_selection_cancel_requested():
@@ -2299,6 +2315,12 @@ class MasterController:
             return
         preview_created = self.mask_modification_controller.on_context_menu_requested(payload)
         self._apply_annotation_preview_if_needed(preview_created)
+
+    def _on_mod_ctrl_left_clicked(self, pos: Any) -> None:
+        """Move an existing corrosion profile peak in the clicked column."""
+        if not self.corrosion_profile_controller.is_profile_mod_active():
+            return
+        self.corrosion_profile_controller.on_ctrl_left_clicked(pos)
 
     def _on_annotation_freehand_completed(self, points: Any) -> None:
         """Create the ROI preview, then optionally apply it immediately."""
