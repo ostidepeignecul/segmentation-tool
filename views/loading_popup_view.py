@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QElapsedTimer, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QDialog,
@@ -104,6 +104,12 @@ class LoadingPopupView(QDialog):
         self._message_label.setWordWrap(True)
         layout.addWidget(self._message_label)
 
+        self._elapsed_timer = QElapsedTimer()
+        self._elapsed_timer.start()
+        self._elapsed_label = QLabel(self)
+        self._elapsed_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self._elapsed_label)
+
         self._progress_bar = QProgressBar(self)
         self._progress_bar.setRange(0, 0)
         self._progress_bar.setTextVisible(False)
@@ -117,6 +123,10 @@ class LoadingPopupView(QDialog):
 
         self.log_line_received.connect(self.append_log_line)
         self.set_log_visible(show_log)
+        self._elapsed_update_timer = QTimer(self)
+        self._elapsed_update_timer.timeout.connect(self._refresh_elapsed_label)
+        self._elapsed_update_timer.start(1000)
+        self._refresh_elapsed_label()
 
     def set_message(self, message: str) -> None:
         self._message_label.setText(str(message or "").strip())
@@ -131,6 +141,7 @@ class LoadingPopupView(QDialog):
         self._log_view.appendPlainText(text)
 
     def finish(self) -> None:
+        self._elapsed_update_timer.stop()
         self._allow_close = True
         self.close()
 
@@ -140,9 +151,20 @@ class LoadingPopupView(QDialog):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._allow_close:
+            self._elapsed_update_timer.stop()
             super().closeEvent(event)
             return
         event.ignore()
+
+    def _refresh_elapsed_label(self) -> None:
+        elapsed_seconds = max(0, int(self._elapsed_timer.elapsed() / 1000))
+        hours, remainder = divmod(elapsed_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            elapsed = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        else:
+            elapsed = f"{minutes:02d}:{seconds:02d}"
+        self._elapsed_label.setText(f"Temps ecoule: {elapsed}")
 
 
 class LoadingPopupLogHandler(logging.Handler):

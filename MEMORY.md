@@ -4739,3 +4739,20 @@ Le popup interne Qt restait visible mais gelait pendant le push des overlays/lay
 1. Utiliser `QThreadPool` uniquement pour deplacer le calcul service hors UI, puis garder l application des resultats dans `MasterController` afin de respecter les contraintes Qt et MVC.
 2. Deplacer l animation du popup corrosion/interpolation dans un sous-processus PyQt separe, car un widget du meme thread UI ne peut pas repeindre pendant `set_overlay_stack`, `set_projection` ou `_after_layer_stack_changed`.
 3. Conserver le popup interne existant pour `nnUNet`, qui a besoin de la zone de logs et dont le flux est deja pilote par callbacks/signaux, tout en reutilisant le popup interne comme fallback si le popup externe echoue.
+
+### 2026-06-04 - Chronometre dans le popup de chargement
+**Tags :** `#branch:feature/loading`, `#MEMORY.md`, `#views/loading_popup_view.py`, `#loading`, `#chronometre`, `#nnunet`, `#corrosion`, `#interpolation`, `#ui`, `#mvc`, `#pyqt6`, `#qtimer`
+
+**Actions effectuées :**
+- Ajoute un `QElapsedTimer` et un `QTimer` dans `views/loading_popup_view.py` pour afficher un temps ecoule dans `LoadingPopupView`.
+- Ajoute un label aligne a droite sous le message du popup, avec un format `MM:SS` puis `HH:MM:SS` au-dela d une heure.
+- Stoppe le timer de rafraichissement dans `finish()` et `closeEvent()` afin de nettoyer proprement le popup a sa fermeture.
+- Couvre automatiquement les trois workflows existants : inference `nnUNet`, analyse corrosion et interpolation, y compris le popup externe et le fallback interne, car ils instancient tous `LoadingPopupView`.
+
+**Contexte :**
+Le popup de chargement affichait deja un message et une barre indeterminee, mais il ne donnait pas d indication de duree. Le besoin etait d ajouter un chronometre visible pour les trois operations longues sans modifier leurs pipelines metier ni disperser de logique de timing dans les controllers ou services.
+
+**Décisions techniques :**
+1. Placer le chronometre dans la View partagee `LoadingPopupView`, afin de respecter MVC : le controller continue seulement d ouvrir/fermer le popup et les services restent sans logique UI.
+2. Utiliser `QElapsedTimer` pour mesurer le temps et un `QTimer` parenté au dialog pour rafraichir l affichage toutes les secondes, afin de rester dans le cycle Qt normal.
+3. Ne pas ajouter de parametre de configuration ni de branchement specifique dans `MasterController`, pour que le popup interne `nnUNet`, le popup externe corrosion/interpolation et le fallback interne heritent du meme comportement.
