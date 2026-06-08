@@ -96,8 +96,10 @@ def normalize_corrosion_peak_selection_mode(mode: Optional[str]) -> str:
     aliases = {
         "optimiste": "optimistic",
         "optimistic": "optimistic",
+        "farthest_from_paired_peak": "optimistic",
         "pessimiste": "pessimistic",
         "pessimistic": "pessimistic",
+        "closest_to_paired_peak": "pessimistic",
         "max_peak": "max_peak",
         "maxpeak": "max_peak",
         "peak_max": "max_peak",

@@ -58,8 +58,12 @@ class CorrosionSettingsView(QDialog):
         self._interp_algo_combo = QComboBox(self)
 
         self._analysis_mode_combo.addItems(["Normal", "AC-AB"])
-        self._peak_mode_a_combo.addItems(["Max peak", "Optimistic", "Pessimistic"])
-        self._peak_mode_b_combo.addItems(["Max peak", "Optimistic", "Pessimistic"])
+        self._peak_mode_a_combo.addItems(
+            ["Max peak", "Farthest from paired peak", "Closest to paired peak"]
+        )
+        self._peak_mode_b_combo.addItems(
+            ["Max peak", "Farthest from paired peak", "Closest to paired peak"]
+        )
         self._interp_algo_combo.addItems(
             [
                 "1D Dual-Axis",

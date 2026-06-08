@@ -4776,3 +4776,19 @@ L edition des profils corrosion dans les layers `raw` et `interpolated` devait r
 2. Conserver `active_label` du ToolsPanel hors du flux corrosion `Mod`, et stocker la cible A/B courante dans `CorrosionProfileEditService` comme contexte d edition.
 3. Limiter `preserve_view=True` au commit du profil corrosion, afin de ne pas supprimer les resets de zoom attendus lors des changements reels de projection, session, analyse ou interpolation.
 4. Faire de `Ctrl+clic gauche` une interaction dediee au `Mod` corrosion : la View emet seulement un signal d intention, le Controller route selon le contexte, et le Service applique la mutation metier de peak map.
+
+### 2026-06-08 - Libelles de modes de pics clarifies pour NDT
+**Tags :** `#branch:main`, `#MEMORY.md`, `#config/constants.py`, `#views/corrosion_settings_view.py`, `#views/nde_settings_view.py`, `#peaks`, `#ui`, `#ndt`, `#compatibility`, `#mvc`
+
+**Actions effectuées :**
+- Remplace dans `views/corrosion_settings_view.py` et `views/nde_settings_view.py` les libelles visibles `Optimistic` et `Pessimistic` par `Farthest from paired peak` et `Closest to paired peak`.
+- Ajoute dans `config/constants.py` des alias de normalisation pour convertir ces nouveaux textes UI vers les cles internes stables `optimistic` et `pessimistic`.
+- Conserve `Max peak` inchange et ne modifie ni la logique de selection de pics, ni la persistance des modes deja enregistres.
+
+**Contexte :**
+La demande initiale venait d une ambiguite metier cote NDT : les termes `Optimistic` et `Pessimistic` n exprimaient pas clairement leur comportement. La verification du code a montre qu ils ne correspondent pas a `Max peak` et `First peak`, mais a deux heuristiques relatives au pic du label oppose. Il fallait donc clarifier l UI sans introduire de faux libelles ni casser les modes existants.
+
+**Décisions techniques :**
+1. Renommer uniquement les libelles visibles des combobox, afin d ameliorer la comprehension utilisateur sans changer le contrat interne du pipeline corrosion.
+2. Garder les cles internes `max_peak`, `optimistic` et `pessimistic` comme source de verite, puis accepter les nouveaux textes via `normalize_corrosion_peak_selection_mode` pour proteger la compatibilite et la persistance.
+3. Eviter le renommage propose en `Max peak` / `First peak`, car il aurait cree un doublon pour `Max peak` et un libelle faux pour `pessimistic`, dont la logique depend en realite de la distance au pic du label compagnon.

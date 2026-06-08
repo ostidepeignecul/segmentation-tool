@@ -110,7 +110,9 @@ class NdeSettingsView(QDialog):
         form.addRow(QLabel("Prune - label B"), self._prune_label_b_combo)
 
         self._prune_peak_mode_combo = QComboBox(self)
-        self._prune_peak_mode_combo.addItems(["Max peak", "Optimistic", "Pessimistic"])
+        self._prune_peak_mode_combo.addItems(
+            ["Max peak", "Farthest from paired peak", "Closest to paired peak"]
+        )
         self._prepare_peak_mode_combo(self._prune_peak_mode_combo)
         form.addRow(QLabel("Prune - mode"), self._prune_peak_mode_combo)
 
