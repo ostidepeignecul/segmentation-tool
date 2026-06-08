@@ -817,7 +817,7 @@ class AnnotationController:
         )
 
     def on_apply_volume_toggled(self, enabled: bool) -> None:
-        """Handle apply-to-volume toggle (stub)."""
+        """Persist the shared apply-to-volume mode."""
         self.view_state_model.set_apply_volume(enabled)
 
     def on_roi_persistence_toggled(self, enabled: bool) -> None:
@@ -1952,7 +1952,7 @@ class AnnotationController:
         """Invalidate the undo stack for committed annotations."""
         self.applied_annotation_history_model.clear()
 
-    def on_apply_all_temp_masks_requested(self) -> None:
+    def on_apply_all_temp_masks_requested(self) -> bool:
         """Apply temp masks across the whole volume regardless of the current slice mode."""
         prev_apply_volume = self.view_state_model.apply_volume
         prev_range = (self.view_state_model.apply_volume_start, self.view_state_model.apply_volume_end)
@@ -1961,7 +1961,7 @@ class AnnotationController:
         if depth is not None and depth > 0:
             self.view_state_model.set_apply_volume_range(0, depth - 1, include_current=False)
         try:
-            self.on_apply_temp_mask_requested()
+            return self.on_apply_temp_mask_requested()
         finally:
             self.view_state_model.set_apply_volume(prev_apply_volume)
             self.view_state_model.apply_volume_start = prev_range[0]

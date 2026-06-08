@@ -4792,3 +4792,25 @@ La demande initiale venait d une ambiguite metier cote NDT : les termes `Optimis
 1. Renommer uniquement les libelles visibles des combobox, afin d ameliorer la comprehension utilisateur sans changer le contrat interne du pipeline corrosion.
 2. Garder les cles internes `max_peak`, `optimistic` et `pessimistic` comme source de verite, puis accepter les nouveaux textes via `normalize_corrosion_peak_selection_mode` pour proteger la compatibilite et la persistance.
 3. Eviter le renommage propose en `Max peak` / `First peak`, car il aurait cree un doublon pour `Max peak` et un libelle faux pour `pessimistic`, dont la logique depend en realite de la distance au pic du label compagnon.
+
+### 2026-06-08 - Mod Apply Volume avec selection multiple de composantes 3D
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/mask_modification_controller.py`, `#controllers/master_controller.py`, `#services/mask_modification_service.py`, `#mod-tool`, `#apply-volume`, `#connected-component`, `#temp-mask`, `#endview`, `#labels`, `#mvc`, `#numpy`, `#scikit-image`
+
+**Actions effectuées :**
+- Connecte le checkbox `Apply volume` au workflow `Mod` normal via `MasterController`, tout en conservant son usage existant pour les autres outils d annotation.
+- Etend `MaskModificationService` avec une selection de composantes 3D 26-connectees construite par flood depuis le mask effectif, incluant les previews deja presentes dans `TempMaskModel`.
+- Permet d accumuler plusieurs composantes 3D du meme label dans une union de selection ; un clic sur un autre label remplace la selection, comme dans le comportement multi-selection 2D existant.
+- Conserve la selection volume pendant la navigation entre endviews et reconstruit sur chaque slice uniquement les contours des composantes selectionnees qui l intersectent.
+- Maintient l edition de forme contour par contour sur l endview courant, puis met a jour la selection 3D et le preview temporaire de cette slice.
+- Applique `Change label` et `Delete` a toutes les composantes 3D selectionnees, sans modifier les autres composantes de meme label.
+- Force l application finale des edits `Mod` volume sur toute la couverture temporaire, meme lorsque certaines slices sont hors de la plage `Apply to volume`, et retourne le resultat du apply complet pour conserver le marquage de session dirty.
+
+**Contexte :**
+Dans le layer normal, le checkbox `Apply volume` etait deja persiste mais le mode `Mod` restait strictement slice-first. Le besoin etait de selectionner une ou plusieurs composantes connectees dans tout le volume, de modifier leur forme independamment endview par endview, puis de propager les actions de relabel ou suppression a toutes les slices concernees sans casser le workflow temporaire, la selection multiple 2D ni les autres outils d annotation.
+
+**Décisions techniques :**
+1. Garder `TempMaskModel` comme pipeline unique de preview et d application afin de conserver cancel, undo, overlay temporaire et compatibilite avec les outils existants.
+2. Stocker la selection volume comme une union booleenne de composantes 26-connectees du meme label dans `MaskModificationService`, puis reconstruire les composantes 2D editables lors de chaque changement d endview.
+3. Reutiliser la semantique multi-selection 2D existante : accumuler les composants de meme label, ignorer les doublons par union booleenne et remplacer la selection lors d un changement de label.
+4. Garder la logique metier de connectivite, selection et mutation volume dans le service ; le controller orchestre navigation, previews et application, tandis que la View reste limitee au rendu des contours et anchors.
+5. Distinguer les edits `Mod` volume pending afin que `MasterController` applique leur couverture sur le volume complet avant de nettoyer le temporaire.

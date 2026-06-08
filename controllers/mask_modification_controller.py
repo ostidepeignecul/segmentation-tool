@@ -89,7 +89,13 @@ class MaskModificationController:
             return
         self.sync_anchors()
 
-    def on_slice_changed(self, _slice_idx: int) -> None:
+    def on_apply_volume_toggled(self, _enabled: bool) -> None:
+        """Keep the Mod selection context aligned with the shared Apply Volume toggle."""
+        self.mask_modification_service.clear_active_component()
+        self._reset_mod_pointer_state()
+        self.annotation_view.clear_mod_anchor_points()
+
+    def on_slice_changed(self, slice_idx: int) -> None:
         if self._is_corrosion_layer_mode():
             self.mask_modification_service.clear_active_component()
             self._reset_mod_pointer_state()
@@ -100,8 +106,18 @@ class MaskModificationController:
             self._reset_mod_pointer_state()
             self.annotation_view.clear_mod_anchor_points()
             return
-        self.mask_modification_service.clear_active_component()
         self._reset_mod_pointer_state()
+        if self._is_volume_mod_enabled() and self.mask_modification_service.has_volume_selection():
+            effective_slice = self._effective_slice_mask(int(slice_idx))
+            if effective_slice is not None:
+                self.mask_modification_service.activate_volume_slice(
+                    slice_idx=int(slice_idx),
+                    slice_mask=effective_slice,
+                )
+            else:
+                self.mask_modification_service.clear_active_component()
+        else:
+            self.mask_modification_service.clear_active_component()
         self.sync_anchors()
 
     def on_drag_started(self, pos: Any) -> None:
@@ -191,14 +207,14 @@ class MaskModificationController:
             release_point = self._mod_press_pos
             effective_slice = self._effective_slice_mask(int(self._mod_press_slice_idx))
             if effective_slice is not None:
-                selected_idx = self.mask_modification_service.select_component(
+                selected_idx = self._select_component_at_point(
                     slice_idx=int(self._mod_press_slice_idx),
                     label=int(self._mod_press_label),
                     x_pos=int(release_point[0]),
                     y_pos=int(release_point[1]),
                     slice_mask=effective_slice,
                 )
-                if selected_idx is not None:
+                if selected_idx:
                     self._set_position_label(int(release_point[0]), int(release_point[1]))
                     preview_created = self._apply_mod_auto_relabel(source_label=int(self._mod_press_label))
         self.mask_modification_service.end_drag()
@@ -224,13 +240,14 @@ class MaskModificationController:
         if label is None:
             self._status_message("Double-click near a mask contour to add an anchor.", timeout_ms=1800)
             return
-        self.mask_modification_service.select_component(
+        if not self._select_component_at_point(
             slice_idx=slice_idx,
             label=label,
             x_pos=x,
             y_pos=y,
             slice_mask=effective_slice,
-        )
+        ):
+            return
         created = self.mask_modification_service.add_anchor_on_contour(
             slice_idx=slice_idx,
             label=label,
@@ -275,14 +292,14 @@ class MaskModificationController:
             )
             return False
 
-        selected_idx = self.mask_modification_service.select_component(
+        selected = self._select_component_at_point(
             slice_idx=slice_idx,
             label=label,
             x_pos=int(point[0]),
             y_pos=int(point[1]),
             slice_mask=effective_slice,
         )
-        if selected_idx is None:
+        if not selected:
             self._status_message(
                 "Ctrl+right-click directly on a mask to open the mod menu.",
                 timeout_ms=1800,
@@ -339,6 +356,31 @@ class MaskModificationController:
         if not self._ensure_context():
             return False
 
+        if self._is_volume_mod_enabled() and self.mask_modification_service.has_volume_selection():
+            effective_volume = self._effective_mask_volume()
+            deleted_volume = (
+                self.mask_modification_service.delete_selected_volume_component(
+                    mask_volume=effective_volume,
+                )
+                if effective_volume is not None
+                else None
+            )
+            if deleted_volume is None:
+                self._status_message(
+                    "Selectionne une composante volume en mode mod avant d'appuyer sur Delete.",
+                    timeout_ms=1800,
+                )
+                return False
+            self.annotation_view.clear_mod_anchor_points()
+            self._store_mod_preview_slices(deleted_volume)
+            self.refresh_preview(changed_slice=int(self.view_state_model.current_slice))
+            if not self._is_apply_auto_enabled():
+                self._status_message(
+                    "Suppression volume previsualisee. Applique pour valider.",
+                    timeout_ms=1800,
+                )
+            return True
+
         deleted = self.mask_modification_service.delete_selected_components()
         if deleted is None:
             self._status_message(
@@ -362,6 +404,32 @@ class MaskModificationController:
         if not self._ensure_context():
             return False
 
+        if self._is_volume_mod_enabled() and self.mask_modification_service.has_volume_selection():
+            effective_volume = self._effective_mask_volume()
+            changed_volume = (
+                self.mask_modification_service.relabel_selected_volume_component(
+                    mask_volume=effective_volume,
+                    target_label=int(target_label),
+                )
+                if effective_volume is not None
+                else None
+            )
+            if changed_volume is None:
+                self._status_message(
+                    "Selectionne une composante volume puis choisis un label cible different.",
+                    timeout_ms=1800,
+                )
+                return False
+            self.annotation_view.clear_mod_anchor_points()
+            self._store_mod_preview_slices(changed_volume)
+            self.refresh_preview(changed_slice=int(self.view_state_model.current_slice))
+            if not self._is_apply_auto_enabled():
+                self._status_message(
+                    "Changement de label volume previsualise. Applique pour valider.",
+                    timeout_ms=1800,
+                )
+            return True
+
         changed = self.mask_modification_service.relabel_selected_components(target_label=int(target_label))
         if changed is None:
             self._status_message(
@@ -384,6 +452,9 @@ class MaskModificationController:
 
     def has_pending_edits(self) -> bool:
         return self.mask_modification_service.has_pending_edits()
+
+    def requires_full_volume_apply(self) -> bool:
+        return self.mask_modification_service.has_volume_pending_edits()
 
     def commit_pending_edits(self) -> bool:
         changed = self.mask_modification_service.commit()
@@ -492,6 +563,52 @@ class MaskModificationController:
                 effective[cov] = arr[cov]
         return effective
 
+    def _effective_mask_volume(self) -> Optional[np.ndarray]:
+        mask_volume = self.annotation_model.get_mask_volume()
+        if mask_volume is None:
+            return None
+        effective = np.array(mask_volume, dtype=np.uint8, copy=True)
+        temp_volume = self.temp_mask_model.get_mask_volume()
+        coverage_volume = self.temp_mask_model.get_coverage_volume()
+        if temp_volume is None or coverage_volume is None:
+            return effective
+        temp = np.asarray(temp_volume, dtype=np.uint8)
+        coverage = np.asarray(coverage_volume, dtype=bool)
+        if temp.shape != effective.shape or coverage.shape != effective.shape:
+            return effective
+        effective[coverage] = temp[coverage]
+        return effective
+
+    def _select_component_at_point(
+        self,
+        *,
+        slice_idx: int,
+        label: int,
+        x_pos: int,
+        y_pos: int,
+        slice_mask: np.ndarray,
+    ) -> bool:
+        if self._is_volume_mod_enabled():
+            effective_volume = self._effective_mask_volume()
+            if effective_volume is None:
+                return False
+            return self.mask_modification_service.select_volume_component(
+                mask_volume=effective_volume,
+                slice_idx=int(slice_idx),
+                label=int(label),
+                x_pos=int(x_pos),
+                y_pos=int(y_pos),
+                slice_mask=slice_mask,
+            )
+        selected_idx = self.mask_modification_service.select_component(
+            slice_idx=int(slice_idx),
+            label=int(label),
+            x_pos=int(x_pos),
+            y_pos=int(y_pos),
+            slice_mask=slice_mask,
+        )
+        return selected_idx is not None
+
     def _active_label_for_mod(self) -> Optional[int]:
         label = self.view_state_model.active_label
         if label is None:
@@ -560,6 +677,13 @@ class MaskModificationController:
         self._mod_preview_slices.add(idx)
         self._mod_preview_current[idx] = (np.array(updated, copy=True), np.array(coverage, copy=True))
 
+    def _store_mod_preview_slices(self, slices: dict[int, np.ndarray]) -> None:
+        for slice_idx in sorted(int(idx) for idx in slices.keys()):
+            updated_slice = slices.get(slice_idx)
+            if updated_slice is None:
+                continue
+            self._store_mod_preview_slice(slice_idx=slice_idx, updated_slice=updated_slice)
+
     def _rebase_mod_preview_baseline(self, *, slice_idx: int) -> None:
         idx = int(slice_idx)
         if idx not in self._mod_preview_base:
@@ -616,6 +740,9 @@ class MaskModificationController:
 
     def _is_apply_auto_enabled(self) -> bool:
         return bool(getattr(self.view_state_model, "apply_auto", False))
+
+    def _is_volume_mod_enabled(self) -> bool:
+        return bool(getattr(self.view_state_model, "apply_volume", False))
 
     def _is_mod_apply_auto_enabled(self) -> bool:
         return bool(getattr(self.view_state_model, "mod_apply_auto", False))

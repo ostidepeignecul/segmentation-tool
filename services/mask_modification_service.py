@@ -7,6 +7,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
+from skimage.morphology import flood
 
 
 @dataclass
@@ -36,6 +37,9 @@ class MaskModificationService:
         self._active_label: Optional[int] = None
         self._active_slice_mask: Optional[np.ndarray] = None
         self._selected_components: list[_SelectedComponent] = []
+        self._selected_volume_mask: Optional[np.ndarray] = None
+        self._selected_volume_label: Optional[int] = None
+        self._volume_pending_edits: bool = False
 
     def has_pending_edits(self) -> bool:
         return bool(self._dirty_slices)
@@ -58,7 +62,9 @@ class MaskModificationService:
         return self.ensure_loaded(mask_volume)
 
     def clear_active_component(self) -> None:
-        self._clear_active_component()
+        self._clear_active_slice_context()
+        self._selected_volume_mask = None
+        self._selected_volume_label = None
         self._drag_active = False
         self._drag_component_list_idx = None
         self._drag_anchor_list_idx = None
@@ -66,6 +72,105 @@ class MaskModificationService:
     def active_context(self) -> tuple[Optional[int], Optional[int]]:
         """Return the currently loaded `(slice_idx, label)` context for mod editing."""
         return self._active_slice_idx, self._active_label
+
+    def has_volume_selection(self) -> bool:
+        return self._selected_volume_mask is not None and self._selected_volume_label is not None
+
+    def has_volume_pending_edits(self) -> bool:
+        return bool(self._volume_pending_edits and self._dirty_slices)
+
+    def select_volume_component(
+        self,
+        *,
+        mask_volume: np.ndarray,
+        slice_idx: int,
+        label: int,
+        x_pos: int,
+        y_pos: int,
+        slice_mask: np.ndarray,
+    ) -> bool:
+        """Add one 26-connected component to the current same-label volume selection."""
+        volume = np.asarray(mask_volume, dtype=np.uint8)
+        current_slice = np.asarray(slice_mask, dtype=np.uint8)
+        if volume.ndim != 3 or current_slice.ndim != 2:
+            return False
+        if current_slice.shape != volume.shape[1:]:
+            return False
+
+        z = int(slice_idx)
+        lbl = int(label)
+        if z < 0 or z >= volume.shape[0] or lbl <= 0:
+            return False
+        seed = self._resolve_label_seed(
+            slice_mask=current_slice,
+            label=lbl,
+            x_pos=int(x_pos),
+            y_pos=int(y_pos),
+        )
+        if seed is None:
+            return False
+        seed_x, seed_y = seed
+
+        if int(volume[z, seed_y, seed_x]) != lbl:
+            return False
+        selected_mask = flood(volume, (z, seed_y, seed_x), connectivity=3)
+        if selected_mask is None or not np.any(selected_mask):
+            return False
+
+        selected_bool = np.asarray(selected_mask, dtype=bool)
+        if (
+            self._selected_volume_mask is not None
+            and self._selected_volume_label is not None
+            and int(self._selected_volume_label) == lbl
+            and self._selected_volume_mask.shape == selected_bool.shape
+        ):
+            self._selected_volume_mask = np.logical_or(
+                self._selected_volume_mask,
+                selected_bool,
+            )
+        else:
+            self._selected_volume_mask = selected_bool
+        self._selected_volume_label = lbl
+        return self.activate_volume_slice(slice_idx=z, slice_mask=current_slice)
+
+    def activate_volume_slice(self, *, slice_idx: int, slice_mask: np.ndarray) -> bool:
+        """Load the selected volume component intersection for one editable endview."""
+        if self._selected_volume_mask is None or self._selected_volume_label is None:
+            return False
+        source_slice = np.asarray(slice_mask, dtype=np.uint8)
+        z = int(slice_idx)
+        if source_slice.ndim != 2:
+            return False
+        if z < 0 or z >= self._selected_volume_mask.shape[0]:
+            return False
+        if source_slice.shape != self._selected_volume_mask.shape[1:]:
+            return False
+
+        self._clear_active_slice_context()
+        self._active_slice_idx = z
+        self._active_label = int(self._selected_volume_label)
+        self._active_slice_mask = np.array(source_slice, dtype=np.uint8, copy=True)
+
+        selected_slice_bool = np.logical_and(
+            self._selected_volume_mask[z],
+            source_slice == int(self._selected_volume_label),
+        )
+        self._selected_volume_mask[z] = selected_slice_bool
+        selected_slice = np.asarray(selected_slice_bool, dtype=np.uint8)
+        component_count, component_map = cv2.connectedComponents(selected_slice, connectivity=8)
+        for component_id in range(1, int(component_count)):
+            component_mask = component_map == int(component_id)
+            if not np.any(component_mask):
+                continue
+            ys, xs = np.nonzero(component_mask)
+            component = self._build_component_from_mask(
+                component_mask=component_mask,
+                ref_x=int(xs[0]),
+                ref_y=int(ys[0]),
+            )
+            if component is not None:
+                self._selected_components.append(component)
+        return True
 
     def detect_label_at_point(self, *, slice_mask: np.ndarray, x_pos: int, y_pos: int) -> Optional[int]:
         """Resolve the label under the cursor, or the nearest contour label within tolerance."""
@@ -309,6 +414,12 @@ class MaskModificationService:
         updated_slice[refreshed.component_mask] = label
         self._active_slice_mask = np.array(updated_slice, dtype=np.uint8, copy=True)
         self._selected_components[component_idx] = refreshed
+        if self._selected_volume_mask is not None:
+            selected_slice = self._selected_volume_mask[int(self._active_slice_idx)]
+            selected_slice[np.asarray(component.component_mask, dtype=bool)] = False
+            selected_slice[np.asarray(refreshed.component_mask, dtype=bool)] = True
+            self._selected_volume_mask[int(self._active_slice_idx)] = selected_slice
+            self._volume_pending_edits = True
         nearest_active = self._nearest_anchor_list_index(
             component=refreshed,
             x_pos=int(round(float(x_new))),
@@ -390,12 +501,35 @@ class MaskModificationService:
         self.clear_active_component()
         return slice_idx, updated_slice
 
+    def delete_selected_volume_component(
+        self,
+        *,
+        mask_volume: np.ndarray,
+    ) -> Optional[dict[int, np.ndarray]]:
+        """Remove all selected 3D components from every intersecting slice."""
+        return self._replace_selected_volume_component(mask_volume=mask_volume, target_label=0)
+
+    def relabel_selected_volume_component(
+        self,
+        *,
+        mask_volume: np.ndarray,
+        target_label: int,
+    ) -> Optional[dict[int, np.ndarray]]:
+        """Reassign all selected 3D components on every intersecting slice."""
+        label = int(target_label)
+        if label <= 0 or self._selected_volume_label is None:
+            return None
+        if label == int(self._selected_volume_label):
+            return None
+        return self._replace_selected_volume_component(mask_volume=mask_volume, target_label=label)
+
     def preview_mask_volume(self) -> Optional[np.ndarray]:
         return None
 
     def cancel_pending(self) -> bool:
         had_dirty = bool(self._dirty_slices)
         self._dirty_slices.clear()
+        self._volume_pending_edits = False
         self.clear_active_component()
         return had_dirty
 
@@ -404,6 +538,7 @@ class MaskModificationService:
             return None
         changed = set(int(v) for v in self._dirty_slices)
         self._dirty_slices.clear()
+        self._volume_pending_edits = False
         self.clear_active_component()
         return changed
 
@@ -445,6 +580,36 @@ class MaskModificationService:
         if self._active_slice_mask is None or (not self._selected_components and not self._drag_active):
             self._active_slice_mask = np.array(slice_arr, dtype=np.uint8, copy=True)
         return np.array(self._active_slice_mask, dtype=np.uint8, copy=False)
+
+    def _replace_selected_volume_component(
+        self,
+        *,
+        mask_volume: np.ndarray,
+        target_label: int,
+    ) -> Optional[dict[int, np.ndarray]]:
+        if self._selected_volume_mask is None or self._selected_volume_label is None:
+            return None
+        volume = np.asarray(mask_volume, dtype=np.uint8)
+        if volume.ndim != 3 or volume.shape != self._selected_volume_mask.shape:
+            return None
+
+        selected = np.asarray(self._selected_volume_mask, dtype=bool)
+        slice_indices = np.flatnonzero(np.any(selected, axis=(1, 2)))
+        if slice_indices.size == 0:
+            return None
+
+        updated_slices: dict[int, np.ndarray] = {}
+        for raw_idx in slice_indices:
+            idx = int(raw_idx)
+            component_slice = selected[idx]
+            updated = np.array(volume[idx], dtype=np.uint8, copy=True)
+            updated[component_slice] = int(target_label)
+            updated_slices[idx] = updated
+            self._dirty_slices.add(idx)
+
+        self._volume_pending_edits = True
+        self.clear_active_component()
+        return updated_slices
 
     def _extract_component_at_point(
         self,
@@ -823,7 +988,41 @@ class MaskModificationService:
             pts = pts[:-1]
         return pts.astype(np.float32)
 
-    def _clear_active_component(self) -> None:
+    def _resolve_label_seed(
+        self,
+        *,
+        slice_mask: np.ndarray,
+        label: int,
+        x_pos: int,
+        y_pos: int,
+    ) -> Optional[tuple[int, int]]:
+        source = np.asarray(slice_mask, dtype=np.uint8)
+        if source.ndim != 2:
+            return None
+        height, width = source.shape
+        x = int(max(0, min(width - 1, int(x_pos))))
+        y = int(max(0, min(height - 1, int(y_pos))))
+        lbl = int(label)
+        if int(source[y, x]) == lbl:
+            return x, y
+
+        radius = int(self.CONTOUR_HIT_TOLERANCE_PX)
+        y0 = max(0, y - radius)
+        y1 = min(height, y + radius + 1)
+        x0 = max(0, x - radius)
+        x1 = min(width, x + radius + 1)
+        coords = np.argwhere(source[y0:y1, x0:x1] == lbl)
+        if coords.size == 0:
+            return None
+        dy = coords[:, 0] + y0 - y
+        dx = coords[:, 1] + x0 - x
+        distances = (dx * dx) + (dy * dy)
+        nearest_idx = int(np.argmin(distances))
+        if int(distances[nearest_idx]) > radius * radius:
+            return None
+        return int(coords[nearest_idx, 1] + x0), int(coords[nearest_idx, 0] + y0)
+
+    def _clear_active_slice_context(self) -> None:
         self._active_slice_idx = None
         self._active_label = None
         self._active_slice_mask = None

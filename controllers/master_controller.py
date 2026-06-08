@@ -544,7 +544,7 @@ class MasterController:
             self.mask_modification_controller.on_mod_apply_auto_toggled
         )
         self.tools_panel.threshold_auto_toggled.connect(self.annotation_controller.on_threshold_auto_toggled)
-        self.tools_panel.apply_volume_toggled.connect(self.annotation_controller.on_apply_volume_toggled)
+        self.tools_panel.apply_volume_toggled.connect(self._on_apply_volume_toggled)
         self.tools_panel.closing_mask_toggled.connect(self._on_closing_mask_toggled)
         self.tools_panel.clean_outliers_toggled.connect(self._on_clean_outliers_toggled)
         self.tools_panel.volume_view_overlay_toggled.connect(
@@ -2012,6 +2012,11 @@ class MasterController:
         self.view_state_model.set_prune_label_b(label_b)
         self._sync_prune_label_choices()
 
+    def _on_apply_volume_toggled(self, enabled: bool) -> None:
+        """Route Apply Volume state to annotation generation and Mod selection."""
+        self.annotation_controller.on_apply_volume_toggled(bool(enabled))
+        self.mask_modification_controller.on_apply_volume_toggled(bool(enabled))
+
     def _on_closing_mask_toggled(self, enabled: bool) -> None:
         """Handle closing-mask toggle from the tools panel."""
         self.view_state_model.set_closing_mask_enabled(bool(enabled))
@@ -2068,8 +2073,13 @@ class MasterController:
 
     def _apply_roi_non_corrosion(self) -> None:
         """Apply all temporary masks through the standard pipeline."""
+        apply_full_volume = self.mask_modification_controller.requires_full_volume_apply()
         self.mask_modification_controller.commit_pending_edits()
-        if self.annotation_controller.on_apply_temp_mask_requested():
+        if apply_full_volume:
+            applied = self.annotation_controller.on_apply_all_temp_masks_requested()
+        else:
+            applied = self.annotation_controller.on_apply_temp_mask_requested()
+        if applied:
             self._mark_active_session_dirty()
 
     def _on_apply_all_temp_masks_requested(self) -> None:
@@ -2085,7 +2095,9 @@ class MasterController:
                         5000,
                     )
             return
-        self.annotation_controller.on_apply_all_temp_masks_requested()
+        self.mask_modification_controller.commit_pending_edits()
+        if self.annotation_controller.on_apply_all_temp_masks_requested():
+            self._mark_active_session_dirty()
 
     def _on_selection_cancel_requested(self) -> None:
         """Cancel mod pending edits first, then fallback to ROI/temp cancel."""
