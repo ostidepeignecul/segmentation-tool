@@ -77,6 +77,7 @@ class NnUnetService:
         seg_inp = PipelineInput(
             config={
                 "chunk_parts": chunk_parts,
+                "get_probabilities": False,
             },
             pipeline_id="nnunet-inference",
             group_index=0,

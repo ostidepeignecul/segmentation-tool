@@ -547,9 +547,8 @@ class nnUNetv2IteratorInference(StepPlugin[nnUNetPreprocessOutput, InferenceOutp
         # ------------------------------------------------------------------
         # run nnU-Net inference (one call per “image”)
         # ------------------------------------------------------------------
-        get_probabilities = sinp.config.get("get_probabilities", True)
+        get_probabilities = bool(sinp.config.get("get_probabilities", False))
         segmentations: list[np.ndarray] = []
-        probabilities: list[np.ndarray] | None = [] if get_probabilities else None
 
         log_nn = logging.getLogger("nnunet")
 
@@ -562,11 +561,10 @@ class nnUNetv2IteratorInference(StepPlugin[nnUNetPreprocessOutput, InferenceOutp
             )
 
             if get_probabilities:
-                for i, (seg, prob) in enumerate(seg_result):
+                for seg, _prob in seg_result:
                     segmentations.append(seg)
-                    probabilities.append(prob)
             else:
-                segmentations.append(seg_result)  # type: ignore[arg-type]
+                segmentations.extend(seg_result)
 
             # wrapped_iterator.update(1)  # manual tick for the progress bar
 

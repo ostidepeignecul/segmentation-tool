@@ -4814,3 +4814,20 @@ Dans le layer normal, le checkbox `Apply volume` etait deja persiste mais le mod
 3. Reutiliser la semantique multi-selection 2D existante : accumuler les composants de meme label, ignorer les doublons par union booleenne et remplacer la selection lors d un changement de label.
 4. Garder la logique metier de connectivite, selection et mutation volume dans le service ; le controller orchestre navigation, previews et application, tandis que la View reste limitee au rendu des contours et anchors.
 5. Distinguer les edits `Mod` volume pending afin que `MasterController` applique leur couverture sur le volume complet avant de nettoyer le temporaire.
+
+### 2026-06-10 - Reduction memoire inference nnUNet
+**Tags :** `#branch:fix/memory-inference`, `#MEMORY.md`, `#services/nnunet_service.py`, `#plugins/segmentation_hooks/segmentation_plugins/nnunetv2_plugin.py`, `#nnunet`, `#inference`, `#memory`, `#probabilities`, `#multiprocessing`, `#mvc`
+
+**Actions effectuées :**
+- Desactive explicitement `get_probabilities` dans `services/nnunet_service.py` pour demander a nnUNet uniquement le masque final.
+- Change le defaut de `get_probabilities` dans `plugins/segmentation_hooks/segmentation_plugins/nnunetv2_plugin.py` a `False`, afin d eviter le retour automatique des probabilites float32.
+- Corrige la collecte des resultats sans probabilites en etendant la liste de segmentations avec les masques retournes par `predict_from_data_iterator`, plutot que d ajouter toute la liste comme un seul element.
+- Conserve le chemin avec probabilites disponible si la configuration le reactive explicitement, mais sans stocker les probabilites dans le resultat final de l application.
+
+**Contexte :**
+Une inference nnUNet sur un gros NDE pouvait echouer en fin de traitement avec `multiprocessing.pool.MaybeEncodingError` et `MemoryError`, car nnUNet renvoyait aussi les probabilites par classe en `float32`. Ces probabilites representaient plusieurs Gio de donnees transitoires et n etaient pas utilisees par le workflow courant, qui sauvegarde et recharge uniquement le masque NPZ.
+
+**Décisions techniques :**
+1. Garder le changement minimal dans le service : passer le flag de configuration qui exprime le besoin applicatif, soit un masque final sans probabilites.
+2. Corriger la branche plugin sans probabilites pour respecter la forme de retour nnUNet, qui est une liste de segmentations.
+3. Ne pas ajouter de nouvelle UI ni de logique metier : le changement reste limite au service d orchestration et au plugin nnUNet.
