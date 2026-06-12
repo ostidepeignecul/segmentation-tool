@@ -34,6 +34,7 @@ CORROSION_LAYER_VIEW_STATE_KEYS = (
     "corrosion_raw_peak_index_map_b",
     "corrosion_ascan_support_map",
     "corrosion_interpolation_algo",
+    "corrosion_interpolation_gap_px",
     "corrosion_analysis_mode",
     "corrosion_peak_selection_mode",
     "corrosion_peak_selection_mode_a",
@@ -1295,7 +1296,9 @@ class AnnotationSessionManager:
                 peak_a = payload.get("corrosion_raw_peak_index_map_a")
                 peak_b = payload.get("corrosion_raw_peak_index_map_b")
             connect_points = True
-            max_gap_px = None
+            max_gap_px = cls._normalize_interpolation_gap_px(
+                payload.get("corrosion_interpolation_gap_px")
+            )
         else:
             return None
 
@@ -1331,6 +1334,14 @@ class AnnotationSessionManager:
     def _normalize_layer_kind(cls, value: Optional[str]) -> str:
         normalized = str(value or "annotation").strip().casefold()
         return "corrosion" if normalized == "corrosion" else "annotation"
+
+    @staticmethod
+    def _normalize_interpolation_gap_px(value: Any) -> int:
+        try:
+            gap = int(value)
+        except Exception:
+            gap = 0
+        return max(0, gap)
 
     @classmethod
     def _layer_kind_from_view_state(cls, view_state_model: ViewStateModel) -> str:
@@ -1467,7 +1478,12 @@ class AnnotationSessionManager:
         for key, value in corrosion_state.payload.items():
             if key == "corrosion_active":
                 continue
+            if key == "corrosion_interpolation_gap_px":
+                view_state_model.set_corrosion_interpolation_gap_px(value)
+                continue
             setattr(view_state_model, key, cls._copy_view_state_value(value))
+        if "corrosion_interpolation_gap_px" not in corrosion_state.payload:
+            view_state_model.set_corrosion_interpolation_gap_px(0)
         view_state_model.corrosion_overlay_volume = getattr(layer, "mask_volume", None)
         runtime_cache = cls._normalize_corrosion_runtime_cache(
             getattr(layer, "corrosion_runtime_cache", None)

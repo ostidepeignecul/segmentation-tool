@@ -93,6 +93,7 @@ class ViewStateModel:
         self.corrosion_raw_distance_map: Optional[Any] = None
         self.corrosion_ascan_support_map: Optional[Any] = None
         self.corrosion_interpolation_algo: str = "1d_dual_axis"
+        self.corrosion_interpolation_gap_px: int = 0
         self.corrosion_analysis_mode: str = "normal"
         self.corrosion_peak_selection_mode: str = "max_peak"
         self.corrosion_peak_selection_mode_a: str = "max_peak"
@@ -522,6 +523,16 @@ class ViewStateModel:
         normalized = normalize_interpolation_algo(algo)
         self.corrosion_interpolation_algo = normalized
         return normalized
+
+    def set_corrosion_interpolation_gap_px(self, value: Optional[int]) -> int:
+        try:
+            gap = int(value)
+        except Exception:
+            gap = 0
+        if gap < 0:
+            gap = 0
+        self.corrosion_interpolation_gap_px = gap
+        return gap
 
     def get_corrosion_analysis_mode(self) -> str:
         return normalize_corrosion_analysis_mode(

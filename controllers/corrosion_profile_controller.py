@@ -195,6 +195,7 @@ class CorrosionProfileController:
         support_map = self.view_state_model.corrosion_ascan_support_map
         if label_ids is None or peak_map_a is None or peak_map_b is None:
             return False
+        max_gap_px = getattr(self.view_state_model, "corrosion_interpolation_gap_px", 0)
         return self.corrosion_profile_edit_service.ensure_context(
             peak_map_a=peak_map_a,
             peak_map_b=peak_map_b,
@@ -205,6 +206,7 @@ class CorrosionProfileController:
             preserve_existing_gaps=(
                 self.view_state_model.get_corrosion_session_stage() == CORROSION_STAGE_RAW
             ),
+            max_gap_px=max_gap_px,
         )
 
     def refresh_preview(self) -> None:
