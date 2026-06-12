@@ -4831,3 +4831,20 @@ Une inference nnUNet sur un gros NDE pouvait echouer en fin de traitement avec `
 1. Garder le changement minimal dans le service : passer le flag de configuration qui exprime le besoin applicatif, soit un masque final sans probabilites.
 2. Corriger la branche plugin sans probabilites pour respecter la forme de retour nnUNet, qui est une liste de segmentations.
 3. Ne pas ajouter de nouvelle UI ni de logique metier : le changement reste limite au service d orchestration et au plugin nnUNet.
+
+### 2026-06-11 - Support NDE 4.2.0 dans le loader
+**Tags :** `#branch:main`, `#MEMORY.md`, `#services/nde_loader.py`, `#nde-loader`, `#nde-version`, `#hdf5`, `#mvc`
+
+**Actions effectuées :**
+- Ajoute `4.2.0` a la liste des versions NDE 4.x acceptees par `get_unistatus` dans `services/nde_loader.py`.
+- Conserve l utilisation de `Unistatus_NDE_4_0_0_Dev` pour cette version, car le fichier analyse expose le meme schema exploitable que les versions 4.x deja supportees.
+- Verifie le chargement complet du fichier `25521_LW-FWD-Root_Left_20260601_162018.nde`, avec un volume charge en `(251, 1060, 451)` et des metadonnees `nde_version=4.2.0`.
+- Valide la syntaxe du loader avec `python -m py_compile services\nde_loader.py`.
+
+**Contexte :**
+Un fichier NDE recent echouait a l ouverture avec `Unsupported NDE version: 4.2.0`. L inspection HDF5 a montre que `Public/Setup`, le groupe `GR-1`, le dataset `AScanAmplitude` et les informations d axes U/V/W etaient lisibles par le pipeline 4.x existant. Le blocage venait uniquement de la whitelist de versions dans le loader.
+
+**Décisions techniques :**
+1. Etendre explicitement la compatibilite de `get_unistatus` a `4.2.0` sans creer de nouvelle classe de version, afin de limiter le changement au point de rejet.
+2. Ne pas modifier les couches Controller, View ou Model : la correction reste dans le service de chargement NDE et respecte la separation MVC.
+3. Garder une whitelist explicite des versions 4.x supportees pour eviter d accepter automatiquement une future version dont le schema pourrait changer.

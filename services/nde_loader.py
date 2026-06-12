@@ -378,7 +378,7 @@ def get_unistatus(json_decoded) -> Unistatus_NDE_3_0_0 | Unistatus_NDE_4_0_0_Dev
         | (version == "3.0.0.ReducedForAI")
     ):
         return Unistatus_NDE_3_0_0(json_decoded)
-    elif version in ["4.0.0-Dev", "4.0.0", "4.1.0"]:
+    elif version in ["4.0.0-Dev", "4.0.0", "4.1.0", "4.2.0"]:
         return Unistatus_NDE_4_0_0_Dev(json_decoded)
 
 
