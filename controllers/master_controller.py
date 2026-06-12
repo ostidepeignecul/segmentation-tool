@@ -3016,9 +3016,12 @@ class MasterController:
         self.view_state_model.set_secondary_slice(volume.shape[2] // 2)
         self.view_state_model.set_current_point(None)
         self.view_state_model.set_apply_volume_range(0, num_slices - 1, include_current=True)
-        self.annotation_controller.reset_overlay_state(preserve_labels=True)
+        self.annotation_controller.reset_overlay_state(preserve_labels=False)
         self.imported_overlay_model.clear()
+        self.annotation_model.clear()
         self.annotation_model.initialize(volume.shape)
+        self.temp_mask_model.label_palette = {}
+        self.temp_mask_model.label_visibility = {}
         self.temp_mask_model.clear()
         self.temp_mask_model.initialize(volume.shape)
         self.roi_model.clear()

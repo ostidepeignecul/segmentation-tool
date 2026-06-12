@@ -4866,3 +4866,19 @@ L utilisateur voulait pouvoir modifier depuis l UI un parametre deja existant a 
 1. Garder `0` comme valeur par defaut afin de ne pas changer le comportement actuel : les zones sans A-scan restent ouvertes tant que l utilisateur ne configure pas un pontage positif.
 2. Faire circuler le seuil comme parametre explicite du workflow d interpolation plutot que de muter un attribut global de service, afin qu une interpolation lancee utilise la valeur capturee par le controller.
 3. Stocker `corrosion_interpolation_gap_px` dans l etat de layer corrosion pour que les layers interpolated conservent leur seuil de rendu apres changement de layer, sauvegarde ou restauration de session.
+
+### 2026-06-12 - Reset des couleurs au nouveau NDE et nouveau layer
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/master_controller.py`, `#services/annotation_session_manager.py`, `#nde`, `#layer`, `#palette`, `#state`, `#mvc`
+
+**Actions effectuées :**
+- Force l ouverture d un nouveau NDE a appeler `reset_overlay_state(preserve_labels=False)` dans `controllers/master_controller.py`.
+- Vide explicitement `AnnotationModel` et les palettes/visibilites du `TempMaskModel` avant leur reinitialisation sur le volume du nouveau NDE.
+- Cree les nouveaux layers annotation avec `label_palette={}` et `label_visibility={}` dans `services/annotation_session_manager.py`, au lieu de copier la palette du layer actif.
+
+**Contexte :**
+Les couleurs d un layer actif, notamment celles des layers corrosion raw/interpolated, pouvaient etre conservees lors de l ouverture d un nouveau NDE ou de la creation d un nouveau layer annotation. Le besoin etait de revenir a la palette normale pour les nouveaux contextes, sans modifier les couleurs opposees deja generees pour les layers corrosion.
+
+**Décisions techniques :**
+1. Garder le changement minimal en ciblant uniquement les points de reset de state : nouveau NDE et nouveau layer annotation.
+2. Ne pas modifier le workflow corrosion, car les layers raw/interpolated utilisent deja leur palette opposee via le resultat d analyse.
+3. Laisser `AnnotationModel.ensure_persistent_labels()` reconstruire les couleurs normales des labels persistants apres reinitialisation, au lieu d ajouter une normalisation globale de palette.

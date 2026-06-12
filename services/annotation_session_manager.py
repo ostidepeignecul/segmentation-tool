@@ -324,21 +324,11 @@ class AnnotationSessionManager:
             if active_layer is not None
             else annotation_model.get_mask_volume()
         )
-        palette = copy.deepcopy(
-            active_layer.label_palette
-            if active_layer is not None
-            else annotation_model.label_palette
-        )
-        visibility = copy.deepcopy(
-            active_layer.label_visibility
-            if active_layer is not None
-            else annotation_model.label_visibility
-        )
         new_layer = LayerState.create(
             name=self._next_layer_name(state.layer_stack),
             mask_volume=self._empty_mask_like(source_mask),
-            label_palette=palette,
-            label_visibility=visibility,
+            label_palette={},
+            label_visibility={},
             overlay_cache=None,
             layer_kind="annotation",
         )
