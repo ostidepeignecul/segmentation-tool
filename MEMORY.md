@@ -4831,3 +4831,21 @@ Une inference nnUNet sur un gros NDE pouvait echouer en fin de traitement avec `
 1. Garder le changement minimal dans le service : passer le flag de configuration qui exprime le besoin applicatif, soit un masque final sans probabilites.
 2. Corriger la branche plugin sans probabilites pour respecter la forme de retour nnUNet, qui est une liste de segmentations.
 3. Ne pas ajouter de nouvelle UI ni de logique metier : le changement reste limite au service d orchestration et au plugin nnUNet.
+
+### 2026-06-11 - Reglage UI du pontage des A-scan vides corrosion
+**Tags :** `#branch:feature/interpolation-ascan-vide`, `#MEMORY.md`, `#controllers/corrosion_profile_controller.py`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#services/annotation_session_manager.py`, `#services/corrosion_profile_edit_service.py`, `#services/cscan_corrosion_service.py`, `#views/corrosion_settings_view.py`, `#corrosion`, `#ascan`, `#interpolation`, `#ui`, `#session`, `#mvc`, `#pyqt6`
+
+**Actions effectuées :**
+- Ajoute un champ `Empty A-scan gap` dans `views/corrosion_settings_view.py`, avec un `QSpinBox` en pixels et une valeur par defaut `0` pour conserver le comportement existant.
+- Ajoute `corrosion_interpolation_gap_px` dans `models/view_state_model.py` et le branche dans `controllers/master_controller.py` pour synchroniser la fenetre de settings corrosion avec l etat applicatif.
+- Propage explicitement `max_gap_px` dans `services/cscan_corrosion_service.py` pour l interpolation des peak maps, le masque de support fillable et la reconstruction d overlay.
+- Aligne `controllers/corrosion_profile_controller.py` et `services/corrosion_profile_edit_service.py` pour que les previews et commits de profil corrosion utilisent le meme seuil de pontage que l interpolation courante.
+- Persiste le reglage dans `services/annotation_session_manager.py` via l etat de layer corrosion, avec fallback `0` pour les anciens layers sans champ.
+
+**Contexte :**
+L utilisateur voulait pouvoir modifier depuis l UI un parametre deja existant a `0`, utilise pour interpoler de courts trous dans les zones sans support A-scan pendant le workflow corrosion. Le besoin etait de rendre ce seuil accessible dans le menu de settings corrosion et de garantir que le rendu, l edition de profil et la persistance de session restent coherents.
+
+**Décisions techniques :**
+1. Garder `0` comme valeur par defaut afin de ne pas changer le comportement actuel : les zones sans A-scan restent ouvertes tant que l utilisateur ne configure pas un pontage positif.
+2. Faire circuler le seuil comme parametre explicite du workflow d interpolation plutot que de muter un attribut global de service, afin qu une interpolation lancee utilise la valeur capturee par le controller.
+3. Stocker `corrosion_interpolation_gap_px` dans l etat de layer corrosion pour que les layers interpolated conservent leur seuil de rendu apres changement de layer, sauvegarde ou restauration de session.

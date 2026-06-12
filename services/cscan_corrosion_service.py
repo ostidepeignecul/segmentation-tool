@@ -287,6 +287,7 @@ class CScanCorrosionService(CScanService):
         mask_height: int,
         use_mm: bool = False,
         resolution_ultrasound_mm: float = 1.0,
+        max_gap_px: Optional[int] = None,
     ) -> CorrosionAnalysisResult:
         """Apply an interpolation algorithm on the raw peak maps and return a new result.
 
@@ -304,12 +305,14 @@ class CScanCorrosionService(CScanService):
             algo=algo,
             height=mask_height,
             support_map=raw_result.ascan_support_map,
+            max_gap_px=max_gap_px,
         )
         peak_b = self.interpolate_peak_map_with_algo(
             raw_result.raw_peak_index_map_b,
             algo=algo,
             height=mask_height,
             support_map=raw_result.ascan_support_map,
+            max_gap_px=max_gap_px,
         )
 
         distance_map = self._build_distance_map_from_peak_maps(
@@ -328,6 +331,7 @@ class CScanCorrosionService(CScanService):
             class_A_id=class_A_id,
             class_B_id=class_B_id,
             line_thickness=1,
+            max_gap_px=max_gap_px,
         )
 
         interpolated_distance_map = np.array(distance_map, dtype=np.float32, copy=True)
@@ -547,7 +551,12 @@ class CScanCorrosionService(CScanService):
         return np.any(np.isfinite(data) & (data != 0.0), axis=1)
 
     @classmethod
-    def build_fillable_support_mask(cls, support_map: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    def build_fillable_support_mask(
+        cls,
+        support_map: Optional[np.ndarray],
+        *,
+        max_gap_px: Optional[int] = None,
+    ) -> Optional[np.ndarray]:
         """Allow interpolation where support exists, plus short unsupported X gaps up to MAX_INTERPOLATION_GAP_PX."""
         if support_map is None:
             return None
@@ -557,7 +566,7 @@ class CScanCorrosionService(CScanService):
             raise ValueError(f"Support map attendu 2D (Z,W), recu shape {support.shape}")
 
         fillable = np.array(support, dtype=bool, copy=True)
-        max_gap = cls._get_max_interpolation_gap_px()
+        max_gap = cls._get_max_interpolation_gap_px(max_gap_px)
         if max_gap <= 0 or fillable.size == 0:
             return fillable
 
@@ -593,6 +602,7 @@ class CScanCorrosionService(CScanService):
         algo: str,
         height: Optional[int] = None,
         support_map: Optional[np.ndarray] = None,
+        max_gap_px: Optional[int] = None,
     ) -> np.ndarray:
         normalized = normalize_interpolation_algo(algo)
         data = np.asarray(peak_map, dtype=np.int32)
@@ -603,6 +613,7 @@ class CScanCorrosionService(CScanService):
                 height=height,
                 support_map=support_map,
                 method="linear",
+                max_gap_px=max_gap_px,
             )
 
         if normalized == "1d_pchip_dual_axis":
@@ -611,6 +622,7 @@ class CScanCorrosionService(CScanService):
                 height=height,
                 support_map=support_map,
                 method="pchip",
+                max_gap_px=max_gap_px,
             )
 
         if normalized == "1d_makima_dual_axis":
@@ -619,13 +631,17 @@ class CScanCorrosionService(CScanService):
                 height=height,
                 support_map=support_map,
                 method="makima",
+                max_gap_px=max_gap_px,
             )
 
         if normalized == "2d_linear_nd":
             return self.interpolate_peak_map_2d_nd(
                 data,
                 height=height,
-                fillable_mask=self.build_fillable_support_mask(support_map),
+                fillable_mask=self.build_fillable_support_mask(
+                    support_map,
+                    max_gap_px=max_gap_px,
+                ),
                 method="linear_nd",
             )
 
@@ -633,7 +649,10 @@ class CScanCorrosionService(CScanService):
             return self.interpolate_peak_map_2d_nd(
                 data,
                 height=height,
-                fillable_mask=self.build_fillable_support_mask(support_map),
+                fillable_mask=self.build_fillable_support_mask(
+                    support_map,
+                    max_gap_px=max_gap_px,
+                ),
                 method="clough_tocher",
             )
 
@@ -641,14 +660,20 @@ class CScanCorrosionService(CScanService):
             return self.interpolate_peak_map_2d_rbf(
                 data,
                 height=height,
-                fillable_mask=self.build_fillable_support_mask(support_map),
+                fillable_mask=self.build_fillable_support_mask(
+                    support_map,
+                    max_gap_px=max_gap_px,
+                ),
             )
 
         if normalized == "2d_gaussian_fill":
             return self.interpolate_peak_map_2d_gaussian_fill(
                 data,
                 height=height,
-                fillable_mask=self.build_fillable_support_mask(support_map),
+                fillable_mask=self.build_fillable_support_mask(
+                    support_map,
+                    max_gap_px=max_gap_px,
+                ),
             )
 
         raise ValueError(f"Algorithme d'interpolation inconnu : {algo!r}")
@@ -802,9 +827,13 @@ class CScanCorrosionService(CScanService):
         height: Optional[int] = None,
         support_map: Optional[np.ndarray] = None,
         method: str = "linear",
+        max_gap_px: Optional[int] = None,
     ) -> np.ndarray:
         """Apply support-aware interpolation on the primary axis, then on the secondary axis."""
-        fillable_mask = self.build_fillable_support_mask(support_map)
+        fillable_mask = self.build_fillable_support_mask(
+            support_map,
+            max_gap_px=max_gap_px,
+        )
         primary = self.interpolate_peak_map_1d(
             peak_map,
             height=height,
@@ -1145,7 +1174,7 @@ class CScanCorrosionService(CScanService):
         lines_volume = np.zeros((num_slices, height, width), dtype=np.uint8)
         color_A = int(class_A_id)
         color_B = int(class_B_id)
-        max_gap = self._get_max_interpolation_gap_px() if max_gap_px is None else max(0, int(max_gap_px))
+        max_gap = self._get_max_interpolation_gap_px(max_gap_px)
 
         width_map = min(width, peak_map_a.shape[1], peak_map_b.shape[1])
         if width_map <= 0 or num_slices <= 0:
@@ -1259,9 +1288,10 @@ class CScanCorrosionService(CScanService):
         return peak_map_a, peak_map_b
 
     @classmethod
-    def _get_max_interpolation_gap_px(cls) -> int:
+    def _get_max_interpolation_gap_px(cls, value: Optional[int] = None) -> int:
         try:
-            return max(0, int(cls.MAX_INTERPOLATION_GAP_PX))
+            source = cls.MAX_INTERPOLATION_GAP_PX if value is None else value
+            return max(0, int(source))
         except Exception:
             return 0
 
@@ -1437,6 +1467,7 @@ class CorrosionWorkflowResult:
     piece_volume_legacy_raw: Optional[np.ndarray] = None
     piece_volume_legacy_interpolated: Optional[np.ndarray] = None
     piece_anchor: Optional[Tuple[float, float, float]] = None
+    interpolation_gap_px: Optional[int] = None
 
 
 class CorrosionWorkflowService:
@@ -1637,6 +1668,7 @@ class CorrosionWorkflowService:
         raw_result: CorrosionWorkflowResult,
         algo: str,
         nde_model: Optional[NdeModel] = None,
+        max_gap_px: Optional[int] = None,
     ) -> CorrosionWorkflowResult:
         """Apply interpolation on a previous raw workflow result and return a new result."""
         if not raw_result.ok:
@@ -1646,6 +1678,8 @@ class CorrosionWorkflowService:
 
         mask_height = raw_result.mask_height or 1
         _, resolution_ultra = self._extract_resolutions(nde_model)
+        gap_source = raw_result.interpolation_gap_px if max_gap_px is None else max_gap_px
+        gap_px = CScanCorrosionService._get_max_interpolation_gap_px(gap_source)
 
         try:
             # Build a temporary CorrosionAnalysisResult to feed apply_interpolation
@@ -1674,6 +1708,7 @@ class CorrosionWorkflowService:
                 mask_height=mask_height,
                 use_mm=False,
                 resolution_ultrasound_mm=resolution_ultra,
+                max_gap_px=gap_px,
             )
 
             projection, value_range = self.cscan_corrosion_service.compute_corrosion_projection(
@@ -1713,6 +1748,7 @@ class CorrosionWorkflowService:
                 piece_volume_legacy_raw=interp_result.piece_volume_legacy_raw,
                 piece_volume_legacy_interpolated=interp_result.piece_volume_legacy_interpolated,
                 piece_anchor=interp_result.piece_anchor,
+                interpolation_gap_px=gap_px,
             )
 
         except Exception as exc:

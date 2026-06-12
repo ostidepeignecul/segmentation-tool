@@ -43,6 +43,7 @@ class CorrosionProfileEditService:
         self._label_ids: Optional[tuple[int, int]] = None
         self._image_shape: Optional[tuple[int, int]] = None  # (H, W)
         self._preserve_existing_gaps: bool = False
+        self._max_gap_px: int = 0
         self._controls_a: Dict[int, List[Tuple[int, int]]] = {}
         self._controls_b: Dict[int, List[Tuple[int, int]]] = {}
         self._overlay_cache: Optional[np.ndarray] = None
@@ -66,6 +67,7 @@ class CorrosionProfileEditService:
         image_shape: tuple[int, int],
         cscan_corrosion_service: CScanCorrosionService,
         preserve_existing_gaps: bool = False,
+        max_gap_px: Optional[int] = None,
     ) -> bool:
         data_a = np.asarray(peak_map_a, dtype=np.int32)
         data_b = np.asarray(peak_map_b, dtype=np.int32)
@@ -78,12 +80,19 @@ class CorrosionProfileEditService:
             if support_data.shape != data_a.shape:
                 return False
 
+        effective_gap_px = (
+            0
+            if bool(preserve_existing_gaps)
+            else CScanCorrosionService._get_max_interpolation_gap_px(max_gap_px)
+        )
+
         shape_key = (
             data_a.shape,
             data_b.shape,
             tuple(int(x) for x in label_ids),
             (int(image_shape[0]), int(image_shape[1])),
             bool(preserve_existing_gaps),
+            effective_gap_px,
         )
         current_key = None
         if (
@@ -98,6 +107,7 @@ class CorrosionProfileEditService:
                 self._label_ids,
                 self._image_shape,
                 self._preserve_existing_gaps,
+                self._max_gap_px,
             )
         if current_key == shape_key:
             return True
@@ -105,10 +115,14 @@ class CorrosionProfileEditService:
         self._pending_peak_map_a = np.array(data_a, dtype=np.int32, copy=True)
         self._pending_peak_map_b = np.array(data_b, dtype=np.int32, copy=True)
         self._ascan_support_map = None if support_data is None else np.array(support_data, dtype=bool, copy=True)
-        self._fillable_support_map = cscan_corrosion_service.build_fillable_support_mask(self._ascan_support_map)
+        self._fillable_support_map = cscan_corrosion_service.build_fillable_support_mask(
+            self._ascan_support_map,
+            max_gap_px=effective_gap_px,
+        )
         self._label_ids = tuple(int(x) for x in label_ids)
         self._image_shape = (int(image_shape[0]), int(image_shape[1]))
         self._preserve_existing_gaps = bool(preserve_existing_gaps)
+        self._max_gap_px = effective_gap_px
         self._controls_a.clear()
         self._controls_b.clear()
         self._active_target_is_a = None
@@ -125,7 +139,7 @@ class CorrosionProfileEditService:
             class_A_id=self._label_ids[0],
             class_B_id=self._label_ids[1],
             line_thickness=self.LINE_THICKNESS,
-            max_gap_px=0 if self._preserve_existing_gaps else None,
+            max_gap_px=self._effective_max_gap_px(),
             connect_points=not self._preserve_existing_gaps,
         )
         return True
@@ -399,7 +413,7 @@ class CorrosionProfileEditService:
             label_ids=self._label_ids,
             image_shape=self._image_shape,
             connect_points=not self._preserve_existing_gaps,
-            max_gap_px=0 if self._preserve_existing_gaps else None,
+            max_gap_px=self._effective_max_gap_px(),
         )
 
     def commit(
@@ -425,12 +439,14 @@ class CorrosionProfileEditService:
                 algo=algo,
                 height=height,
                 support_map=self._ascan_support_map,
+                max_gap_px=self._effective_max_gap_px(),
             )
             committed_b = cscan_corrosion_service.interpolate_peak_map_with_algo(
                 self._pending_peak_map_b,
                 algo=algo,
                 height=height,
                 support_map=self._ascan_support_map,
+                max_gap_px=self._effective_max_gap_px(),
             )
         else:
             committed_a = np.array(self._pending_peak_map_a, dtype=np.int32, copy=True)
@@ -442,7 +458,7 @@ class CorrosionProfileEditService:
             class_A_id=int(self._label_ids[0]),
             class_B_id=int(self._label_ids[1]),
             line_thickness=self.LINE_THICKNESS,
-            max_gap_px=0 if self._preserve_existing_gaps else None,
+            max_gap_px=self._effective_max_gap_px(),
             connect_points=not self._preserve_existing_gaps,
         )
 
@@ -747,7 +763,7 @@ class CorrosionProfileEditService:
             color=color_a,
             height=h,
             line_thickness=self.LINE_THICKNESS,
-            max_gap_px=0 if self._preserve_existing_gaps else None,
+            max_gap_px=self._effective_max_gap_px(),
             connect_points=not self._preserve_existing_gaps,
         )
         self._draw_row_polyline(
@@ -756,10 +772,15 @@ class CorrosionProfileEditService:
             color=color_b,
             height=h,
             line_thickness=self.LINE_THICKNESS,
-            max_gap_px=0 if self._preserve_existing_gaps else None,
+            max_gap_px=self._effective_max_gap_px(),
             connect_points=not self._preserve_existing_gaps,
         )
         self._overlay_cache[z] = rendered
+
+    def _effective_max_gap_px(self) -> int:
+        if self._preserve_existing_gaps:
+            return 0
+        return max(0, int(self._max_gap_px))
 
     @staticmethod
     def _draw_row_polyline(
@@ -783,11 +804,7 @@ class CorrosionProfileEditService:
             x0, y0 = pts[0]
             canvas[y0, x0] = int(color)
             return
-        max_gap = (
-            CScanCorrosionService._get_max_interpolation_gap_px()
-            if max_gap_px is None
-            else max(0, int(max_gap_px))
-        )
+        max_gap = CScanCorrosionService._get_max_interpolation_gap_px(max_gap_px)
         for pt_a, pt_b in CScanCorrosionService._iter_gap_limited_segments(
             pts,
             max_gap=max_gap,

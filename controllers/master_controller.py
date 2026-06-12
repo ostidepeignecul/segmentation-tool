@@ -588,6 +588,9 @@ class MasterController:
         self.corrosion_settings_view.interpolation_algo_changed.connect(
             self._on_corrosion_algo_changed
         )
+        self.corrosion_settings_view.interpolation_gap_changed.connect(
+            self._on_corrosion_interpolation_gap_changed
+        )
 
         self.annotation_view.slice_changed.connect(self._on_slice_changed)
         self.annotation_view.mouse_clicked.connect(self._on_annotation_mouse_clicked)
@@ -1877,6 +1880,10 @@ class MasterController:
         normalized = self.view_state_model.set_corrosion_interpolation_algo(algo)
         self.corrosion_settings_view.set_interpolation_algo(normalized)
 
+    def _on_corrosion_interpolation_gap_changed(self, value: int) -> None:
+        gap_px = self.view_state_model.set_corrosion_interpolation_gap_px(value)
+        self.corrosion_settings_view.set_interpolation_gap_px(gap_px)
+
     def _on_corrosion_analysis_mode_changed(self, mode: str) -> None:
         normalized = self.view_state_model.set_corrosion_analysis_mode(mode)
         self.corrosion_settings_view.set_analysis_mode(normalized)
@@ -2669,6 +2676,9 @@ class MasterController:
         )
         self.corrosion_settings_view.set_interpolation_algo(
             getattr(self.view_state_model, "corrosion_interpolation_algo", "1d_dual_axis")
+        )
+        self.corrosion_settings_view.set_interpolation_gap_px(
+            getattr(self.view_state_model, "corrosion_interpolation_gap_px", 0)
         )
         self.corrosion_settings_view.set_workflow_state(self._current_corrosion_session_stage())
 
@@ -3537,6 +3547,11 @@ class MasterController:
             piece_volume_raw=piece_volume_raw,
             piece_volume_legacy_raw=piece_volume_legacy_raw,
             piece_anchor=piece_anchor,
+            interpolation_gap_px=getattr(
+                self.view_state_model,
+                "corrosion_interpolation_gap_px",
+                0,
+            ),
         )
 
     def _build_raw_corrosion_workflow_result_from_active_session(
@@ -3598,6 +3613,11 @@ class MasterController:
                 None,
             ),
             piece_anchor=getattr(self.view_state_model, "corrosion_piece_anchor", None),
+            interpolation_gap_px=getattr(
+                self.view_state_model,
+                "corrosion_interpolation_gap_px",
+                0,
+            ),
         )
 
     def _apply_corrosion_session_result(
@@ -3637,6 +3657,10 @@ class MasterController:
         self.view_state_model.corrosion_raw_peak_index_map_b = result.raw_peak_index_map_b
         self.view_state_model.corrosion_raw_distance_map = result.raw_distance_map
         self.view_state_model.corrosion_ascan_support_map = result.ascan_support_map
+        if result.interpolation_gap_px is not None:
+            self.view_state_model.set_corrosion_interpolation_gap_px(
+                result.interpolation_gap_px
+            )
         self.view_state_model.corrosion_piece_volume_raw = self._copy_piece_volume(
             result.piece_volume_raw
         )
@@ -3997,12 +4021,14 @@ class MasterController:
         self._snapshot_active_session_in_manager()
 
         nde_model = self.nde_model if hasattr(self, "nde_model") else None
+        max_gap_px = getattr(self.view_state_model, "corrosion_interpolation_gap_px", 0)
         self.status_message(f"Interpolation ({algo}) in progress...", 2000)
 
         interp_result = self.corrosion_workflow_service.run_interpolation(
             raw_result=raw,
             algo=algo,
             nde_model=nde_model,
+            max_gap_px=max_gap_px,
         )
 
         if not interp_result.ok:
@@ -4089,6 +4115,7 @@ class MasterController:
             view_state_model=self.view_state_model,
         )
         nde_model = self.nde_model if hasattr(self, "nde_model") else None
+        max_gap_px = getattr(self.view_state_model, "corrosion_interpolation_gap_px", 0)
         self.status_message(f"Interpolation ({algo}) in progress...", 2000)
 
         self._start_corrosion_workflow_worker(
@@ -4098,6 +4125,7 @@ class MasterController:
                 raw_result=raw,
                 algo=algo,
                 nde_model=nde_model,
+                max_gap_px=max_gap_px,
             ),
             on_finished=self._handle_corrosion_interpolation_result,
         )

@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QLabel,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -33,10 +34,12 @@ class CorrosionSettingsView(QDialog):
     peak_mode_a_changed = pyqtSignal(str)
     peak_mode_b_changed = pyqtSignal(str)
     interpolation_algo_changed = pyqtSignal(str)
+    interpolation_gap_changed = pyqtSignal(int)
 
     _DEFAULT_ANALYSIS_MODE = "normal"
     _DEFAULT_PEAK_MODE = "max_peak"
     _DEFAULT_INTERP_ALGO = "1d_dual_axis"
+    _MAX_INTERP_GAP_PX = 9999
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -56,6 +59,7 @@ class CorrosionSettingsView(QDialog):
         self._label_b_combo = QComboBox(self)
         self._peak_mode_b_combo = QComboBox(self)
         self._interp_algo_combo = QComboBox(self)
+        self._interp_gap_spin = QSpinBox(self)
 
         self._analysis_mode_combo.addItems(["Normal", "AC-AB"])
         self._peak_mode_a_combo.addItems(
@@ -75,6 +79,14 @@ class CorrosionSettingsView(QDialog):
                 "2D Gaussian-Fill",
             ]
         )
+        self._interp_gap_spin.setMinimum(0)
+        self._interp_gap_spin.setMaximum(self._MAX_INTERP_GAP_PX)
+        self._interp_gap_spin.setValue(0)
+        self._interp_gap_spin.setSuffix(" px")
+        self._interp_gap_spin.setToolTip(
+            "Maximum consecutive empty A-scan columns bridged during interpolation. "
+            "0 leaves empty A-scan gaps open."
+        )
 
         form.addRow(QLabel("Label A"), self._label_a_combo)
         form.addRow(QLabel("Analysis mode"), self._analysis_mode_combo)
@@ -82,6 +94,7 @@ class CorrosionSettingsView(QDialog):
         form.addRow(QLabel("Label B"), self._label_b_combo)
         form.addRow(QLabel("Label B mode"), self._peak_mode_b_combo)
         form.addRow(QLabel("Interpolation"), self._interp_algo_combo)
+        form.addRow(QLabel("Empty A-scan gap"), self._interp_gap_spin)
 
         layout.addLayout(form)
 
@@ -137,6 +150,12 @@ class CorrosionSettingsView(QDialog):
             self._DEFAULT_INTERP_ALGO,
         )
 
+    def set_interpolation_gap_px(self, value: int) -> None:
+        gap = self._normalize_gap_px(value, maximum=self._MAX_INTERP_GAP_PX)
+        self._interp_gap_spin.blockSignals(True)
+        self._interp_gap_spin.setValue(gap)
+        self._interp_gap_spin.blockSignals(False)
+
     def set_analysis_mode(self, mode: str) -> None:
         self._set_mode_combo_value(
             self._analysis_mode_combo,
@@ -159,18 +178,27 @@ class CorrosionSettingsView(QDialog):
     def current_interpolation_algo(self) -> str:
         return self._combo_mode_value(self._interp_algo_combo, normalize_interpolation_algo)
 
+    def current_interpolation_gap_px(self) -> int:
+        return int(self._interp_gap_spin.value())
+
     def set_workflow_state(self, stage: str) -> None:
         normalized = str(stage or "").strip().lower()
         analysis_enabled = normalized == CORROSION_STAGE_BASE
         interpolation_enabled = normalized == CORROSION_STAGE_RAW
+        gap_enabled = normalized in (CORROSION_STAGE_BASE, CORROSION_STAGE_RAW)
 
         analysis_tooltip = ""
         interpolation_tooltip = ""
+        gap_tooltip = (
+            "Maximum consecutive empty A-scan columns bridged during interpolation. "
+            "0 leaves empty A-scan gaps open."
+        )
         if normalized == CORROSION_STAGE_RAW:
             analysis_tooltip = "The raw session has already been analyzed."
         elif normalized == CORROSION_STAGE_INTERPOLATED:
             analysis_tooltip = "The interpolated session is finalized."
             interpolation_tooltip = "The interpolated session cannot be interpolated again."
+            gap_tooltip = "The interpolated session is finalized."
         else:
             interpolation_tooltip = "Run Analyze first to create a raw session."
 
@@ -186,6 +214,8 @@ class CorrosionSettingsView(QDialog):
 
         self._interp_algo_combo.setEnabled(interpolation_enabled)
         self._interp_algo_combo.setToolTip(interpolation_tooltip)
+        self._interp_gap_spin.setEnabled(gap_enabled)
+        self._interp_gap_spin.setToolTip(gap_tooltip)
 
     # ------------------------------------------------------------------ #
     # Internal helpers
@@ -197,6 +227,7 @@ class CorrosionSettingsView(QDialog):
         self._peak_mode_a_combo.currentIndexChanged.connect(self._on_peak_mode_a_changed)
         self._peak_mode_b_combo.currentIndexChanged.connect(self._on_peak_mode_b_changed)
         self._interp_algo_combo.currentIndexChanged.connect(self._on_interpolation_algo_changed)
+        self._interp_gap_spin.valueChanged.connect(self._on_interpolation_gap_changed)
 
     def _on_label_a_changed(self, _index: int) -> None:
         self.label_a_changed.emit(self._label_a_combo.currentData())
@@ -215,6 +246,9 @@ class CorrosionSettingsView(QDialog):
 
     def _on_interpolation_algo_changed(self, _index: int) -> None:
         self.interpolation_algo_changed.emit(self.current_interpolation_algo())
+
+    def _on_interpolation_gap_changed(self, value: int) -> None:
+        self.interpolation_gap_changed.emit(self._normalize_gap_px(value))
 
     def _prepare_peak_mode_combo(self, combo: QComboBox) -> None:
         for idx in range(combo.count()):
@@ -274,3 +308,15 @@ class CorrosionSettingsView(QDialog):
         combo.blockSignals(True)
         combo.setCurrentIndex(target_index)
         combo.blockSignals(False)
+
+    @staticmethod
+    def _normalize_gap_px(value: int, *, maximum: Optional[int] = None) -> int:
+        try:
+            gap = int(value)
+        except Exception:
+            gap = 0
+        if gap < 0:
+            gap = 0
+        if maximum is not None:
+            gap = min(gap, int(maximum))
+        return gap
