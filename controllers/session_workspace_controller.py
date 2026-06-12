@@ -67,6 +67,8 @@ class SessionWorkspaceController:
         load_nde_file: Callable[..., bool],
         after_session_switch: Callable[[], None],
         status_message: Callable[..., None],
+        get_open_session_directory: Callable[[], str],
+        remember_open_session_path: Callable[[str], None],
         has_pending_mask_edits: Callable[[], bool],
         commit_pending_mask_edits: Callable[[], None],
         has_pending_corrosion_edits: Callable[[], bool],
@@ -87,6 +89,8 @@ class SessionWorkspaceController:
         self._load_nde_file = load_nde_file
         self._after_session_switch = after_session_switch
         self._status_message = status_message
+        self._get_open_session_directory = get_open_session_directory
+        self._remember_open_session_path = remember_open_session_path
         self._has_pending_mask_edits = has_pending_mask_edits
         self._commit_pending_mask_edits = commit_pending_mask_edits
         self._has_pending_corrosion_edits = has_pending_corrosion_edits
@@ -107,14 +111,16 @@ class SessionWorkspaceController:
 
     def open_session_via_dialog(self) -> None:
         """Open a persisted `.session` file and restore its single session."""
+        initial_dir = self._get_open_session_directory()
         file_path, _ = QFileDialog.getOpenFileName(
             self.main_window,
             "Open session",
-            "",
+            initial_dir,
             "Session Files (*.session);;All Files (*)",
         )
         if not file_path:
             return
+        self._remember_open_session_path(file_path)
         if not self.confirm_unsaved_sessions_before_reset("open another session"):
             return
 

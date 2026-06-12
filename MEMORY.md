@@ -4882,3 +4882,24 @@ Les couleurs d un layer actif, notamment celles des layers corrosion raw/interpo
 1. Garder le changement minimal en ciblant uniquement les points de reset de state : nouveau NDE et nouveau layer annotation.
 2. Ne pas modifier le workflow corrosion, car les layers raw/interpolated utilisent deja leur palette opposee via le resultat d analyse.
 3. Laisser `AnnotationModel.ensure_persistent_labels()` reconstruire les couleurs normales des labels persistants apres reinitialisation, au lieu d ajouter une normalisation globale de palette.
+
+### 2026-06-12 - Selection de source C-scan par layer et dossiers recents persistants
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/cscan_controller.py`, `#controllers/master_controller.py`, `#controllers/session_workspace_controller.py`, `#models/view_state_model.py`, `#views/cscan_view.py`, `#cscan`, `#layer`, `#corrosion`, `#zoom`, `#qsettings`, `#session`, `#mvc`, `#pyqt6`
+
+**Actions effectuées :**
+- Transforme la combo heritee de `views/cscan_view.py` en selecteur de source C-scan par nom de layer, avec stockage du `layer_id` et reutilisation automatique dans la vue C-scan normale comme dans `Thickness CScan`.
+- Ajoute `cscan_display_layer_id` dans `models/view_state_model.py` pour decoupler le layer affiche dans le C-scan du layer actif d edition choisi dans le ToolPanel.
+- Etend `controllers/cscan_controller.py` avec `CScanLayerChoice`, la synchronisation des combos de layers, le choix entre projection normale et projection corrosion du layer selectionne, et l export de la corrosion map actuellement affichee.
+- Etend `controllers/master_controller.py` pour fournir les layers C-scan, reconstruire au besoin une projection corrosion depuis les peak maps d un layer non actif, selectionner automatiquement les nouveaux layers raw/interpolated apres analyse/interpolation, et garder le libelle du dock C-scan coherent avec la vue affichee.
+- Ajoute la capture/restauration du zoom, du pan et du crosshair C-scan afin de conserver la navigation lors du changement de layer dans le ToolPanel ou du basculement entre C-scan normal et corrosion mapping.
+- Persiste les derniers dossiers utilises pour `Open .nde file` et `Open session` via `QSettings` dans `controllers/master_controller.py`, avec une cle separee par type de dialogue et injection du dossier session dans `controllers/session_workspace_controller.py`.
+
+**Contexte :**
+Le changement de layer dans le ToolPanel forcait implicitement la vue C-scan a suivre le layer actif, alors que l utilisateur voulait choisir independamment le layer affiche dans le C-scan depuis la combo deja presente dans le header. Les anciens choix `Gray`/`OmniScan` et `Corrosion` n etaient pas utiles dans cette combo. Le basculement de source devait aussi conserver le zoom/pan courant pour ne pas perturber l inspection. Enfin, les dialogues d ouverture perdaient leur dernier dossier apres redemarrage de l application.
+
+**Décisions techniques :**
+1. Faire de la combo du parent `CScanView` la source unique de selection de layer afin que les vues standard et corrosion heritent du meme comportement sans nouveau bouton.
+2. Garder l etat metier corrosion lie au layer actif uniquement pour l edition et le workflow, tandis que `cscan_display_layer_id` pilote seulement la projection affichee.
+3. Reutiliser les caches runtime corrosion quand ils existent et reconstruire une projection depuis les peak maps seulement comme fallback pour les layers non actifs.
+4. Preserver le zoom/pan uniquement lorsque la nouvelle projection a la meme shape, pour eviter de reutiliser une navigation incompatible apres un vrai changement de dataset.
+5. Utiliser `QSettings` sous le meme scope applicatif que le layout ADS, mais avec des cles distinctes `last_nde_directory` et `last_session_directory` pour ne pas melanger les dossiers de donnees et de sessions.

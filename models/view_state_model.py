@@ -20,6 +20,7 @@ class ViewStateModel:
         self.colormap: Optional[str] = None
         self.endview_colormap: str = "Gris"
         self.cscan_colormap: str = "Gris"
+        self.cscan_display_layer_id: Optional[str] = None
         self.show_overlay: bool = True
         self.show_overlay_ascan: bool = True
         self.show_outline_only: bool = False
@@ -506,6 +507,11 @@ class ViewStateModel:
 
     def set_cscan_colormap(self, name: str) -> None:
         self.cscan_colormap = str(name)
+
+    def set_cscan_display_layer_id(self, layer_id: Optional[str]) -> Optional[str]:
+        normalized = str(layer_id or "").strip()
+        self.cscan_display_layer_id = normalized or None
+        return self.cscan_display_layer_id
 
     @staticmethod
     def normalize_ruler_display_unit(unit: Optional[str]) -> str:

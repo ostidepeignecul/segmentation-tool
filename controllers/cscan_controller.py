@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
 from PyQt6.QtWidgets import QStackedLayout
@@ -21,6 +22,17 @@ from views.cscan_view import CScanView
 from views.cscan_view_corrosion import CscanViewCorrosion
 
 
+@dataclass(frozen=True)
+class CScanLayerChoice:
+    """One selectable layer source for the C-scan display."""
+
+    layer_id: str
+    name: str
+    layer_kind: str = "annotation"
+    is_active: bool = False
+    corrosion_projection: Optional[Tuple[Any, Tuple[float, float]]] = None
+
+
 class CScanController:
     """Gère la pile de vues C-scan et le workflow d'analyse corrosion."""
 
@@ -36,6 +48,7 @@ class CScanController:
         get_nde_model: Callable[[], Optional[NdeModel]],
         status_callback: Callable[[str, int], None],
         logger: logging.Logger,
+        get_layer_choices: Optional[Callable[[], list[CScanLayerChoice]]] = None,
         corrosion_workflow_service: Optional[CorrosionWorkflowService] = None,
         on_corrosion_completed: Optional[Callable[[CorrosionWorkflowResult], None]] = None,
     ) -> None:
@@ -48,9 +61,12 @@ class CScanController:
         self.get_nde_model = get_nde_model
         self.status_callback = status_callback
         self.logger = logger
+        self.get_layer_choices = get_layer_choices or (lambda: [])
 
         self.last_corrosion_result: Optional[CorrosionWorkflowResult] = None
         self.on_corrosion_completed = on_corrosion_completed
+        self._displaying_corrosion: bool = False
+        self._displayed_corrosion_projection: Optional[Tuple[Any, Tuple[float, float]]] = None
 
         self.cscan_service = CScanService()
         self.corrosion_service = CScanCorrosionService()
@@ -66,6 +82,8 @@ class CScanController:
         self._cached_standard_projection: Optional[np.ndarray] = None
         self._cached_standard_range: Optional[Tuple[float, float]] = None
         self._cached_volume_shape: Optional[Tuple[int, int, int]] = None
+        self._bind_layer_selector_signals()
+
     # --- Stack & visibility ---------------------------------------------------------
     def show_standard(self) -> None:
         if self._stack is not None and self.standard_view is not None:
@@ -74,6 +92,9 @@ class CScanController:
     def show_corrosion(self) -> None:
         if self._stack is not None and self.corrosion_view is not None:
             self._stack.setCurrentWidget(self.corrosion_view)
+
+    def is_showing_corrosion(self) -> bool:
+        return bool(self._displaying_corrosion)
 
     # --- Crosshair helpers ---------------------------------------------------------
     def highlight_slice(self, slice_idx: int) -> None:
@@ -137,6 +158,12 @@ class CScanController:
         if self.standard_view is not None:
             self.standard_view.set_colormap(name, lut)
 
+    def sync_layer_choices(self) -> None:
+        choices = self._current_layer_choices()
+        selected = self._selected_layer_choice(choices)
+        selected_id = selected.layer_id if selected is not None else None
+        self._sync_layer_selectors(choices, selected_id)
+
     def reset_display_size(self) -> None:
         if self.standard_view is not None:
             self.standard_view.reset_display_size()
@@ -179,7 +206,14 @@ class CScanController:
     def update_views(self, volume: Optional[np.ndarray], *, preserve_view: bool = False) -> None:
         """Met à jour la projection standard et corrosion selon l'état courant."""
         if volume is None:
+            self.sync_layer_choices()
             return
+
+        choices = self._current_layer_choices()
+        selected_choice = self._selected_layer_choice(choices)
+        selected_id = selected_choice.layer_id if selected_choice is not None else None
+        self._sync_layer_selectors(choices, selected_id)
+        navigation_state = self._capture_current_navigation_state() if preserve_view else None
 
         nde_model = self.get_nde_model()
         self.set_ruler_display_unit(getattr(self.view_state_model, "ruler_display_unit", "px"))
@@ -205,34 +239,43 @@ class CScanController:
             self._cached_standard_range = standard_range
             self._cached_volume_shape = tuple(volume.shape)
 
-        if (
-            self.view_state_model.corrosion_active
-            and self.view_state_model.corrosion_projection is not None
-            and self.corrosion_view
-        ):
-            projection, value_range = self.view_state_model.corrosion_projection
+        corrosion_payload = (
+            selected_choice.corrosion_projection
+            if selected_choice is not None
+            and str(selected_choice.layer_kind).strip().casefold() == "corrosion"
+            else None
+        )
+        if corrosion_payload is not None and self.corrosion_view is not None:
+            projection, value_range = corrosion_payload
+            self._displaying_corrosion = True
+            self._displayed_corrosion_projection = corrosion_payload
             self.show_corrosion()
             self.corrosion_view.set_projection(
                 projection,
                 value_range,
-                colormaps=("Corrosion",),
                 value_scale_mm=ultrasound_resolution_mm,
                 preserve_view=preserve_view,
             )
+            if navigation_state is not None:
+                self.corrosion_view.restore_navigation_state(navigation_state)
         else:
-            self.view_state_model.deactivate_corrosion()
+            self._displaying_corrosion = False
+            self._displayed_corrosion_projection = None
             self.show_standard()
             if self.standard_view is not None:
                 self.standard_view.set_projection(
                     standard_projection,
                     standard_range,
-                    colormaps=("Gray", "OmniScan"),
                     preserve_view=preserve_view,
                 )
+                if navigation_state is not None:
+                    self.standard_view.restore_navigation_state(navigation_state)
 
     # --- Corrosion workflow --------------------------------------------------------
     def reset_corrosion(self) -> None:
         self.view_state_model.deactivate_corrosion()
+        self._displaying_corrosion = False
+        self._displayed_corrosion_projection = None
         self._cached_standard_projection = None
         self._cached_standard_range = None
         self._cached_volume_shape = None
@@ -291,9 +334,9 @@ class CScanController:
         if nde_model is None:
             raise ValueError("Load an NDE before exporting the corrosion C-scan.")
 
-        projection_payload = self.view_state_model.corrosion_projection
-        if not self.view_state_model.corrosion_active or projection_payload is None:
-            raise ValueError("Run corrosion analysis before exporting the C-scan.")
+        projection_payload = self._displayed_corrosion_projection
+        if projection_payload is None:
+            raise ValueError("Select a corrosion mapping before exporting the C-scan.")
 
         projection, value_range = projection_payload
         nde_filename = str((nde_model.metadata or {}).get("path", "unknown"))
@@ -305,3 +348,78 @@ class CScanController:
         )
         self.logger.info("Corrosion C-scan exported: %s | %s", saved_paths[0], saved_paths[1])
         return saved_paths
+
+    def _bind_layer_selector_signals(self) -> None:
+        for view in (self.standard_view, self.corrosion_view):
+            if view is not None:
+                view.layer_selected.connect(self._on_display_layer_selected)
+
+    def _on_display_layer_selected(self, layer_id: str) -> None:
+        normalized = self.view_state_model.set_cscan_display_layer_id(layer_id)
+        volume = self.get_volume()
+        if volume is not None:
+            self.update_views(volume, preserve_view=True)
+        else:
+            self.sync_layer_choices()
+        if normalized:
+            self.logger.debug("C-scan display layer selected: %s", normalized)
+
+    def _capture_current_navigation_state(self) -> Optional[dict[str, object]]:
+        current_view = self._current_display_view()
+        if current_view is None:
+            return None
+        return current_view.capture_navigation_state()
+
+    def _current_display_view(self) -> Optional[CScanView]:
+        if self._stack is not None:
+            current = self._stack.currentWidget()
+            if current is self.standard_view:
+                return self.standard_view
+            if current is self.corrosion_view:
+                return self.corrosion_view
+        if self._displaying_corrosion and self.corrosion_view is not None:
+            return self.corrosion_view
+        return self.standard_view
+
+    def _current_layer_choices(self) -> list[CScanLayerChoice]:
+        try:
+            choices = self.get_layer_choices()
+        except Exception:  # noqa: BLE001
+            self.logger.exception("Unable to list C-scan layer choices")
+            return []
+        return [
+            choice
+            for choice in choices
+            if str(getattr(choice, "layer_id", "") or "").strip()
+        ]
+
+    def _selected_layer_choice(
+        self,
+        choices: list[CScanLayerChoice],
+    ) -> Optional[CScanLayerChoice]:
+        if not choices:
+            self.view_state_model.set_cscan_display_layer_id(None)
+            return None
+
+        selected_id = str(
+            getattr(self.view_state_model, "cscan_display_layer_id", None) or ""
+        ).strip()
+        if selected_id:
+            for choice in choices:
+                if str(choice.layer_id) == selected_id:
+                    return choice
+
+        fallback = next((choice for choice in choices if bool(choice.is_active)), choices[0])
+        self.view_state_model.set_cscan_display_layer_id(fallback.layer_id)
+        return fallback
+
+    def _sync_layer_selectors(
+        self,
+        choices: list[CScanLayerChoice],
+        selected_layer_id: Optional[str],
+    ) -> None:
+        items = [(choice.layer_id, choice.name) for choice in choices]
+        if self.standard_view is not None:
+            self.standard_view.set_layer_choices(items, selected_layer_id)
+        if self.corrosion_view is not None:
+            self.corrosion_view.set_layer_choices(items, selected_layer_id)

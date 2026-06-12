@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from PyQt6.QtCore import QObject, QRunnable, Qt, QThreadPool, pyqtSignal
+from PyQt6.QtCore import QObject, QRunnable, QSettings, Qt, QThreadPool, pyqtSignal
 from PyQt6.QtGui import QColor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 from config.constants import DEFAULT_ACTIVE_LABEL_ID, PERSISTENT_LABEL_IDS, CORROSION_STAGE_BASE, CORROSION_STAGE_RAW, CORROSION_STAGE_INTERPOLATED
 from controllers.annotation_controller import AnnotationController
 from controllers.ascan_controller import AScanController
-from controllers.cscan_controller import CScanController
+from controllers.cscan_controller import CScanController, CScanLayerChoice
 from controllers.corrosion_profile_controller import CorrosionProfileController
 from controllers.dock_layout_controller import DockLayoutController
 from controllers.endview_controller import EndviewController
@@ -32,6 +32,7 @@ from controllers.session_workspace_controller import SessionWorkspaceController
 from models.annotation_model import AnnotationModel
 from models.applied_annotation_history_model import AppliedAnnotationHistoryModel
 from models.imported_overlay_model import ImportedOverlayModel
+from models.layer_stack_model import CorrosionRuntimeCache
 from models.nde_model import NdeModel
 from models.view_state_model import ViewStateModel
 from models.roi_model import RoiModel
@@ -116,6 +117,12 @@ class CorrosionWorkflowWorker(QRunnable):
 
 class MasterController:
     """Coordinates models and the Designer-built UI without embedding business logic."""
+
+    _SETTINGS_ORGANIZATION = "Evident"
+    _SETTINGS_APPLICATION = "SegmentationTool"
+    _FILE_DIALOG_SETTINGS_GROUP = "file_dialogs"
+    _LAST_NDE_DIRECTORY_KEY = "last_nde_directory"
+    _LAST_SESSION_DIRECTORY_KEY = "last_session_directory"
 
     def __init__(self, main_window: Optional[QMainWindow] = None) -> None:
         self.logger = logging.getLogger(__name__)
@@ -288,6 +295,13 @@ class MasterController:
             load_nde_file=self._load_nde_file,
             after_session_switch=self._after_session_switch,
             status_message=self.status_message,
+            get_open_session_directory=lambda: self._last_file_dialog_directory(
+                self._LAST_SESSION_DIRECTORY_KEY
+            ),
+            remember_open_session_path=lambda path: self._remember_file_dialog_path(
+                self._LAST_SESSION_DIRECTORY_KEY,
+                path,
+            ),
             has_pending_mask_edits=self.mask_modification_controller.has_pending_edits,
             commit_pending_mask_edits=self.mask_modification_controller.commit_pending_edits,
             has_pending_corrosion_edits=self.corrosion_profile_edit_service.has_pending_edits,
@@ -307,6 +321,7 @@ class MasterController:
             get_nde_model=lambda: self.nde_model,
             status_callback=self.status_message,
             logger=self.logger,
+            get_layer_choices=self._build_cscan_layer_choices,
             corrosion_workflow_service=self.corrosion_workflow_service,
             on_corrosion_completed=self._on_corrosion_completed,
         )
@@ -357,6 +372,7 @@ class MasterController:
             roi_model=self.roi_model,
             view_state_model=self.view_state_model,
         )
+        self.cscan_controller.sync_layer_choices()
 
     def _connect_actions(self) -> None:
         """Wire menu actions to controller handlers."""
@@ -638,6 +654,7 @@ class MasterController:
         if self.cscan_view is not None:
             self.cscan_view.crosshair_changed.connect(self._on_cscan_crosshair_changed)
             self.cscan_view.slice_requested.connect(self._on_cscan_slice_requested)
+            self.cscan_view.layer_selected.connect(self._on_cscan_display_layer_selected)
         self.ascan_view.position_changed.connect(self._on_ascan_position_changed)
         self.ascan_view.cursor_moved.connect(self._on_ascan_cursor_moved)
         if self.ascan_view_corrosion is not None:
@@ -647,6 +664,7 @@ class MasterController:
             self.cscan_view_corrosion.crosshair_changed.connect(self._on_cscan_crosshair_changed)
             self.cscan_view_corrosion.slice_requested.connect(self._on_cscan_slice_requested)
             self.cscan_view_corrosion.export_requested.connect(self._on_export_corrosion_cscan)
+            self.cscan_view_corrosion.layer_selected.connect(self._on_cscan_display_layer_selected)
 
         self.volume_view.volume_needs_update.connect(self._on_volume_needs_update)
         self.volume_view.secondary_slice_changed.connect(self._on_secondary_slice_changed)
@@ -778,14 +796,16 @@ class MasterController:
 
     def _on_open_nde(self) -> None:
         """Handle opening an NDE file."""
+        initial_dir = self._last_file_dialog_directory(self._LAST_NDE_DIRECTORY_KEY)
         file_path, _ = QFileDialog.getOpenFileName(
             self.main_window,
             "Open .nde file",
-            "",
+            initial_dir,
             "NDE Files (*.nde);;All Files (*)",
         )
         if not file_path:
             return
+        self._remember_file_dialog_path(self._LAST_NDE_DIRECTORY_KEY, file_path)
         if not self._confirm_unsaved_sessions_before_reset("open another NDE file"):
             return
 
@@ -2421,6 +2441,10 @@ class MasterController:
         """Handle slice requests originating from the C-Scan view."""
         self._on_slice_changed(z)
 
+    def _on_cscan_display_layer_selected(self, _layer_id: str) -> None:
+        """Refresh labels after the independent C-scan source layer changes."""
+        self._sync_cscan_labels()
+
     def _on_ascan_position_changed(self, profile_idx: int) -> None:
         """Handle A-Scan position changes."""
         selection = self.ascan_controller.on_position_changed(self.nde_model, profile_idx)
@@ -2545,6 +2569,7 @@ class MasterController:
             return
         self.annotation_controller.sync_overlay_settings(force=True)
         self._sync_tools_labels(select_label_id=self.view_state_model.active_label)
+        self.cscan_controller.sync_layer_choices()
         self._mark_active_session_dirty()
 
     def _sync_tools_labels(self, select_label_id: Optional[int] = None) -> None:
@@ -2730,6 +2755,32 @@ class MasterController:
         if hasattr(self.ui, "statusbar") and self.ui.statusbar:
             self.ui.statusbar.showMessage(message, timeout_ms)
 
+    def _file_dialog_settings(self) -> QSettings:
+        return QSettings(self._SETTINGS_ORGANIZATION, self._SETTINGS_APPLICATION)
+
+    def _last_file_dialog_directory(self, key: str) -> str:
+        settings = self._file_dialog_settings()
+        settings.beginGroup(self._FILE_DIALOG_SETTINGS_GROUP)
+        raw_value = settings.value(key, "", type=str)
+        settings.endGroup()
+        directory = Path(str(raw_value or "")).expanduser()
+        if directory.is_dir():
+            return str(directory)
+        return ""
+
+    def _remember_file_dialog_path(self, key: str, file_path: str) -> None:
+        try:
+            directory = Path(str(file_path or "")).expanduser().parent
+        except Exception:
+            return
+        if not directory.is_dir():
+            return
+        settings = self._file_dialog_settings()
+        settings.beginGroup(self._FILE_DIALOG_SETTINGS_GROUP)
+        settings.setValue(key, str(directory))
+        settings.endGroup()
+        settings.sync()
+
     def _set_action_checked(self, action: Optional[Any], enabled: bool) -> None:
         """Update a toggle action without retriggering its slot."""
         if action is None:
@@ -2869,9 +2920,122 @@ class MasterController:
         )
         return normalized
 
+    def _build_cscan_layer_choices(self) -> list[CScanLayerChoice]:
+        layer_stack = self.session_manager.get_active_layer_stack()
+        if layer_stack is None:
+            return []
+
+        active_layer_id = str(layer_stack.ensure_active_layer() or "")
+        choices: list[CScanLayerChoice] = []
+        for layer in layer_stack.layers:
+            layer_id = str(getattr(layer, "id", "") or "").strip()
+            if not layer_id:
+                continue
+            layer_kind = self._normalize_layer_kind(getattr(layer, "layer_kind", None))
+            is_active = layer_id == active_layer_id
+            choices.append(
+                CScanLayerChoice(
+                    layer_id=layer_id,
+                    name=str(getattr(layer, "name", "") or layer_id),
+                    layer_kind=layer_kind,
+                    is_active=is_active,
+                    corrosion_projection=self._corrosion_projection_for_cscan_layer(
+                        layer,
+                        is_active=is_active,
+                    ),
+                )
+            )
+        return choices
+
+    def _corrosion_projection_for_cscan_layer(
+        self,
+        layer: Any,
+        *,
+        is_active: bool,
+    ) -> Optional[tuple[Any, tuple[float, float]]]:
+        if self._normalize_layer_kind(getattr(layer, "layer_kind", None)) != "corrosion":
+            return None
+
+        if (
+            is_active
+            and bool(getattr(self.view_state_model, "corrosion_active", False))
+            and getattr(self.view_state_model, "corrosion_projection", None) is not None
+        ):
+            return self.view_state_model.corrosion_projection
+
+        cache = getattr(layer, "corrosion_runtime_cache", None)
+        projection = getattr(cache, "projection", None)
+        if projection is not None:
+            return projection
+
+        rebuilt = self._rebuild_cscan_corrosion_projection_for_layer(layer)
+        if rebuilt is not None:
+            return rebuilt
+        return None
+
+    def _rebuild_cscan_corrosion_projection_for_layer(
+        self,
+        layer: Any,
+    ) -> Optional[tuple[Any, tuple[float, float]]]:
+        corrosion_state = getattr(layer, "corrosion_state", None)
+        payload = getattr(corrosion_state, "payload", None)
+        if not isinstance(payload, dict):
+            return None
+
+        stage = ViewStateModel.normalize_corrosion_session_stage(
+            getattr(corrosion_state, "stage", None)
+        )
+        if stage == CORROSION_STAGE_INTERPOLATED:
+            peak_a = payload.get("corrosion_peak_index_map_a")
+            peak_b = payload.get("corrosion_peak_index_map_b")
+            if peak_a is None or peak_b is None:
+                peak_a = payload.get("corrosion_raw_peak_index_map_a")
+                peak_b = payload.get("corrosion_raw_peak_index_map_b")
+        elif stage == CORROSION_STAGE_RAW:
+            peak_a = payload.get("corrosion_raw_peak_index_map_a")
+            peak_b = payload.get("corrosion_raw_peak_index_map_b")
+            if peak_a is None or peak_b is None:
+                peak_a = payload.get("corrosion_peak_index_map_a")
+                peak_b = payload.get("corrosion_peak_index_map_b")
+        else:
+            return None
+
+        if peak_a is None or peak_b is None:
+            return None
+
+        try:
+            distance_map = self.cscan_corrosion_service.build_distance_map_from_peak_maps(
+                peak_map_a=peak_a,
+                peak_map_b=peak_b,
+                use_mm=False,
+                resolution_ultrasound_mm=1.0,
+            )
+            projection, value_range = self.cscan_corrosion_service.compute_corrosion_projection(
+                distance_map
+            )
+        except Exception:
+            self.logger.exception("Unable to rebuild C-scan corrosion projection")
+            return None
+
+        cache = getattr(layer, "corrosion_runtime_cache", None)
+        if not isinstance(cache, CorrosionRuntimeCache):
+            cache = CorrosionRuntimeCache()
+            layer.corrosion_runtime_cache = cache
+        cache.projection = (projection, value_range)
+        if stage == CORROSION_STAGE_INTERPOLATED:
+            cache.interpolated_projection = (projection, value_range)
+        elif stage == CORROSION_STAGE_RAW:
+            cache.raw_distance_map = distance_map
+        return cache.projection
+
+    @staticmethod
+    def _normalize_layer_kind(value: Optional[str]) -> str:
+        normalized = str(value or "annotation").strip().casefold()
+        return "corrosion" if normalized == "corrosion" else "annotation"
+
     def _sync_cscan_labels(self) -> None:
         """Keep the C-scan dock and toggle action aligned with corrosion state."""
-        is_corrosion = bool(self.view_state_model.corrosion_active)
+        is_corrosion = self.cscan_controller.is_showing_corrosion()
         dock_title = "Thickness CScan" if is_corrosion else "C-Scan"
         action_text = "Toggle Thickness CScan" if is_corrosion else "Toggle c-scan"
         self.dock_layout_controller.cscan_dock.setWindowTitle(dock_title)
@@ -3844,7 +4008,7 @@ class MasterController:
         volume = self._current_volume()
         self._ensure_corrosion_runtime_cache()
         if volume is not None:
-            self.cscan_controller.update_views(volume)
+            self.cscan_controller.update_views(volume, preserve_view=True)
         self._sync_cscan_labels()
         self._sync_corrosion_workflow_controls()
         self.annotation_controller.sync_overlay_settings()
@@ -4082,6 +4246,7 @@ class MasterController:
         if created_layer_id is None:
             self.status_message("Unable to create the corrosion raw layer.", 5000)
             return
+        self.view_state_model.set_cscan_display_layer_id(created_layer_id)
         self._after_layer_stack_changed()
 
     def _on_corrosion_interpolation_requested(self, algo: str) -> None:
@@ -4158,6 +4323,7 @@ class MasterController:
             self.status_message("Unable to create the corrosion interpolated layer.", 5000)
             self._sync_corrosion_workflow_controls()
             return
+        self.view_state_model.set_cscan_display_layer_id(created_layer_id)
         self._after_layer_stack_changed()
         self.status_message(interp_result.message, 3000)
         self._sync_corrosion_workflow_controls()

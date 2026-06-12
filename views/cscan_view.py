@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Iterable, Optional, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
@@ -30,7 +30,7 @@ class CScanView(QFrame):
 
     crosshair_changed = pyqtSignal(int, int)
     slice_requested = pyqtSignal(int)
-    colormap_changed = pyqtSignal(str)
+    layer_selected = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -107,9 +107,10 @@ class CScanView(QFrame):
         self._status.setAlignment(Qt.AlignmentFlag.AlignLeft)
         header.addWidget(self._status, 1)
 
-        self._lut_combo = QComboBox()
-        self._lut_combo.currentTextChanged.connect(self.colormap_changed.emit)
-        header.addWidget(self._lut_combo, 0)
+        self._layer_combo = QComboBox()
+        self._layer_combo.setToolTip("C-scan source layer")
+        self._layer_combo.currentIndexChanged.connect(self._on_layer_combo_changed)
+        header.addWidget(self._layer_combo, 0)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -144,8 +145,37 @@ class CScanView(QFrame):
         else:
             self._colormap_lut = None
             self._colormap_name = "Gray"
-        self._set_combo_current(self._colormap_name)
         self._render_pixmap()
+
+    def set_layer_choices(
+        self,
+        layers: Iterable[Tuple[str, str]],
+        selected_layer_id: Optional[str],
+    ) -> None:
+        """Replace the source-layer choices without changing the editable layer."""
+        target_id = str(selected_layer_id or "").strip()
+        self._layer_combo.blockSignals(True)
+        self._layer_combo.clear()
+        target_index = -1
+        for layer_id, name in layers:
+            item_id = str(layer_id or "").strip()
+            if not item_id:
+                continue
+            self._layer_combo.addItem(str(name or item_id), item_id)
+            if item_id == target_id:
+                target_index = self._layer_combo.count() - 1
+        self._layer_combo.setEnabled(self._layer_combo.count() > 0)
+        if target_index >= 0:
+            self._layer_combo.setCurrentIndex(target_index)
+        elif self._layer_combo.count() > 0:
+            self._layer_combo.setCurrentIndex(0)
+        self._layer_combo.blockSignals(False)
+
+    def current_layer_id(self) -> Optional[str]:
+        """Return the selected source layer id, if any."""
+        data = self._layer_combo.currentData()
+        layer_id = str(data or "").strip()
+        return layer_id or None
 
     def set_ruler_axis_names(self, *, horizontal: str, vertical: str) -> None:
         """Display the X/Y axis names used by the pixel rulers."""
@@ -192,7 +222,6 @@ class CScanView(QFrame):
         self,
         projection: np.ndarray,
         value_range: Optional[Tuple[float, float]] = None,
-        colormaps: Optional[Tuple[str, ...]] = None,
         value_scale_mm: Optional[float] = None,
         preserve_view: bool = False,
     ) -> None:
@@ -253,13 +282,6 @@ class CScanView(QFrame):
             )
         self._render_pixmap()
         self._update_cursor(*self._current_crosshair)
-
-        if colormaps:
-            self._lut_combo.blockSignals(True)
-            self._lut_combo.clear()
-            self._lut_combo.addItems(colormaps)
-            self._lut_combo.blockSignals(False)
-            self._set_combo_current(self._colormap_name)
 
     def highlight_slice(self, slice_idx: int) -> None:
         if self._projection is None:
@@ -335,13 +357,6 @@ class CScanView(QFrame):
         self._apply_display_scale()
         self._refresh_rulers()
 
-    def _set_combo_current(self, name: str) -> None:
-        idx = self._lut_combo.findText(name)
-        if idx >= 0:
-            self._lut_combo.blockSignals(True)
-            self._lut_combo.setCurrentIndex(idx)
-            self._lut_combo.blockSignals(False)
-
     @staticmethod
     def _to_rgb(data: np.ndarray, value_range: Tuple[float, float], lut: Optional[np.ndarray]) -> np.ndarray:
         vmin, vmax = value_range
@@ -367,6 +382,11 @@ class CScanView(QFrame):
             return z, x
         return None
 
+    def _on_layer_combo_changed(self, _index: int) -> None:
+        layer_id = self.current_layer_id()
+        if layer_id:
+            self.layer_selected.emit(layer_id)
+
     def _update_cursor(self, z: int, x: int) -> None:
         if self._projection is None:
             return
@@ -390,6 +410,77 @@ class CScanView(QFrame):
             return self._display_size
         size = self._view.viewport().size()
         return size.width(), size.height()
+
+    def capture_navigation_state(self) -> Optional[dict[str, object]]:
+        """Capture zoom/pan/crosshair state for transfer between C-scan views."""
+        if self._projection is None:
+            return None
+        pan_center = None
+        if self._pan_center_scene is not None:
+            pan_center = (
+                float(self._pan_center_scene.x()),
+                float(self._pan_center_scene.y()),
+            )
+        crosshair = None
+        if self._current_crosshair is not None:
+            crosshair = (
+                int(self._current_crosshair[0]),
+                int(self._current_crosshair[1]),
+            )
+        return {
+            "shape": tuple(int(dim) for dim in self._projection.shape),
+            "zoom_factor": float(self._zoom_factor),
+            "pan_center": pan_center,
+            "crosshair": crosshair,
+        }
+
+    def restore_navigation_state(self, state: Optional[dict[str, object]]) -> bool:
+        """Restore zoom/pan/crosshair state when the projection shape is compatible."""
+        if self._projection is None or not isinstance(state, dict):
+            return False
+        shape = state.get("shape")
+        try:
+            source_shape = tuple(int(dim) for dim in shape)  # type: ignore[arg-type]
+        except Exception:
+            return False
+        if source_shape != tuple(int(dim) for dim in self._projection.shape):
+            return False
+
+        try:
+            zoom_factor = float(state.get("zoom_factor", 1.0))
+        except Exception:
+            zoom_factor = 1.0
+        if not np.isfinite(zoom_factor) or zoom_factor <= 0.0:
+            zoom_factor = 1.0
+
+        pan_center = state.get("pan_center")
+        if isinstance(pan_center, (tuple, list)) and len(pan_center) == 2:
+            try:
+                self._pan_center_scene = QPointF(float(pan_center[0]), float(pan_center[1]))
+            except Exception:
+                self._pan_center_scene = None
+        else:
+            self._pan_center_scene = None
+        self._zoom_factor = zoom_factor
+        self._panning = False
+        self._update_scene_padding()
+        self._apply_view_transform()
+        self._update_scene_padding()
+
+        crosshair = state.get("crosshair")
+        if isinstance(crosshair, (tuple, list)) and len(crosshair) == 2:
+            try:
+                z = int(crosshair[0])
+                x = int(crosshair[1])
+            except Exception:
+                z, x = self._current_crosshair or (
+                    self._projection.shape[0] // 2,
+                    self._projection.shape[1] // 2,
+                )
+            self._update_cursor(z, x)
+        elif self._current_crosshair is not None:
+            self._update_cursor(*self._current_crosshair)
+        return True
 
     def set_display_size(self, width: int, height: int) -> None:
         """Apply visual stretch on the C-scan view without changing underlying data."""
