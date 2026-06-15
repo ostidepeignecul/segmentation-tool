@@ -10,10 +10,13 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QColorDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QRadioButton as QBtn,
+    QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QVBoxLayout,
@@ -75,6 +78,14 @@ class ToolsPanel(QFrame):
         "gray": "Gray",
         "gris": "Gray",
     }
+    _THRESHOLD_PARAM_TOOLS = frozenset({"box", "free_hand", "grow", "line", "peak"})
+    _BOX_PERCENTILES_PARAM_TOOLS = frozenset({"box", "free_hand"})
+    _POST_PROCESS_PARAM_TOOLS = _THRESHOLD_PARAM_TOOLS
+    _APPLY_VOLUME_PARAM_TOOLS = frozenset(
+        {"box", "free_hand", "grow", "line", "peak", "prune", "mod"}
+    )
+    _ROI_PERSISTENCE_PARAM_TOOLS = _THRESHOLD_PARAM_TOOLS
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
@@ -93,6 +104,7 @@ class ToolsPanel(QFrame):
         self._threshold_slider: Optional[QSlider] = None
         self._threshold_label: Optional[QLabel] = None
         self._paint_size_slider: Optional[QSlider] = None
+        self._paint_size_label: Optional[QLabel] = None
         self._overlay_opacity_slider: Optional[QSlider] = None
         self._overlay_opacity_spinbox: Optional[QSpinBox] = None
         self._nde_opacity_slider: Optional[QSlider] = None
@@ -110,6 +122,9 @@ class ToolsPanel(QFrame):
         self._closing_mask_checkbox: Optional[QCheckBox] = None
         self._clean_outliers_checkbox: Optional[QCheckBox] = None
         self._volume_view_checkbox: Optional[QCheckBox] = None
+        self._tool_parameter_container: Optional[QWidget] = None
+        self._tool_parameter_layout: Optional[QGridLayout] = None
+        self._tool_parameter_layout_signature: Optional[Tuple[bool, int, Tuple[int, ...]]] = None
         self._roi_recompute_button: Optional[QPushButton] = None
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
@@ -175,6 +190,8 @@ class ToolsPanel(QFrame):
         label_color_container: QWidget,
         nde_opacity_label: Optional[QLabel] = None,
         nde_contrast_label: Optional[QLabel] = None,
+        paint_label: Optional[QLabel] = None,
+        tool_parameter_container: Optional[QWidget] = None,
     ) -> None:
         """Receive Designer-created widgets and wire them to the exposed signals."""
         if self._wired:
@@ -186,6 +203,7 @@ class ToolsPanel(QFrame):
         self._threshold_slider = threshold_slider
         self._threshold_label = threshold_label
         self._paint_size_slider = paint_slider
+        self._paint_size_label = paint_label
         self._overlay_opacity_slider = overlay_opacity_slider
         self._overlay_opacity_spinbox = overlay_opacity_spinbox
         self._nde_opacity_slider = nde_opacity_slider
@@ -203,6 +221,7 @@ class ToolsPanel(QFrame):
         self._closing_mask_checkbox = closing_mask_checkbox
         self._clean_outliers_checkbox = clean_outliers_checkbox
         self._volume_view_checkbox = volume_view_checkbox
+        self._tool_parameter_container = tool_parameter_container
         self._roi_recompute_button = roi_recompute_button
         self._roi_delete_button = roi_delete_button
         self._selection_cancel_button = selection_cancel_button
@@ -268,8 +287,14 @@ class ToolsPanel(QFrame):
             self._paint_size_slider.setValue(8)
             self._paint_size_slider.valueChanged.connect(self.paint_size_changed.emit)
 
+        self._configure_responsive_tool_parameters()
+        self._sync_tool_parameter_visibility()
         self._wired = True
         self.set_nde_opacity_available(False)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._sync_tool_parameter_layout()
 
     def _configure_slice_controls(
         self,
@@ -814,6 +839,233 @@ class ToolsPanel(QFrame):
         self._volume_view_checkbox.setChecked(bool(enabled))
         self._volume_view_checkbox.blockSignals(False)
 
+    def _configure_responsive_tool_parameters(self) -> None:
+        if self._tool_parameter_container is None:
+            return
+        layout = self._tool_parameter_container.layout()
+        if isinstance(layout, QGridLayout):
+            self._tool_parameter_layout = layout
+            self._tool_parameter_layout.setHorizontalSpacing(8)
+            self._tool_parameter_layout.setVerticalSpacing(6)
+
+        self._tool_parameter_container.setMinimumWidth(0)
+        self._tool_parameter_container.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Minimum,
+        )
+        scroll_area = self._find_parent_scroll_area(self._tool_parameter_container)
+        if scroll_area is not None:
+            scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll_area.setWidgetResizable(True)
+            content = scroll_area.widget()
+            if content is not None:
+                content.setMinimumWidth(0)
+                content.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+
+        for slider in (self._threshold_slider, self._paint_size_slider):
+            if slider is not None:
+                slider.setMinimumWidth(72)
+                slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        for checkbox in self._tool_parameter_checkboxes():
+            checkbox.setMinimumWidth(0)
+            checkbox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
+
+    def _sync_tool_parameter_visibility(self) -> None:
+        mode = self.current_tool_mode()
+        if not mode:
+            self._set_widgets_visible(self._tool_parameter_widgets(), True)
+            if self._tool_parameter_container is not None:
+                self._tool_parameter_container.setVisible(True)
+            self._sync_tool_parameter_layout(force=True)
+            return
+
+        has_threshold = mode in self._THRESHOLD_PARAM_TOOLS
+        has_paint_size = mode == "paint"
+        has_apply_volume = mode in self._APPLY_VOLUME_PARAM_TOOLS
+        has_roi_persistence = mode in self._ROI_PERSISTENCE_PARAM_TOOLS
+        has_box_percentiles = mode in self._BOX_PERCENTILES_PARAM_TOOLS
+        has_post_process = mode in self._POST_PROCESS_PARAM_TOOLS
+        has_mod_apply_auto = mode == "mod"
+        has_force_threshold_erase = (
+            has_threshold and self.current_annotation_action() == "erase"
+        )
+
+        visibility_groups = (
+            ((self._threshold_label, self._threshold_slider), has_threshold),
+            ((self._paint_size_label, self._paint_size_slider), has_paint_size),
+            ((self._apply_volume_checkbox,), has_apply_volume),
+            ((self._roi_persistence_checkbox,), has_roi_persistence),
+            ((self._threshold_auto_checkbox,), has_box_percentiles),
+            ((self._force_threshold_erase_checkbox,), has_force_threshold_erase),
+            ((self._closing_mask_checkbox, self._clean_outliers_checkbox), has_post_process),
+            ((self._mod_apply_auto_checkbox,), has_mod_apply_auto),
+            ((self._apply_auto_checkbox, self._volume_view_checkbox), True),
+        )
+        any_visible = False
+        for widgets, visible in visibility_groups:
+            self._set_widgets_visible(widgets, visible)
+            any_visible = any_visible or (visible and any(widget is not None for widget in widgets))
+
+        if self._tool_parameter_container is not None:
+            self._tool_parameter_container.setVisible(any_visible)
+        self._sync_tool_parameter_layout(force=True)
+
+    @staticmethod
+    def _set_widgets_visible(widgets: Iterable[Optional[QWidget]], visible: bool) -> None:
+        for widget in widgets:
+            if widget is not None:
+                widget.setVisible(bool(visible))
+
+    def _tool_parameter_widgets(self) -> Tuple[Optional[QWidget], ...]:
+        return (
+            self._threshold_label,
+            self._threshold_slider,
+            self._paint_size_label,
+            self._paint_size_slider,
+            self._apply_volume_checkbox,
+            self._apply_auto_checkbox,
+            self._mod_apply_auto_checkbox,
+            self._force_threshold_erase_checkbox,
+            self._threshold_auto_checkbox,
+            self._roi_persistence_checkbox,
+            self._closing_mask_checkbox,
+            self._clean_outliers_checkbox,
+            self._volume_view_checkbox,
+        )
+
+    def _sync_tool_parameter_layout(self, *, force: bool = False) -> None:
+        layout = self._tool_parameter_layout
+        if layout is None:
+            return
+
+        width = self._tool_parameter_available_width()
+        checkbox_columns = self._checkbox_columns_for_width(width)
+        stack_sliders = width < 340
+        sequence = self._visible_tool_parameter_sequence()
+        signature = (stack_sliders, checkbox_columns, tuple(id(widget) for widget in sequence))
+        if not force and signature == self._tool_parameter_layout_signature:
+            return
+        self._tool_parameter_layout_signature = signature
+
+        for widget in self._tool_parameter_widgets():
+            if widget is not None:
+                layout.removeWidget(widget)
+
+        row = 0
+        row = self._add_parameter_slider_row(
+            row=row,
+            label=self._threshold_label,
+            slider=self._threshold_slider,
+            columns=checkbox_columns,
+            stack=stack_sliders,
+        )
+        row = self._add_parameter_slider_row(
+            row=row,
+            label=self._paint_size_label,
+            slider=self._paint_size_slider,
+            columns=checkbox_columns,
+            stack=stack_sliders,
+        )
+
+        checkbox_row = row
+        checkbox_col = 0
+        for checkbox in self._visible_tool_parameter_checkboxes():
+            layout.addWidget(checkbox, checkbox_row, checkbox_col, 1, 1)
+            checkbox_col += 1
+            if checkbox_col >= checkbox_columns:
+                checkbox_row += 1
+                checkbox_col = 0
+
+        for column in range(4):
+            layout.setColumnStretch(column, 1 if column < checkbox_columns else 0)
+            layout.setColumnMinimumWidth(column, 0)
+
+    def _add_parameter_slider_row(
+        self,
+        *,
+        row: int,
+        label: Optional[QLabel],
+        slider: Optional[QSlider],
+        columns: int,
+        stack: bool,
+    ) -> int:
+        layout = self._tool_parameter_layout
+        if layout is None or label is None or slider is None:
+            return row
+        if label.isHidden() or slider.isHidden():
+            return row
+
+        column_span = max(1, int(columns))
+        if stack or column_span <= 1:
+            layout.addWidget(label, row, 0, 1, column_span)
+            layout.addWidget(slider, row + 1, 0, 1, column_span)
+            return row + 2
+
+        layout.addWidget(label, row, 0, 1, 1)
+        layout.addWidget(slider, row, 1, 1, column_span - 1)
+        return row + 1
+
+    def _visible_tool_parameter_sequence(self) -> Tuple[QWidget, ...]:
+        return tuple(
+            widget
+            for widget in self._tool_parameter_widgets()
+            if widget is not None and not widget.isHidden()
+        )
+
+    def _visible_tool_parameter_checkboxes(self) -> Tuple[QCheckBox, ...]:
+        return tuple(checkbox for checkbox in self._tool_parameter_checkboxes() if not checkbox.isHidden())
+
+    def _tool_parameter_checkboxes(self) -> Tuple[QCheckBox, ...]:
+        return tuple(
+            checkbox
+            for checkbox in (
+                self._apply_auto_checkbox,
+                self._apply_volume_checkbox,
+                self._roi_persistence_checkbox,
+                self._force_threshold_erase_checkbox,
+                self._threshold_auto_checkbox,
+                self._clean_outliers_checkbox,
+                self._closing_mask_checkbox,
+                self._mod_apply_auto_checkbox,
+                self._volume_view_checkbox,
+            )
+            if checkbox is not None
+        )
+
+    def _tool_parameter_available_width(self) -> int:
+        container = self._tool_parameter_container
+        if container is None:
+            return int(self.width())
+        width = int(container.width())
+        if width <= 0:
+            width = int(self.width())
+        if width <= 0:
+            width = int(container.sizeHint().width())
+        layout = self._tool_parameter_layout
+        if layout is not None:
+            margins = layout.contentsMargins()
+            width -= int(margins.left() + margins.right())
+        return max(1, width)
+
+    @staticmethod
+    def _checkbox_columns_for_width(width: int) -> int:
+        if width < 340:
+            return 1
+        if width < 520:
+            return 2
+        if width < 720:
+            return 3
+        return 4
+
+    @staticmethod
+    def _find_parent_scroll_area(widget: QWidget) -> Optional[QScrollArea]:
+        parent = widget.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QScrollArea):
+                return parent
+            parent = parent.parentWidget()
+        return None
+
     def current_tool_mode(self) -> Optional[str]:
         """Return the currently selected drawing tool mode."""
         if self._tool_combo is None:
@@ -841,6 +1093,7 @@ class ToolsPanel(QFrame):
         self._tool_combo.blockSignals(True)
         self._tool_combo.setCurrentIndex(target_index)
         self._tool_combo.blockSignals(False)
+        self._sync_tool_parameter_visibility()
 
     def current_annotation_action(self) -> str:
         """Return the current annotation action (`draw` or `erase`)."""
@@ -869,13 +1122,16 @@ class ToolsPanel(QFrame):
         self._action_combo.blockSignals(True)
         self._action_combo.setCurrentIndex(target_index)
         self._action_combo.blockSignals(False)
+        self._sync_tool_parameter_visibility()
 
     def _on_tool_combo_changed(self, _index: int) -> None:
         mode = self.current_tool_mode()
         if mode:
+            self._sync_tool_parameter_visibility()
             self.tool_mode_changed.emit(mode)
 
     def _on_action_combo_changed(self, _index: int) -> None:
+        self._sync_tool_parameter_visibility()
         self.annotation_action_changed.emit(self.current_annotation_action())
 
     def current_endview_colormap(self) -> Optional[str]:

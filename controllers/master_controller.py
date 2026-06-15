@@ -484,6 +484,7 @@ class MasterController:
             threshold_slider=self._tools_ui.horizontalSlider,
             threshold_label=self._tools_ui.label_2,
             paint_slider=self._tools_ui.horizontalSlider_3,
+            paint_label=getattr(self._tools_ui, "label_6", None),
             overlay_opacity_slider=self._tools_ui.horizontalSlider_6,
             overlay_opacity_spinbox=self._tools_ui.spinBox_4,
             nde_opacity_slider=self._tools_ui.horizontalSlider_5,
@@ -507,6 +508,7 @@ class MasterController:
             label_color_container=self._tools_ui.frame_6,
             nde_opacity_label=getattr(self._tools_ui, "label_10", None),
             nde_contrast_label=getattr(self._tools_ui, "label_12", None),
+            tool_parameter_container=getattr(self._tools_ui, "widget", None),
         )
 
         if self.view_state_model.threshold is not None:

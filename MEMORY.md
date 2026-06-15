@@ -4903,3 +4903,21 @@ Le changement de layer dans le ToolPanel forcait implicitement la vue C-scan a s
 3. Reutiliser les caches runtime corrosion quand ils existent et reconstruire une projection depuis les peak maps seulement comme fallback pour les layers non actifs.
 4. Preserver le zoom/pan uniquement lorsque la nouvelle projection a la meme shape, pour eviter de reutiliser une navigation incompatible apres un vrai changement de dataset.
 5. Utiliser `QSettings` sous le meme scope applicatif que le layout ADS, mais avec des cles distinctes `last_nde_directory` et `last_session_directory` pour ne pas melanger les dossiers de donnees et de sessions.
+
+### 2026-06-15 - Parametres ToolsPanel dynamiques et responsive
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/master_controller.py`, `#toolspanel.ui`, `#ui_toolspanel.py`, `#views/tools_panel.py`, `#tools_panel`, `#tool-parameters`, `#responsive`, `#threshold`, `#paint`, `#ui`, `#pyqt6`, `#mvc`
+
+**Actions effectuées :**
+- Regroupe dans `toolspanel.ui` les parametres d outils dans un `QWidget` dedie, corrige l alignement `Threshold` / `Paint size`, puis regenere `ui_toolspanel.py`.
+- Etend `views/tools_panel.py` avec une matrice de visibilite par outil pour afficher uniquement les parametres utiles : threshold pour les outils ROI, paint size pour `Paint`, options `Mod` dediees, et `Force threshold (erase)` seulement en action `Erase`.
+- Ajoute un reflow responsive du bloc parametres dans `ToolsPanel` : sliders empiles en largeur etroite, checkboxes en 1 a 4 colonnes selon la largeur, scroll horizontal desactive et scroll vertical conserve.
+- Branche `controllers/master_controller.py` pour passer le label `Paint size` et le conteneur de parametres Designer a `ToolsPanel`, sans deplacer de logique metier hors de la vue.
+
+**Contexte :**
+Le panneau Tools affichait tous les parametres peu importe l outil selectionne, ce qui rendait le dock charge et peu clair. Apres regroupement des parametres, le dock devenait aussi difficile a utiliser en largeur reduite parce que les widgets disparaissaient ou se tassaient dans la zone scroll. Le besoin etait de conserver le controle via le fichier Designer tout en ameliorant l ergonomie et le comportement responsive.
+
+**Décisions techniques :**
+1. Garder la logique de visibilite dans `ToolsPanel`, car elle concerne uniquement l affichage de widgets et respecte la separation MVC.
+2. Conserver les widgets definis dans `toolspanel.ui` comme source de controle Designer, et ne faire que les repositionner au runtime selon la largeur disponible.
+3. Eviter une largeur minimale forcee du dock : le panneau reste redimensionnable, avec un reflow vertical quand l espace horizontal devient insuffisant.
+4. Desactiver seulement le scroll horizontal du `QScrollArea`, afin que la navigation reste verticale et que les parametres ne sortent plus lateralement de la zone visible.
