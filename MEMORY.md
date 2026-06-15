@@ -4921,3 +4921,22 @@ Le panneau Tools affichait tous les parametres peu importe l outil selectionne, 
 2. Conserver les widgets definis dans `toolspanel.ui` comme source de controle Designer, et ne faire que les repositionner au runtime selon la largeur disponible.
 3. Eviter une largeur minimale forcee du dock : le panneau reste redimensionnable, avec un reflow vertical quand l espace horizontal devient insuffisant.
 4. Desactiver seulement le scroll horizontal du `QScrollArea`, afin que la navigation reste verticale et que les parametres ne sortent plus lateralement de la zone visible.
+
+### 2026-06-15 - Compaction du layout parametres ToolsPanel
+**Tags :** `#branch:main`, `#MEMORY.md`, `#views/tools_panel.py`, `#tools_panel`, `#responsive`, `#layout`, `#threshold`, `#paint`, `#pyqt6`, `#mvc`
+
+**Actions effectuées :**
+- Supprime le mode de reflow qui empilait le label `Threshold` et son slider sur deux lignes en largeur etroite.
+- Reduit la largeur minimale des sliders de parametres pour garder `Threshold` / `Paint size` sur la meme ligne que leur controle.
+- Reconstruit strictement le `QGridLayout` des parametres via `takeAt()`, puis remet a zero les contraintes de rows/columns avant reinsertion des widgets visibles.
+- Aligne le `QGridLayout` des parametres en haut, passe le conteneur en hauteur `Fixed`, active le layout puis applique `setFixedHeight(layout.sizeHint().height())` pour que le widget rapetisse au nombre d elements visibles.
+- Fait occuper toute la largeur disponible aux checkboxes quand le mode responsive tombe en une seule colonne.
+
+**Contexte :**
+Le reflow precedent rendait le panneau utilisable en largeur reduite, mais introduisait deux problemes : le label `Threshold` pouvait rester sur une ligne pendant que le slider descendait sur la ligne suivante, et le widget de parametres conservait trop d espace vertical meme quand peu de controles etaient visibles pour l outil actif. Dans ce cas, Qt distribuait l espace vertical libre entre les rows au lieu de compacter le conteneur autour de son contenu.
+
+**Décisions techniques :**
+1. Preferer des sliders plus compacts a un wrap label/controle, afin de garder une lecture horizontale stable des parametres principaux.
+2. Recalculer la structure du `QGridLayout` a chaque reflow pertinent plutot que de seulement retirer les widgets, car Qt peut conserver des contraintes implicites de rows/columns.
+3. Garder la correction dans `ToolsPanel`, car elle reste purement UI et ne modifie ni l etat metier ni les controllers.
+4. Fixer explicitement la hauteur du conteneur de parametres depuis le `sizeHint` du layout, afin d empecher l etirement vertical quand le parent scroll area dispose de plus d espace que le contenu visible.

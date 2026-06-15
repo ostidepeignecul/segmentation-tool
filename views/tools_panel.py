@@ -124,7 +124,7 @@ class ToolsPanel(QFrame):
         self._volume_view_checkbox: Optional[QCheckBox] = None
         self._tool_parameter_container: Optional[QWidget] = None
         self._tool_parameter_layout: Optional[QGridLayout] = None
-        self._tool_parameter_layout_signature: Optional[Tuple[bool, int, Tuple[int, ...]]] = None
+        self._tool_parameter_layout_signature: Optional[Tuple[int, Tuple[int, ...]]] = None
         self._roi_recompute_button: Optional[QPushButton] = None
         self._roi_delete_button: Optional[QPushButton] = None
         self._selection_cancel_button: Optional[QPushButton] = None
@@ -847,11 +847,12 @@ class ToolsPanel(QFrame):
             self._tool_parameter_layout = layout
             self._tool_parameter_layout.setHorizontalSpacing(8)
             self._tool_parameter_layout.setVerticalSpacing(6)
+            self._tool_parameter_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._tool_parameter_container.setMinimumWidth(0)
         self._tool_parameter_container.setSizePolicy(
             QSizePolicy.Policy.Ignored,
-            QSizePolicy.Policy.Minimum,
+            QSizePolicy.Policy.Fixed,
         )
         scroll_area = self._find_parent_scroll_area(self._tool_parameter_container)
         if scroll_area is not None:
@@ -864,7 +865,7 @@ class ToolsPanel(QFrame):
 
         for slider in (self._threshold_slider, self._paint_size_slider):
             if slider is not None:
-                slider.setMinimumWidth(72)
+                slider.setMinimumWidth(48)
                 slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         for checkbox in self._tool_parameter_checkboxes():
             checkbox.setMinimumWidth(0)
@@ -940,16 +941,13 @@ class ToolsPanel(QFrame):
 
         width = self._tool_parameter_available_width()
         checkbox_columns = self._checkbox_columns_for_width(width)
-        stack_sliders = width < 340
         sequence = self._visible_tool_parameter_sequence()
-        signature = (stack_sliders, checkbox_columns, tuple(id(widget) for widget in sequence))
+        signature = (checkbox_columns, tuple(id(widget) for widget in sequence))
         if not force and signature == self._tool_parameter_layout_signature:
             return
         self._tool_parameter_layout_signature = signature
 
-        for widget in self._tool_parameter_widgets():
-            if widget is not None:
-                layout.removeWidget(widget)
+        self._clear_tool_parameter_layout()
 
         row = 0
         row = self._add_parameter_slider_row(
@@ -957,28 +955,29 @@ class ToolsPanel(QFrame):
             label=self._threshold_label,
             slider=self._threshold_slider,
             columns=checkbox_columns,
-            stack=stack_sliders,
         )
         row = self._add_parameter_slider_row(
             row=row,
             label=self._paint_size_label,
             slider=self._paint_size_slider,
             columns=checkbox_columns,
-            stack=stack_sliders,
         )
 
         checkbox_row = row
         checkbox_col = 0
+        grid_columns = max(2, checkbox_columns)
         for checkbox in self._visible_tool_parameter_checkboxes():
-            layout.addWidget(checkbox, checkbox_row, checkbox_col, 1, 1)
+            column_span = grid_columns if checkbox_columns == 1 else 1
+            layout.addWidget(checkbox, checkbox_row, checkbox_col, 1, column_span)
             checkbox_col += 1
             if checkbox_col >= checkbox_columns:
                 checkbox_row += 1
                 checkbox_col = 0
 
         for column in range(4):
-            layout.setColumnStretch(column, 1 if column < checkbox_columns else 0)
+            layout.setColumnStretch(column, 1 if column < grid_columns else 0)
             layout.setColumnMinimumWidth(column, 0)
+        self._refresh_tool_parameter_geometry()
 
     def _add_parameter_slider_row(
         self,
@@ -987,7 +986,6 @@ class ToolsPanel(QFrame):
         label: Optional[QLabel],
         slider: Optional[QSlider],
         columns: int,
-        stack: bool,
     ) -> int:
         layout = self._tool_parameter_layout
         if layout is None or label is None or slider is None:
@@ -996,14 +994,37 @@ class ToolsPanel(QFrame):
             return row
 
         column_span = max(1, int(columns))
-        if stack or column_span <= 1:
-            layout.addWidget(label, row, 0, 1, column_span)
-            layout.addWidget(slider, row + 1, 0, 1, column_span)
-            return row + 2
-
         layout.addWidget(label, row, 0, 1, 1)
-        layout.addWidget(slider, row, 1, 1, column_span - 1)
+        layout.addWidget(slider, row, 1, 1, max(1, column_span - 1))
         return row + 1
+
+    def _clear_tool_parameter_layout(self) -> None:
+        layout = self._tool_parameter_layout
+        if layout is None:
+            return
+        while layout.count():
+            layout.takeAt(0)
+        for index in range(20):
+            layout.setRowStretch(index, 0)
+            layout.setRowMinimumHeight(index, 0)
+        for index in range(4):
+            layout.setColumnStretch(index, 0)
+            layout.setColumnMinimumWidth(index, 0)
+
+    def _refresh_tool_parameter_geometry(self) -> None:
+        container = self._tool_parameter_container
+        layout = self._tool_parameter_layout
+        if container is None or layout is None:
+            return
+        layout.invalidate()
+        layout.activate()
+        height = max(1, int(layout.sizeHint().height()))
+        container.setFixedHeight(height)
+        container.updateGeometry()
+        parent = container.parentWidget()
+        while parent is not None:
+            parent.updateGeometry()
+            parent = parent.parentWidget()
 
     def _visible_tool_parameter_sequence(self) -> Tuple[QWidget, ...]:
         return tuple(
