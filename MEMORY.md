@@ -4940,3 +4940,24 @@ Le reflow precedent rendait le panneau utilisable en largeur reduite, mais intro
 2. Recalculer la structure du `QGridLayout` a chaque reflow pertinent plutot que de seulement retirer les widgets, car Qt peut conserver des contraintes implicites de rows/columns.
 3. Garder la correction dans `ToolsPanel`, car elle reste purement UI et ne modifie ni l etat metier ni les controllers.
 4. Fixer explicitement la hauteur du conteneur de parametres depuis le `sizeHint` du layout, afin d empecher l etirement vertical quand le parent scroll area dispose de plus d espace que le contenu visible.
+
+### 2026-06-17 - Overlay A-scan blendé par layer visible
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/ascan_controller.py`, `#controllers/master_controller.py`, `#models/overlay_data.py`, `#services/ascan_service.py`, `#views/ascan_view.py`, `#ascan`, `#layer-stack`, `#overlay`, `#blending`, `#corrosion`, `#mvc`, `#pyqtgraph`
+
+**Actions effectuées :**
+- Ajoute `AScanOverlayLayerData` dans `models/overlay_data.py` pour transporter les spans A-scan projetes par layer avec palette et opacite propres.
+- Etend `services/ascan_service.py` pour projeter chaque layer visible du `OverlayStackData` sur le profil A-scan courant, en conservant la visibilite de labels et l ordre du stack.
+- Branche `controllers/ascan_controller.py` sur un fournisseur de stack overlay courant et pousse les layers projetes vers les vues A-scan normale et corrosion.
+- Ajoute `build_ascan_overlay_stack()` et le cache `_current_overlay_stack` dans `controllers/annotation_controller.py` afin que l A-scan suive le meme stack que les vues 2D/3D, y compris les previews temporaires.
+- Branche `controllers/master_controller.py` pour fournir ce stack au controller A-scan.
+- Refond `views/ascan_view.py` pour dessiner tous les spans de layers dans la meme zone du graphique (`y0=0`, `height=100`) avec blending alpha, au lieu d empiler des pistes verticales separees.
+
+**Contexte :**
+L utilisateur voulait que l A-scan reflete les layers visibles : lorsqu un layer est coche visible, son overlay A-scan doit apparaitre, et lorsqu il est decoche il doit disparaitre. Apres une premiere version avec une piste verticale par layer, le comportement attendu a ete precise : les overlays doivent se comporter comme les layers 2D, c est-a-dire se superposer et se blender dans la meme zone du graphique.
+
+**Décisions techniques :**
+1. Reutiliser `OverlayStackData` comme source unique des layers visibles afin de rester coherent avec le rendu Endview/Volume et avec les checkboxes `Visible` existantes.
+2. Calculer les spans uniquement pour le profil A-scan courant dans `AScanService`, pour conserver le cout lineaire sur la longueur du signal affiche.
+3. Garder palette et opacite par layer dans le payload A-scan, car deux layers peuvent partager les memes ids de labels avec des couleurs differentes.
+4. Dessiner les overlays multi-layer dans `AScanView` sur toute la hauteur utile du plot avec alpha blending, afin de reproduire le comportement de composition attendu plutot qu une separation visuelle en pistes.
+5. Appliquer le meme rendu aux vues A-scan normale et corrosion, tout en laissant les mesures corrosion dessinees par-dessus dans `AScanViewCorrosion`.

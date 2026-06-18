@@ -336,6 +336,7 @@ class MasterController:
             view_state_model=self.view_state_model,
             set_cscan_crosshair=self.cscan_controller.set_crosshair,
             set_endview_crosshair=self.endview_controller.set_crosshair,
+            overlay_stack_provider=self.annotation_controller.build_ascan_overlay_stack,
         )
         self.corrosion_profile_controller = CorrosionProfileController(
             view_state_model=self.view_state_model,

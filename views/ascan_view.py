@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import QFrame, QGridLayout, QVBoxLayout, QWidget
 
+from models.overlay_data import AScanOverlayLayerData
 from services.ruler_display_service import RulerDisplayService
 from views.color_axis_ruler import AxisTitleLabel, ColorAxisRuler
 
@@ -28,8 +29,7 @@ class AScanView(QFrame):
         self._positions: Optional[np.ndarray] = None
         self._source_positions: Optional[np.ndarray] = None
         self._horizontal_axis_resolution_mm: Optional[float] = None
-        self._overlay_spans: tuple[tuple[int, int, int], ...] = ()
-        self._overlay_palette: dict[int, tuple[int, int, int, int]] = {}
+        self._overlay_layers: tuple[AScanOverlayLayerData, ...] = ()
         self._overlay_opacity: float = 0.4
         self._display_axis_x_name: str = "Ultrasound axis"
         self._display_axis_y_name: str = "Amplitude (%)"
@@ -150,11 +150,34 @@ class AScanView(QFrame):
         palette: Optional[dict[int, tuple[int, int, int, int]]] = None,
     ) -> None:
         """Assign projected mask spans rendered as translucent vertical bands."""
-        self._overlay_spans = tuple(
+        normalized_spans = tuple(
             (int(start_idx), int(end_idx), int(label_id))
             for start_idx, end_idx, label_id in (spans or ())
         )
-        self._overlay_palette = dict(palette or {})
+        if not normalized_spans:
+            self.set_overlay_layers(())
+            return
+        self.set_overlay_layers(
+            (
+                AScanOverlayLayerData(
+                    layer_id="legacy-overlay",
+                    name="Overlay",
+                    spans=normalized_spans,
+                    palette=dict(palette or {}),
+                    opacity=1.0,
+                ),
+            )
+        )
+
+    def set_overlay_layers(
+        self,
+        layers: Sequence[AScanOverlayLayerData] | None,
+    ) -> None:
+        """Assign projected mask spans grouped by annotation layer."""
+        self._overlay_layers = tuple(
+            self._normalize_overlay_layer(layer)
+            for layer in (layers or ())
+        )
         self._refresh_overlay_bars()
 
     def set_overlay_opacity(self, opacity: float) -> None:
@@ -216,7 +239,7 @@ class AScanView(QFrame):
         self._refresh_rulers()
 
     def _refresh_overlay_bars(self) -> None:
-        if self._signal is None or self._signal.size == 0 or not self._overlay_spans:
+        if self._signal is None or self._signal.size == 0 or not self._overlay_layers:
             self._overlay_bars.setOpts(x0=[], x1=[], y0=[], height=[], brushes=[], pen=None)
             return
 
@@ -230,26 +253,30 @@ class AScanView(QFrame):
         x1_values: list[float] = []
         brushes: list[QBrush] = []
 
-        for raw_start, raw_end, raw_label in self._overlay_spans:
-            start_idx = max(0, min(max_idx, int(raw_start)))
-            end_idx = max(start_idx, min(max_idx, int(raw_end)))
-            brush = self._brush_for_label(int(raw_label))
-            if brush.color().alpha() <= 0:
-                continue
-            x0_values.append(float(left_edges[start_idx]))
-            x1_values.append(float(right_edges[end_idx]))
-            brushes.append(brush)
+        for layer in self._overlay_layers:
+            for raw_start, raw_end, raw_label in layer.spans:
+                start_idx = max(0, min(max_idx, int(raw_start)))
+                end_idx = max(start_idx, min(max_idx, int(raw_end)))
+                brush = self._brush_for_label(
+                    int(raw_label),
+                    palette=layer.palette,
+                    layer_opacity=layer.opacity,
+                )
+                if brush.color().alpha() <= 0:
+                    continue
+                x0_values.append(float(left_edges[start_idx]))
+                x1_values.append(float(right_edges[end_idx]))
+                brushes.append(brush)
 
         if not x0_values:
             self._overlay_bars.setOpts(x0=[], x1=[], y0=[], height=[], brushes=[], pen=None)
             return
 
-        count = len(x0_values)
         self._overlay_bars.setOpts(
             x0=np.asarray(x0_values, dtype=np.float32),
             x1=np.asarray(x1_values, dtype=np.float32),
-            y0=np.zeros(count, dtype=np.float32),
-            height=np.full(count, 100.0, dtype=np.float32),
+            y0=np.zeros(len(x0_values), dtype=np.float32),
+            height=np.full(len(x0_values), 100.0, dtype=np.float32),
             brushes=brushes,
             pen=None,
         )
@@ -292,10 +319,35 @@ class AScanView(QFrame):
         self._refresh_overlay_bars()
         self._refresh_rulers()
 
-    def _brush_for_label(self, label_id: int) -> QBrush:
-        bgra = self._overlay_palette.get(int(label_id), (255, 0, 255, 160))
+    @staticmethod
+    def _normalize_overlay_layer(
+        layer: AScanOverlayLayerData,
+    ) -> AScanOverlayLayerData:
+        return AScanOverlayLayerData(
+            layer_id=str(layer.layer_id),
+            name=str(layer.name),
+            spans=tuple(
+                (int(start_idx), int(end_idx), int(label_id))
+                for start_idx, end_idx, label_id in tuple(layer.spans or ())
+            ),
+            palette={
+                int(label_id): tuple(int(channel) for channel in color)
+                for label_id, color in dict(layer.palette or {}).items()
+            },
+            opacity=max(0.0, min(1.0, float(layer.opacity))),
+        )
+
+    def _brush_for_label(
+        self,
+        label_id: int,
+        *,
+        palette: dict[int, tuple[int, int, int, int]],
+        layer_opacity: float,
+    ) -> QBrush:
+        bgra = palette.get(int(label_id), (255, 0, 255, 160))
         b, g, r, a = (int(value) for value in bgra)
-        alpha = max(0, min(255, int(round(a * self._overlay_opacity))))
+        alpha_factor = self._overlay_opacity * max(0.0, min(1.0, float(layer_opacity)))
+        alpha = max(0, min(255, int(round(a * alpha_factor))))
         return pg.mkBrush(QColor(r, g, b, alpha))
 
     def _clear_rulers(self) -> None:

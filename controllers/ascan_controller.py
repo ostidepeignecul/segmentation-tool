@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QStackedLayout
 
 from models.annotation_model import AnnotationModel
 from models.nde_model import NdeModel
+from models.overlay_data import OverlayStackData
 from models.view_state_model import ViewStateModel
 from services.ascan_service import AScanService, AScanProfile
 from views.ascan_view import AScanView
@@ -29,6 +30,7 @@ class AScanController:
         view_state_model: ViewStateModel,
         set_cscan_crosshair: Callable[[int, int], None],
         set_endview_crosshair: Callable[[int, int], None],
+        overlay_stack_provider: Optional[Callable[[], Optional[OverlayStackData]]] = None,
     ) -> None:
         self.ascan_service = ascan_service
         self.annotation_model = annotation_model
@@ -38,6 +40,7 @@ class AScanController:
         self.view_state_model = view_state_model
         self.set_cscan_crosshair = set_cscan_crosshair
         self.set_endview_crosshair = set_endview_crosshair
+        self.overlay_stack_provider = overlay_stack_provider
 
     def update_trace(
         self,
@@ -53,13 +56,17 @@ class AScanController:
         mask_volume = None
         visible_labels = None
         palette: dict[int, tuple[int, int, int, int]] = {}
+        overlay_stack: Optional[OverlayStackData] = None
         if (
             getattr(self.view_state_model, "show_overlay", True)
             and getattr(self.view_state_model, "show_overlay_ascan", True)
         ):
-            mask_volume = self.annotation_model.get_mask_volume()
-            visible_labels = self.annotation_model.get_visible_labels()
-            palette = self.annotation_model.get_label_palette()
+            if self.overlay_stack_provider is not None:
+                overlay_stack = self.overlay_stack_provider()
+            else:
+                mask_volume = self.annotation_model.get_mask_volume()
+                visible_labels = self.annotation_model.get_visible_labels()
+                palette = self.annotation_model.get_label_palette()
 
         profile: Optional[AScanProfile] = self.ascan_service.build_profile(
             nde_model,
@@ -67,12 +74,12 @@ class AScanController:
             point_hint=point or self.view_state_model.current_point,
             mask_volume=mask_volume,
             visible_labels=visible_labels,
+            overlay_stack=overlay_stack,
         )
         if profile is None:
             self.clear()
             return
 
-        corrosion_active = self.view_state_model.corrosion_active
         axis_index = self.ascan_service.get_ultrasound_axis_index(nde_model, volume.shape)
         ultrasound_resolution_mm = nde_model.get_axis_resolution_mm(
             "Ultrasound",
@@ -86,10 +93,10 @@ class AScanController:
             view.set_horizontal_axis_resolution_mm(ultrasound_resolution_mm)
             view.set_signal(profile.signal_percent, positions=profile.positions)
             view.set_marker(profile.marker_index)
-            # Les spans de masque ne sont pas pertinents sur la vue corrosion :
-            # le profil corrosion est une ligne simple (FW/BW), pas un profil segmenté.
-            spans = [] if (corrosion_active and view is self.corrosion_view) else profile.overlay_spans
-            view.set_overlay_segments(spans, palette=palette)
+            if overlay_stack is not None:
+                view.set_overlay_layers(profile.overlay_layers)
+            else:
+                view.set_overlay_segments(profile.overlay_spans, palette=palette)
 
         if self.view_state_model.corrosion_active and self.corrosion_view is not None:
             self.show_corrosion()

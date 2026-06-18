@@ -10,6 +10,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 import numpy as np
 
 from models.nde_model import NdeModel
+from models.overlay_data import AScanOverlayLayerData, OverlayStackData
 from services.ascan_debug_logger import ascan_debug_logger
 from services.peak_plateau import pick_plateau_peak_index
 
@@ -23,6 +24,7 @@ class AScanProfile:
     marker_index: int
     crosshair: Tuple[int, int]
     overlay_spans: tuple[tuple[int, int, int], ...] = ()
+    overlay_layers: tuple[AScanOverlayLayerData, ...] = ()
 
 
 class AScanService:
@@ -36,6 +38,7 @@ class AScanService:
         *,
         mask_volume: Optional[np.ndarray] = None,
         visible_labels: Optional[Set[int]] = None,
+        overlay_stack: Optional[OverlayStackData] = None,
     ) -> Optional[AScanProfile]:
         """Return a normalized profile and metadata for the requested point."""
         volume = model.get_active_volume()
@@ -80,15 +83,26 @@ class AScanService:
             normalized.size,
             ultrasound_axis,
         )
-        overlay_spans = self._build_overlay_spans(
-            mask_volume=mask_volume,
-            volume_shape=tuple(volume.shape),
+        volume_shape = tuple(volume.shape)
+        overlay_layers = self._build_overlay_layers(
+            overlay_stack=overlay_stack,
+            volume_shape=volume_shape,
             slice_idx=slice_idx,
             px=px,
             py=py,
             ultrasound_axis=ultrasound_axis,
-            visible_labels=visible_labels,
         )
+        overlay_spans = ()
+        if overlay_stack is None:
+            overlay_spans = self._build_overlay_spans(
+                mask_volume=mask_volume,
+                volume_shape=volume_shape,
+                slice_idx=slice_idx,
+                px=px,
+                py=py,
+                ultrasound_axis=ultrasound_axis,
+                visible_labels=visible_labels,
+            )
 
         return AScanProfile(
             signal_percent=normalized * 100.0,
@@ -96,6 +110,7 @@ class AScanService:
             marker_index=marker_index,
             crosshair=(px, py),
             overlay_spans=overlay_spans,
+            overlay_layers=overlay_layers,
         )
 
     def log_preview(
@@ -450,6 +465,65 @@ class AScanService:
             spans.append((start_idx, int(labels.size) - 1, current_label))
 
         return tuple(spans)
+
+    def _build_overlay_layers(
+        self,
+        *,
+        overlay_stack: Optional[OverlayStackData],
+        volume_shape: Tuple[int, ...],
+        slice_idx: int,
+        px: int,
+        py: int,
+        ultrasound_axis: int,
+    ) -> tuple[AScanOverlayLayerData, ...]:
+        if overlay_stack is None or not overlay_stack.layers:
+            return ()
+
+        projected_layers: list[AScanOverlayLayerData] = []
+        for layer in overlay_stack.layers:
+            overlay = getattr(layer, "overlay", None)
+            if overlay is None or overlay.mask_volume is None:
+                continue
+            if not self._overlay_volume_matches(
+                overlay.mask_volume,
+                volume_shape=volume_shape,
+            ):
+                continue
+
+            visible_labels = None
+            if layer.visible_labels is not None:
+                visible_labels = {int(label_id) for label_id in layer.visible_labels}
+            spans = self._build_overlay_spans(
+                mask_volume=overlay.mask_volume,
+                volume_shape=volume_shape,
+                slice_idx=slice_idx,
+                px=px,
+                py=py,
+                ultrasound_axis=ultrasound_axis,
+                visible_labels=visible_labels,
+            )
+            projected_layers.append(
+                AScanOverlayLayerData(
+                    layer_id=str(layer.layer_id),
+                    name=str(layer.name),
+                    spans=spans,
+                    palette={
+                        int(label_id): tuple(int(channel) for channel in color)
+                        for label_id, color in dict(overlay.palette or {}).items()
+                    },
+                    opacity=max(0.0, min(1.0, float(layer.opacity))),
+                )
+            )
+        return tuple(projected_layers)
+
+    @staticmethod
+    def _overlay_volume_matches(
+        mask_volume: np.ndarray,
+        *,
+        volume_shape: Tuple[int, ...],
+    ) -> bool:
+        mask_data = np.asarray(mask_volume)
+        return mask_data.ndim == 3 and tuple(mask_data.shape) == tuple(volume_shape)
 
 
 class AScanExtractor:

@@ -90,6 +90,7 @@ class AnnotationController:
         self._paint_stroke_last_point: Optional[tuple[int, int]] = None
         self._paint_stroke_preview_created: bool = False
         self._last_overlay_render_signature: Optional[tuple[Any, ...]] = None
+        self._current_overlay_stack: Optional[OverlayStackData] = None
         self.on_paint_size_changed(self.view_state_model.paint_radius)
         self.set_outline_only(getattr(self.view_state_model, "show_outline_only", False))
         self.set_restriction_visible(getattr(self.view_state_model, "show_restriction", True))
@@ -221,6 +222,7 @@ class AnnotationController:
         if not show_overlay:
             self.logger.info("Overlay hidden by toggle; clearing 2D/3D views.")
             self._last_overlay_render_signature = None
+            self._current_overlay_stack = None
             self._apply_vector_overlay_layer_ids(set())
             self.annotation_view.set_overlay_stack(None)
             if self.annotation_secondary_view is not None:
@@ -242,6 +244,7 @@ class AnnotationController:
         if overlay_stack is None or not overlay_stack.layers:
             self.logger.info("No overlay stack available to push; clearing views.")
             self._last_overlay_render_signature = None
+            self._current_overlay_stack = None
             self._apply_vector_overlay_layer_ids(set())
             self.annotation_view.set_overlay_stack(None)
             if self.annotation_secondary_view is not None:
@@ -281,6 +284,7 @@ class AnnotationController:
             return
 
         self._last_overlay_render_signature = render_signature
+        self._current_overlay_stack = overlay_stack
         self._apply_vector_overlay_layer_ids(vector_layer_ids)
         self.annotation_view.set_overlay_stack(overlay_stack)
         secondary_overlay = None
@@ -343,6 +347,7 @@ class AnnotationController:
             vector_layer_ids=vector_layer_ids,
             volume_overlay_enabled=bool(self.view_state_model.show_volume_view_overlay),
         )
+        self._current_overlay_stack = preview_stack
         self._apply_vector_overlay_layer_ids(vector_layer_ids)
         self.annotation_view.set_overlay_stack(preview_stack)
         secondary_overlay = None
@@ -373,6 +378,14 @@ class AnnotationController:
         else:
             self.volume_view.set_overlay_stack(None)
         self._notify_overlay_updated()
+
+    def build_ascan_overlay_stack(self) -> Optional[OverlayStackData]:
+        """Return the current visible overlay stack for A-scan projection."""
+        if not bool(getattr(self.view_state_model, "show_overlay", True)):
+            return None
+        if self._current_overlay_stack is not None:
+            return self._current_overlay_stack
+        return self._resolve_overlay_render_stack(rebuild=False, changed_slice=None)
 
     def _build_active_layer_preview_stack(
         self,
@@ -662,6 +675,7 @@ class AnnotationController:
         self.annotation_model.clear_overlay_cache()
         self._sync_active_layer_runtime_state()
         self._last_overlay_render_signature = None
+        self._current_overlay_stack = None
         self._apply_vector_overlay_layer_ids(set())
         self.annotation_view.set_overlay_stack(None)
         if self.annotation_secondary_view is not None:

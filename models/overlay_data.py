@@ -46,3 +46,14 @@ class OverlayStackData:
 
     layers: tuple[OverlayLayerData, ...]
     active_layer_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class AScanOverlayLayerData:
+    """Projected A-scan overlay spans for one renderable annotation layer."""
+
+    layer_id: str
+    name: str
+    spans: Tuple[Tuple[int, int, int], ...]
+    palette: Dict[int, Tuple[int, int, int, int]]
+    opacity: float = 1.0
