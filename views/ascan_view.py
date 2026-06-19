@@ -40,6 +40,7 @@ class AScanView(QFrame):
         self._plot_widget.showGrid(x=True, y=True, alpha=0.2)
         self._plot_item = self._plot_widget.getPlotItem()
         self._view_box = self._plot_item.getViewBox()
+        self._view_box.setMouseEnabled(x=True, y=False)
         self._plot_item.hideAxis("bottom")
         self._plot_item.hideAxis("left")
         self._overlay_bars = pg.BarGraphItem(x0=[], x1=[], y0=[], height=[], pen=None, brush=None)

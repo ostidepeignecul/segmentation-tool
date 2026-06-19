@@ -4982,3 +4982,19 @@ Le besoin etait d integrer une inference Mask2Former locale au meme parcours uti
 3. Garder `Mask2FormerSettingsView` limitee a la saisie du chemin modele et aux signaux PyQt, sans acces direct au model, pour respecter la separation MVC.
 4. Stocker le chemin modele dans `ViewStateModel` comme etat de vue normalise, sans logique de chargement ou validation lourde dans le model.
 5. Sauvegarder la sortie en `.npz` via le chemin d import overlay standard pour eviter un rendu special-case et beneficier des controles de layer deja existants.
+
+### 2026-06-18 - Zoom horizontal uniquement sur A-scan
+**Tags :** `#branch:main`, `#MEMORY.md`, `#views/ascan_view.py`, `#ascan`, `#zoom`, `#pyqtgraph`, `#ui`, `#mvc`
+
+**Actions effectuées :**
+- Configure le `ViewBox` PyQtGraph de `AScanView` avec `setMouseEnabled(x=True, y=False)` pour limiter les interactions souris au zoom/deplacement horizontal.
+- Applique automatiquement le meme comportement a `AScanViewCorrosion`, qui herite de `AScanView`.
+- Conserve le recalage vertical existant via `setYRange(0, 100, padding=0.05)` afin que l amplitude reste stable pendant l exploration du profil.
+
+**Contexte :**
+L utilisateur a signale que le zoom vertical dans l A-scan n apportait pas de valeur pratique. Le besoin est de pouvoir inspecter plus finement la position horizontale du profil tout en gardant l echelle d amplitude lisible et constante. Les changements staged montrent une correction localisee a `views/ascan_view.py`.
+
+**Décisions techniques :**
+1. Placer la configuration dans la vue PyQtGraph, car il s agit uniquement d une interaction de rendu et non d une logique metier.
+2. Verrouiller seulement l axe Y avec l API native `ViewBox.setMouseEnabled`, plutot que filtrer manuellement les evenements de molette.
+3. Ne pas modifier le controller A-scan ni le service de profil, afin de respecter la separation MVC et garder le changement limite a la couche View.
