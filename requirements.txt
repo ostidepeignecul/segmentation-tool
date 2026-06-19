@@ -6,8 +6,6 @@
 #
 acvl-utils==0.2.5
     # via nnunetv2
-anyio==4.12.0
-    # via httpx
 argparse==1.4.0
     # via unittest2
 batchgenerators==0.25.1
@@ -22,20 +20,14 @@ blosc2==3.12.2
     #   acvl-utils
     #   nnunetv2
 certifi==2025.11.12
-    # via
-    #   httpcore
-    #   httpx
-    #   requests
+    # via requests
 charset-normalizer==3.4.4
     # via requests
-click==8.3.1
-    # via typer-slim
 cmap==0.6.2
     # via -r requirements.in
 colorama==0.4.6
     # via
     #   -r requirements.in
-    #   click
     #   pyqtgraph
     #   tqdm
 connected-components-3d==3.26.1
@@ -56,6 +48,7 @@ filelock==3.20.0
     # via
     #   huggingface-hub
     #   torch
+    #   transformers
 fonttools==4.61.0
     # via matplotlib
 freetype-py==2.5.1
@@ -68,25 +61,17 @@ future==1.0.0
     # via batchgenerators
 graphviz==0.21
     # via nnunetv2
-h11==0.16.0
-    # via httpcore
 h5py==3.15.1
     # via -r requirements.in
-hf-xet==1.2.0
-    # via huggingface-hub
 hsluv==5.0.4
     # via vispy
-httpcore==1.0.9
-    # via httpx
-httpx==0.28.1
-    # via huggingface-hub
-huggingface-hub==1.1.7
-    # via timm
-idna==3.11
+huggingface-hub==0.36.2
     # via
-    #   anyio
-    #   httpx
-    #   requests
+    #   timm
+    #   tokenizers
+    #   transformers
+idna==3.11
+    # via requests
 imagecodecs==2025.11.11
     # via nnunetv2
 imageio==2.37.2
@@ -153,6 +138,7 @@ numpy==2.2.6
     #   seaborn
     #   tifffile
     #   torchvision
+    #   transformers
     #   vispy
 opencv-python==4.12.0.88
     # via -r requirements.in
@@ -163,6 +149,7 @@ packaging==25.0
     #   matplotlib
     #   nibabel
     #   scikit-image
+    #   transformers
     #   vispy
 pandas==2.3.3
     # via
@@ -189,13 +176,17 @@ pyopengl==3.1.10
 pyparsing==3.2.5
     # via matplotlib
 pyqt6==6.10.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   pyqt6ads
 pyqt6-qt6==6.10.1
     # via pyqt6
+pyqt6-sip==13.10.2
+    # via
+    #   pyqt6
+    #   pyqt6ads
 pyqt6ads==4.5.0
     # via -r requirements.in
-pyqt6-sip==13.10.2
-    # via pyqt6
 pyqtgraph==0.14.0
     # via -r requirements.in
 python-dateutil==2.9.0.post0
@@ -208,13 +199,20 @@ pyyaml==6.0.3
     # via
     #   huggingface-hub
     #   timm
+    #   transformers
     #   yacs
+regex==2026.5.9
+    # via transformers
 requests==2.32.5
     # via
     #   blosc2
+    #   huggingface-hub
     #   nnunetv2
+    #   transformers
 safetensors==0.7.0
-    # via timm
+    # via
+    #   timm
+    #   transformers
 scikit-image==0.25.2
     # via
     #   acvl-utils
@@ -232,8 +230,6 @@ scipy==1.16.3
     #   scikit-learn
 seaborn==0.13.2
     # via nnunetv2
-shellingham==1.5.4
-    # via huggingface-hub
 simpleitk==2.5.3
     # via
     #   acvl-utils
@@ -254,6 +250,8 @@ tifffile==2025.10.16
     #   scikit-image
 timm==1.0.22
     # via dynamic-network-architectures
+tokenizers==0.22.2
+    # via transformers
 torch @ https://download.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp312-cp312-win_amd64.whl
     # via
     #   -r requirements.in
@@ -272,17 +270,16 @@ tqdm==4.67.1
     # via
     #   huggingface-hub
     #   nnunetv2
+    #   transformers
 traceback2==1.4.0
     # via unittest2
-typer-slim==0.20.0
-    # via huggingface-hub
+transformers==4.57.6
+    # via -r requirements.in
 typing-extensions==4.15.0
     # via
-    #   anyio
     #   huggingface-hub
     #   nibabel
     #   torch
-    #   typer-slim
 tzdata==2025.2
     # via pandas
 unittest2==1.1.0

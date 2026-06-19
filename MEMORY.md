@@ -4961,3 +4961,24 @@ L utilisateur voulait que l A-scan reflete les layers visibles : lorsqu un layer
 3. Garder palette et opacite par layer dans le payload A-scan, car deux layers peuvent partager les memes ids de labels avec des couleurs differentes.
 4. Dessiner les overlays multi-layer dans `AScanView` sur toute la hauteur utile du plot avec alpha blending, afin de reproduire le comportement de composition attendu plutot qu une separation visuelle en pistes.
 5. Appliquer le meme rendu aux vues A-scan normale et corrosion, tout en laissant les mesures corrosion dessinees par-dessus dans `AScanViewCorrosion`.
+
+### 2026-06-18 - Integration Mask2Former locale via pipeline segmentation
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/master_controller.py`, `#models/view_state_model.py`, `#plugins/segmentation_hooks/segmentation_plugins/__init__.py`, `#plugins/segmentation_hooks/segmentation_plugins/mask2former_plugin.py`, `#requirements.in`, `#requirements.txt`, `#services/mask2former_service.py`, `#views/mask2former_settings_view.py`, `#mask2former`, `#transformers`, `#inference`, `#pipeline`, `#mvc`, `#pyqt6`
+
+**Actions effectuées :**
+- Ajoute un workflow Mask2Former dans `plugins/segmentation_hooks/segmentation_plugins/mask2former_plugin.py`, avec pretraitement du volume, inference slice par slice via `transformers`, mapping des classes modele vers les labels editeur, puis post-traitement en masque contigu.
+- Expose les classes Mask2Former dans `plugins/segmentation_hooks/segmentation_plugins/__init__.py` pour enregistrer les steps du pipeline de segmentation.
+- Cree `services/mask2former_service.py` pour lancer le pipeline Mask2Former de maniere asynchrone, valider le chemin du modele local, sauvegarder le masque et le mapping de labels en `.npz`, puis renvoyer un `Mask2FormerResult`.
+- Branche `controllers/master_controller.py` sur le nouveau service, ajoute les actions `Mask2Former` et `Mask2Former Settings` au menu Inference, gere les signaux UI de succes/erreur, charge le `.npz` produit comme overlay et propose un chemin de sortie derive du NDE et du modele.
+- Ajoute `mask2former_model_path` et son setter dans `models/view_state_model.py`, puis cree `views/mask2former_settings_view.py` pour configurer le dossier local du modele.
+- Ajoute `transformers>=4.40.0,<5.0.0` dans `requirements.in` et regenere `requirements.txt` avec les dependances associees.
+
+**Contexte :**
+Le besoin etait d integrer une inference Mask2Former locale au meme parcours utilisateur que les autres segmentations : configuration d un modele depuis l UI, lancement depuis le menu Inference, execution hors du thread UI, puis affichage direct du resultat sous forme d overlay importable. Les changements staged montrent une premiere integration verticale couvrant plugin pipeline, service applicatif, et branchement PyQt.
+
+**Décisions techniques :**
+1. Reutiliser `PipelinePluginManager` et les hooks existants de segmentation plutot que creer un chemin d inference separe, afin de garder le comportement Mask2Former coherent avec l architecture plugin deja utilisee.
+2. Isoler l orchestration d inference et la sauvegarde `.npz` dans `Mask2FormerService`, tandis que `MasterController` conserve seulement le role de coordination UI, validation d etat courant et chargement du resultat.
+3. Garder `Mask2FormerSettingsView` limitee a la saisie du chemin modele et aux signaux PyQt, sans acces direct au model, pour respecter la separation MVC.
+4. Stocker le chemin modele dans `ViewStateModel` comme etat de vue normalise, sans logique de chargement ou validation lourde dans le model.
+5. Sauvegarder la sortie en `.npz` via le chemin d import overlay standard pour eviter un rendu special-case et beneficier des controles de layer deja existants.

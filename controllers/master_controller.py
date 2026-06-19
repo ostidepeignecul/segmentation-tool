@@ -42,6 +42,7 @@ from services.annotation_session_manager import AnnotationSessionManager
 from services.annotation_service import AnnotationService
 from services.ascan_service import AScanService
 from services.nnunet_service import NnUnetResult, NnUnetService
+from services.mask2former_service import Mask2FormerResult, Mask2FormerService
 from services.overlay_class_remap_service import OverlayClassRemapService
 from services.overlay_loader import OverlayLoader
 from services.overlay_service import OverlayService
@@ -79,6 +80,7 @@ from views.loading_popup_view import (
     LoadingPopupView,
 )
 from views.nnunet_settings_view import NnUnetSettingsView
+from views.mask2former_settings_view import Mask2FormerSettingsView
 from views.overlay_class_remap_dialog import OverlayClassRemapDialog
 from views.overlay_settings_view import OverlaySettingsView
 from views.piece3d_view import Piece3DView
@@ -113,6 +115,13 @@ class CorrosionWorkflowWorker(QRunnable):
             self.signals.finished.emit(self._task())
         except Exception as exc:  # noqa: BLE001 - propagated to the UI thread.
             self.signals.error.emit(exc)
+
+
+class Mask2FormerUiSignals(QObject):
+    """Bridge Mask2Former completion callbacks back onto the UI thread."""
+
+    success = pyqtSignal(object)
+    error = pyqtSignal(object)
 
 
 class MasterController:
@@ -153,6 +162,7 @@ class MasterController:
             endview_export_service=self.endview_export_service
         )
         self.nnunet_service = NnUnetService(logger=self.logger)
+        self.mask2former_service = Mask2FormerService(logger=self.logger)
         self.cscan_corrosion_service = CScanCorrosionService()
         self.session_bundle_export_service = SessionBundleExportService(
             overlay_export=self.overlay_export,
@@ -168,6 +178,7 @@ class MasterController:
         self.nde_settings_view = NdeSettingsView(self.main_window)
         self.corrosion_settings_view = CorrosionSettingsView(self.main_window)
         self.nnunet_settings_view = NnUnetSettingsView(self.main_window)
+        self.mask2former_settings_view = Mask2FormerSettingsView(self.main_window)
         self._volume_stack: Optional[QStackedLayout] = None
         self._piece3d_page: Optional[QWidget] = None
         self._piece3d_view: Optional[Piece3DView] = None
@@ -188,6 +199,9 @@ class MasterController:
         self._nnunet_ui_signals = NnUnetUiSignals()
         self._nnunet_ui_signals.success.connect(self._handle_nnunet_success)
         self._nnunet_ui_signals.error.connect(self._handle_nnunet_error)
+        self._mask2former_ui_signals = Mask2FormerUiSignals()
+        self._mask2former_ui_signals.success.connect(self._handle_mask2former_success)
+        self._mask2former_ui_signals.error.connect(self._handle_mask2former_error)
         self._loading_popup: Optional[LoadingPopupView] = None
         self._external_loading_popup: Optional[ExternalLoadingPopupProcess] = None
         self._loading_log_handler: Optional[LoadingPopupLogHandler] = None
@@ -406,6 +420,11 @@ class MasterController:
             self.ui.actionnnunet.triggered.connect(self._on_run_nnunet)
         if hasattr(self.ui, "actionSettings"):
             self.ui.actionSettings.triggered.connect(self._on_open_nnunet_settings)
+        if hasattr(self.ui, "menuInference"):
+            self.actionmask2former = self.ui.menuInference.addAction("Mask2Former")
+            self.actionmask2formerSettings = self.ui.menuInference.addAction("Mask2Former Settings")
+            self.actionmask2former.triggered.connect(self._on_run_mask2former)
+            self.actionmask2formerSettings.triggered.connect(self._on_open_mask2former_settings)
         self.ui.actionQuitter.triggered.connect(self._on_quit)
         if hasattr(self.ui, "actionSession_selector"):
             self.ui.actionSession_selector.triggered.connect(self._open_session_dialog)
@@ -747,6 +766,12 @@ class MasterController:
         )
         self.nnunet_settings_view.choose_directory_requested.connect(
             self._on_choose_nnunet_model_directory_requested
+        )
+        self.mask2former_settings_view.model_path_changed.connect(
+            self._on_mask2former_model_path_changed
+        )
+        self.mask2former_settings_view.choose_directory_requested.connect(
+            self._on_choose_mask2former_model_directory_requested
         )
 
     def _register_shortcuts(self) -> None:
@@ -1198,6 +1223,114 @@ class MasterController:
             if not suffixed.exists():
                 return suffixed
             index += 1
+
+    def _handle_mask2former_success(self, payload: Any) -> None:
+        """Load the saved Mask2Former NPZ through the standard overlay-import path."""
+        if not isinstance(payload, Mask2FormerResult):
+            self._handle_mask2former_error(RuntimeError("Invalid Mask2Former result."))
+            return
+        try:
+            self._load_overlay_from_file(
+                payload.output_path,
+                preserve_labels=True,
+                force_visible=True,
+            )
+            self._rename_active_layer("Mask2Former result")
+            self._close_loading_popup()
+            self.status_message(
+                f"Mask2Former completed, NPZ displayed: {payload.output_path}",
+                timeout_ms=5000,
+            )
+            QMessageBox.information(
+                self.main_window,
+                "Mask2Former",
+                f"Result saved and displayed:\n{payload.output_path}",
+            )
+        except Exception as exc:
+            self._handle_mask2former_error(exc)
+
+    def _handle_mask2former_error(self, payload: Any) -> None:
+        """Display Mask2Former errors once they have been marshalled back to the UI thread."""
+        self._close_loading_popup()
+        exc = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
+        QMessageBox.critical(self.main_window, "Mask2Former", str(exc))
+        self.status_message("Mask2Former inference failed", timeout_ms=5000)
+
+    def _on_run_mask2former(self) -> None:
+        """Lance l'inférence Mask2Former sur le volume NDE chargé."""
+        if self.nde_model is None:
+            QMessageBox.warning(self.main_window, "Mask2Former", "Load an NDE before starting inference.")
+            return
+
+        volume = self._current_volume()
+        if volume is None:
+            QMessageBox.warning(self.main_window, "Mask2Former", "NDE volume unavailable.")
+            return
+
+        model_path = self.view_state_model.set_mask2former_model_path(
+            getattr(self.view_state_model, "mask2former_model_path", "")
+        )
+        if not model_path:
+            QMessageBox.warning(
+                self.main_window,
+                "Mask2Former",
+                "Configure a model first from Inference > Mask2Former Settings.",
+            )
+            return
+        if not Path(model_path).exists():
+            QMessageBox.warning(
+                self.main_window,
+                "Mask2Former",
+                "The configured Mask2Former model was not found. Update it from Inference > Mask2Former Settings.",
+            )
+            return
+
+        raw_volume = getattr(self.nde_model, "volume", None)
+        dataset_id = self.nde_model.metadata.get("path") if self.nde_model.metadata else "current"
+        save_path = self._suggest_mask2former_output_path(model_path)
+
+        def _on_success(result: Mask2FormerResult) -> None:
+            self._mask2former_ui_signals.success.emit(result)
+
+        def _on_error(exc: Exception) -> None:
+            self._mask2former_ui_signals.error.emit(exc)
+
+        try:
+            self._show_loading_popup(
+                title="Mask2Former",
+                message="Inference Mask2Former en cours...",
+                log_prefixes=(
+                    "transformers",
+                    "plugins.segmentation_hooks.segmentation_plugins.mask2former_plugin",
+                ),
+            )
+            self.status_message("Mask2Former inference in progress...", timeout_ms=4000)
+            self.mask2former_service.run_inference(
+                volume=volume,
+                raw_volume=raw_volume,
+                model_path=model_path,
+                output_path=save_path,
+                dataset_id=str(dataset_id) if dataset_id else "current",
+                on_success=_on_success,
+                on_error=_on_error,
+            )
+        except Exception as exc:
+            self._close_loading_popup()
+            QMessageBox.critical(self.main_window, "Mask2Former", str(exc))
+
+    def _suggest_mask2former_output_path(self, model_path: str | Path) -> str:
+        """Build the default Mask2Former NPZ path from the current NDE and selected model."""
+        model_file = Path(model_path)
+        try:
+            nde_file = Path(self._require_nde_path())
+        except Exception:
+            nde_file = Path.cwd() / "current.nde"
+
+        nde_stem = self._sanitize_output_stem(nde_file.stem, fallback="nde")
+        model_name = model_file.stem if model_file.suffix else model_file.name
+        model_stem = self._sanitize_output_stem(model_name, fallback="model")
+        output_path = nde_file.with_name(f"{nde_stem}_{model_stem}.npz")
+        return str(self._next_available_output_path(output_path))
 
     def _on_export_overlay_npz(self) -> None:
         """Export the current overlay to a standalone NPZ file."""
@@ -1729,6 +1862,49 @@ class MasterController:
     def _nnunet_model_dialog_start_path(self) -> str:
         """Return the best-effort starting path for nnUNet model dialogs."""
         configured_path = str(getattr(self.view_state_model, "nnunet_model_path", "") or "").strip()
+        if configured_path:
+            path = Path(configured_path).expanduser()
+            if path.exists():
+                return str(path if path.is_dir() else path.parent)
+            fallback_parent = path.parent if path.suffix else path
+            fallback_text = str(fallback_parent).strip()
+            if fallback_text:
+                return fallback_text
+        try:
+            return str(Path(self._require_nde_path()).parent)
+        except Exception:
+            return str(Path.cwd())
+
+    def _on_open_mask2former_settings(self) -> None:
+        """Open the Mask2Former settings dialog."""
+        self.mask2former_settings_view.set_model_path(
+            getattr(self.view_state_model, "mask2former_model_path", "")
+        )
+        self.mask2former_settings_view.show()
+        self.mask2former_settings_view.raise_()
+        self.mask2former_settings_view.activateWindow()
+
+    def _on_mask2former_model_path_changed(self, value: str) -> None:
+        """Persist the configured Mask2Former model path in the view-state model."""
+        normalized = self.view_state_model.set_mask2former_model_path(value)
+        if normalized != value:
+            self.mask2former_settings_view.set_model_path(normalized)
+
+    def _on_choose_mask2former_model_directory_requested(self) -> None:
+        """Open a directory dialog to configure an extracted Mask2Former model folder."""
+        selected_path = QFileDialog.getExistingDirectory(
+            self.main_window,
+            "Choose Mask2Former model folder",
+            self._mask2former_model_dialog_start_path(),
+        )
+        if not selected_path:
+            return
+        normalized = self.view_state_model.set_mask2former_model_path(selected_path)
+        self.mask2former_settings_view.set_model_path(normalized)
+
+    def _mask2former_model_dialog_start_path(self) -> str:
+        """Return the best-effort starting path for Mask2Former model dialogs."""
+        configured_path = str(getattr(self.view_state_model, "mask2former_model_path", "") or "").strip()
         if configured_path:
             path = Path(configured_path).expanduser()
             if path.exists():

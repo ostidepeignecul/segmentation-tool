@@ -32,6 +32,7 @@ class ViewStateModel:
         self.show_interpolated_profile_vectorized: bool = True
         self.show_restriction: bool = True
         self.nnunet_model_path: str = ""
+        self.mask2former_model_path: str = ""
 
         # --- Tools / Interaction ---
         self.tool_mode: Optional[str] = None
@@ -324,6 +325,12 @@ class ViewStateModel:
         """Store the configured nnUNet model path as a normalized string."""
         normalized = str(path or "").strip()
         self.nnunet_model_path = normalized
+        return normalized
+
+    def set_mask2former_model_path(self, path: Optional[str]) -> str:
+        """Store the configured Mask2Former model path as a normalized string."""
+        normalized = str(path or "").strip()
+        self.mask2former_model_path = normalized
         return normalized
 
     def is_erase_action(self) -> bool:
