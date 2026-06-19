@@ -13,6 +13,7 @@ from plugins.segmentation_hooks.segmentation_plugin_manager import (
     PipelineInput,
     PipelinePluginManager,
 )
+from services.overlay_export import OverlayExport
 
 
 @dataclass
@@ -28,6 +29,7 @@ class NnUnetService:
 
     def __init__(self, logger: logging.Logger) -> None:
         self.logger = logger
+        self.label_manifest_export = OverlayExport()
 
     def run_inference(
         self,
@@ -109,6 +111,15 @@ class NnUnetService:
                     output_path,
                     mask=mask,
                     labels_mapping=np.array([labels_mapping], dtype=object),
+                )
+                self.label_manifest_export.save_label_manifest(
+                    output_path,
+                    mask,
+                    export_target="nnunet",
+                    primary_axis_name=None,
+                    label_palette=None,
+                    label_visibility=None,
+                    label_names=OverlayExport.label_names_from_mapping(labels_mapping),
                 )
 
                 result = NnUnetResult(

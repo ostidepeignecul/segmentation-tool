@@ -4998,3 +4998,23 @@ L utilisateur a signale que le zoom vertical dans l A-scan n apportait pas de va
 1. Placer la configuration dans la vue PyQtGraph, car il s agit uniquement d une interaction de rendu et non d une logique metier.
 2. Verrouiller seulement l axe Y avec l API native `ViewBox.setMouseEnabled`, plutot que filtrer manuellement les evenements de molette.
 3. Ne pas modifier le controller A-scan ni le service de profil, afin de respecter la separation MVC et garder le changement limite a la couche View.
+
+### 2026-06-19 - Manifest JSON des labels avec exports NPZ
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#services/overlay_export.py`, `#services/session_bundle_export.py`, `#services/nnunet_service.py`, `#services/mask2former_service.py`, `#labels`, `#npz`, `#json`, `#export`, `#inference`, `#mvc`
+
+**Actions effectuées :**
+- Ajoute `OverlayExport.save_label_manifest()` pour ecrire automatiquement un sidecar `<nom_npz>_labels.json` a cote de chaque NPZ exporte.
+- Etend `OverlayExport.save_npz()` et `OverlayExport.save_sentinel_npz()` pour sauvegarder le manifeste JSON apres le NPZ, sans changer le contenu NPZ existant.
+- Ajoute dans le manifeste les champs `format`, `format_version`, `npz_file`, `export_target`, `primary_axis`, `present_classes` et `classes`, avec pour chaque classe `id`, `name`, `definition`, `display_name`, `present_in_mask`, et les metadonnees disponibles de couleur/visibilite.
+- Transmet la palette et la visibilite courantes depuis `AnnotationController` et depuis les exports bundle dans `SessionBundleExportService`.
+- Branche `NnUnetService` et `Mask2FormerService` sur le meme helper pour produire le JSON a cote des NPZ d inference, en derivant les noms depuis `labels_mapping`.
+
+**Contexte :**
+L utilisateur voulait qu un fichier JSON soit cree automatiquement au moment de l export NPZ, sans changement d UI, afin de conserver les classes et definitions de labels avec le masque exporte, par exemple `1 = Reflector`. Les changements staged couvrent les exports overlay app, Sentinel, bundle et les sorties NPZ d inference nnUNet/Mask2Former.
+
+**Décisions techniques :**
+1. Centraliser la generation du JSON dans `OverlayExport`, afin d eviter plusieurs schemas de sidecar et de garder la logique de serialisation hors des vues.
+2. Utiliser un sidecar adjacent nomme `<stem>_labels.json` pour ne pas modifier la compatibilite du NPZ existant ni l import overlay actuel.
+3. Construire la liste des classes depuis l union des labels presents dans le masque, de la palette courante et des mappings d inference, pour documenter les ids utiles sans injecter tous les labels globaux inutilises.
+4. Preserver la separation MVC : les controllers transmettent uniquement les donnees du model au service, les vues et dialogs d export restent inchanges.
+5. Garder le `labels_mapping` deja stocke dans les NPZ d inference et ajouter le JSON lisible comme complement externe, afin de ne pas casser les workflows existants.

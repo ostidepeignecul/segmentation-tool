@@ -2084,6 +2084,8 @@ class AnnotationController:
         if not file_path:
             return None
 
+        label_palette = self.annotation_model.get_label_palette()
+        label_visibility = dict(self.annotation_model.label_visibility)
         if options.export_target == "sentinel":
             saved_path = self.overlay_export.save_sentinel_npz(
                 mask_volume,
@@ -2099,6 +2101,8 @@ class AnnotationController:
                 mirror_vertical=options.mirror_vertical,
                 mirror_z=options.mirror_z,
                 strict_mode=options.strict_mode,
+                label_palette=label_palette,
+                label_visibility=label_visibility,
             )
         else:
             saved_path = self.overlay_export.save_npz(
@@ -2106,6 +2110,8 @@ class AnnotationController:
                 file_path,
                 expected_shape=volume_shape,
                 primary_axis_name=primary_axis_name,
+                label_palette=label_palette,
+                label_visibility=label_visibility,
             )
         return saved_path
 

@@ -213,6 +213,8 @@ class SessionBundleExportService:
                 str(destination),
                 expected_shape=volume_shape,
                 primary_axis_name=primary_axis_name,
+                label_palette=layer.label_palette,
+                label_visibility=layer.label_visibility,
             )
             exported.append(saved_path)
         return tuple(exported), notes
@@ -245,6 +247,8 @@ class SessionBundleExportService:
             mirror_vertical=sentinel.mirror_vertical,
             mirror_z=sentinel.mirror_z,
             strict_mode=sentinel.strict_mode,
+            label_palette=main_layer.label_palette,
+            label_visibility=main_layer.label_visibility,
         )
 
     def _export_main_layer_nnunet(
