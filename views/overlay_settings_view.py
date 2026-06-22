@@ -38,6 +38,7 @@ class OverlaySettingsView(QDialog):
     layer_deleted = pyqtSignal(str)
     label_visibility_changed = pyqtSignal(int, bool)
     label_color_changed = pyqtSignal(int, QColor)
+    label_opacity_changed = pyqtSignal(int, float)
     label_added = pyqtSignal(int, QColor)
     label_deleted = pyqtSignal(int)
     overlay_opacity_changed = pyqtSignal(float)
@@ -46,7 +47,7 @@ class OverlaySettingsView(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Overlay settings")
         self.setModal(False)
-        self.setMinimumWidth(340)
+        self.setMinimumWidth(520)
 
         self._active_layer_id: Optional[str] = None
         self._layers: Dict[str, _LayerRow] = {}
@@ -158,6 +159,7 @@ class OverlaySettingsView(QDialog):
         )
         row.visibility_toggled.connect(self.label_visibility_changed)
         row.color_changed.connect(self.label_color_changed)
+        row.opacity_changed.connect(self.label_opacity_changed)
         row.deleted.connect(self._on_label_deleted)
         self._labels[label_id] = row
         self._labels_layout.addWidget(row)
@@ -385,10 +387,11 @@ class _LayerRow(QWidget):
 
 
 class _LabelRow(QWidget):
-    """Row widget holding a checkbox + color picker for one label."""
+    """Row widget holding visibility, color and opacity for one label."""
 
     visibility_toggled = pyqtSignal(int, bool)
     color_changed = pyqtSignal(int, QColor)
+    opacity_changed = pyqtSignal(int, float)
     deleted = pyqtSignal(int)
 
     def __init__(
@@ -418,6 +421,19 @@ class _LabelRow(QWidget):
         self._color_button.clicked.connect(self._on_pick_color)
         layout.addWidget(self._color_button, 0)
 
+        self._opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._opacity_slider.setRange(0, 100)
+        self._opacity_slider.setValue(self._opacity_percent())
+        self._opacity_slider.setMinimumWidth(90)
+        self._opacity_slider.setToolTip(f"Opacity for {format_label_text(self.label_id)}")
+        self._opacity_slider.valueChanged.connect(self._on_opacity_changed)
+        layout.addWidget(self._opacity_slider, 1)
+
+        self._opacity_value = QLabel(self._opacity_text(), self)
+        self._opacity_value.setFixedWidth(42)
+        self._opacity_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self._opacity_value, 0)
+
         self._delete_button: Optional[QPushButton] = None
         if allow_delete:
             self._delete_button = QPushButton("Delete", self)
@@ -432,6 +448,7 @@ class _LabelRow(QWidget):
         self._color = QColor(color)
         self._color_button.setText(self._color_name())
         self._apply_color_style()
+        self._set_opacity_percent(self._opacity_percent())
 
     def set_checked(self, checked: bool) -> None:
         self._checkbox.blockSignals(True)
@@ -447,8 +464,15 @@ class _LabelRow(QWidget):
     def _on_pick_color(self) -> None:
         picked = QColorDialog.getColor(self._color, self, f"Color for {format_label_text(self.label_id)}")
         if picked.isValid():
+            picked.setAlpha(self._color.alpha())
             self.set_color(picked)
             self.color_changed.emit(self.label_id, picked)
+
+    def _on_opacity_changed(self, value: int) -> None:
+        percent = max(0, min(100, int(value)))
+        self._color.setAlpha(self._alpha_from_percent(percent))
+        self._opacity_value.setText(self._opacity_text())
+        self.opacity_changed.emit(self.label_id, float(percent) / 100.0)
 
     def _apply_color_style(self) -> None:
         self._color_button.setStyleSheet(
@@ -457,6 +481,23 @@ class _LabelRow(QWidget):
 
     def _color_name(self) -> str:
         return self._color.name()
+
+    def _opacity_percent(self) -> int:
+        return int(round(max(0, min(255, self._color.alpha())) * 100.0 / 255.0))
+
+    def _opacity_text(self) -> str:
+        return f"{self._opacity_percent()}%"
+
+    @staticmethod
+    def _alpha_from_percent(percent: int) -> int:
+        return int(round(max(0, min(100, int(percent))) * 255.0 / 100.0))
+
+    def _set_opacity_percent(self, percent: int) -> None:
+        clamped = max(0, min(100, int(percent)))
+        self._opacity_slider.blockSignals(True)
+        self._opacity_slider.setValue(clamped)
+        self._opacity_slider.blockSignals(False)
+        self._opacity_value.setText(f"{clamped}%")
 
     def _on_delete_clicked(self) -> None:
         self.deleted.emit(self.label_id)

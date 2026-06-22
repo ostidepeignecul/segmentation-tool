@@ -5018,3 +5018,23 @@ L utilisateur voulait qu un fichier JSON soit cree automatiquement au moment de 
 3. Construire la liste des classes depuis l union des labels presents dans le masque, de la palette courante et des mappings d inference, pour documenter les ids utiles sans injecter tous les labels globaux inutilises.
 4. Preserver la separation MVC : les controllers transmettent uniquement les donnees du model au service, les vues et dialogs d export restent inchanges.
 5. Garder le `labels_mapping` deja stocke dans les NPZ d inference et ajouter le JSON lisible comme complement externe, afin de ne pas casser les workflows existants.
+
+### 2026-06-22 - Opacite overlay par label dans settings et tools panel
+**Tags :** `#branch:main`, `#MEMORY.md`, `#controllers/annotation_controller.py`, `#controllers/master_controller.py`, `#views/overlay_settings_view.py`, `#views/tools_panel.py`, `#overlay`, `#opacity`, `#labels`, `#toolspanel`, `#responsive`, `#pyqt6`, `#mvc`
+
+**Actions effectuées :**
+- Ajoute un controle d opacite par label dans `OverlaySettingsView`, connecte a un nouveau signal `label_opacity_changed` sans remplacer le slider general d opacite overlay.
+- Ajoute dans `ToolsPanel` des controles dynamiques `Color / Opacity` par label, avec bouton couleur, slider d opacite, pourcentage et conservation de l alpha lors du choix de couleur.
+- Branche `MasterController` sur les signaux d opacite par label des deux interfaces pour synchroniser settings, tools panel, modele et rendu.
+- Ajoute `AnnotationController.on_label_opacity_changed()` pour modifier uniquement l alpha BGRA du label, mettre a jour `TempMaskModel`, propager la palette corrosion si necessaire, puis rafraichir l overlay sans rebuild lourd.
+- Rend les sliders labels du tools panel responsives via un reflow runtime : ligne horizontale en largeur normale, puis bouton couleur au-dessus de `slider + pourcentage` quand la colonne devient etroite.
+
+**Contexte :**
+L utilisateur voulait conserver le slider general d opacite overlay tout en ajoutant un slider par label dans les settings et dans le tools panel. Apres ajout initial, le tools panel tassait les sliders en largeur reduite ; le besoin etait donc de garder le controle global, d exposer l opacite fine par label, et de rendre ces nouveaux controles utilisables dans un dock etroit.
+
+**Décisions techniques :**
+1. Reutiliser l alpha de la palette BGRA comme source de verite par label, afin de ne pas ajouter un etat parallele dans le model.
+2. Garder `ViewStateModel.overlay_alpha` et les sliders globaux existants : l opacite finale reste le produit du facteur global et de l alpha du label.
+3. Faire transiter les changements UI par `MasterController` puis `AnnotationController`, afin de respecter MVC et de synchroniser les deux editeurs de labels sans acces direct vue-modele.
+4. Ne pas modifier les vues de rendu 2D/3D/A-scan : elles consomment deja la palette et appliquent l alpha lors de la composition.
+5. Implementer le responsive du tools panel dans `ToolsPanel` avec des layouts dynamiques PyQt plutot que modifier le fichier Designer, car les lignes de labels sont generees au runtime.

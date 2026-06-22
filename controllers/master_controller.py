@@ -526,6 +526,7 @@ class MasterController:
             apply_roi_button=self._tools_ui.pushButton_7,
             label_text_container=self._tools_ui.frame_5,
             label_color_container=self._tools_ui.frame_6,
+            overlay_opacity_label=getattr(self._tools_ui, "label_9", None),
             nde_opacity_label=getattr(self._tools_ui, "label_10", None),
             nde_contrast_label=getattr(self._tools_ui, "label_12", None),
             tool_parameter_container=getattr(self._tools_ui, "widget", None),
@@ -606,6 +607,7 @@ class MasterController:
         self.tools_panel.layer_deleted.connect(self._on_layer_deleted)
         self.tools_panel.label_selected.connect(self.annotation_controller.on_label_selected)
         self.tools_panel.label_color_changed.connect(self._on_label_color_changed)
+        self.tools_panel.label_opacity_changed.connect(self._on_label_opacity_changed)
         self.tools_panel.label_selected.connect(
             self.corrosion_profile_controller.on_active_label_changed
         )
@@ -703,6 +705,9 @@ class MasterController:
         )
         self.overlay_settings_view.label_color_changed.connect(
             self._on_label_color_changed
+        )
+        self.overlay_settings_view.label_opacity_changed.connect(
+            self._on_label_opacity_changed
         )
         self.overlay_settings_view.overlay_opacity_changed.connect(
             self._on_overlay_opacity_changed
@@ -2037,6 +2042,18 @@ class MasterController:
             return
         label = int(label_id)
         self.annotation_controller.on_label_color_changed(label, qcolor)
+        visible = self.annotation_model.label_visibility.get(label, True)
+        self.overlay_settings_view.ensure_label(label, qcolor, visible=visible)
+        self.tools_panel.set_label_color(label, qcolor)
+
+    def _on_label_opacity_changed(self, label_id: int, opacity: float) -> None:
+        """Keep label opacity synchronized across both label editors and render views."""
+        label = int(label_id)
+        self.annotation_controller.on_label_opacity_changed(label, float(opacity))
+        color = self.annotation_model.get_label_palette().get(label)
+        if color is None:
+            return
+        qcolor = self.overlay_settings_view.bgra_to_qcolor(color)
         visible = self.annotation_model.label_visibility.get(label, True)
         self.overlay_settings_view.ensure_label(label, qcolor, visible=visible)
         self.tools_panel.set_label_color(label, qcolor)

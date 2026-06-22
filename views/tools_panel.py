@@ -49,6 +49,7 @@ class ToolsPanel(QFrame):
     selection_cancel_requested = pyqtSignal()
     label_selected = pyqtSignal(int)
     label_color_changed = pyqtSignal(int, QColor)
+    label_opacity_changed = pyqtSignal(int, float)
     layer_selected = pyqtSignal(str)
     layer_visibility_changed = pyqtSignal(str, bool)
     layer_created = pyqtSignal()
@@ -105,6 +106,7 @@ class ToolsPanel(QFrame):
         self._threshold_label: Optional[QLabel] = None
         self._paint_size_slider: Optional[QSlider] = None
         self._paint_size_label: Optional[QLabel] = None
+        self._overlay_opacity_label: Optional[QLabel] = None
         self._overlay_opacity_slider: Optional[QSlider] = None
         self._overlay_opacity_spinbox: Optional[QSpinBox] = None
         self._nde_opacity_slider: Optional[QSlider] = None
@@ -140,6 +142,11 @@ class ToolsPanel(QFrame):
         self._label_group: Optional[QButtonGroup] = None
         self._label_buttons: Dict[int, QBtn] = {}
         self._label_color_buttons: Dict[int, QPushButton] = {}
+        self._label_opacity_sliders: Dict[int, QSlider] = {}
+        self._label_opacity_values: Dict[int, QLabel] = {}
+        self._label_control_rows: Dict[int, QWidget] = {}
+        self._label_control_layouts: Dict[int, QGridLayout] = {}
+        self._label_controls_compact: Optional[bool] = None
         self._label_colors: Dict[int, QColor] = {}
         self._layer_group: Optional[QButtonGroup] = None
         self._layer_buttons: Dict[str, QBtn] = {}
@@ -188,6 +195,7 @@ class ToolsPanel(QFrame):
         apply_roi_button: QPushButton,
         label_text_container: QWidget,
         label_color_container: QWidget,
+        overlay_opacity_label: Optional[QLabel] = None,
         nde_opacity_label: Optional[QLabel] = None,
         nde_contrast_label: Optional[QLabel] = None,
         paint_label: Optional[QLabel] = None,
@@ -204,6 +212,7 @@ class ToolsPanel(QFrame):
         self._threshold_label = threshold_label
         self._paint_size_slider = paint_slider
         self._paint_size_label = paint_label
+        self._overlay_opacity_label = overlay_opacity_label
         self._overlay_opacity_slider = overlay_opacity_slider
         self._overlay_opacity_spinbox = overlay_opacity_spinbox
         self._nde_opacity_slider = nde_opacity_slider
@@ -295,6 +304,7 @@ class ToolsPanel(QFrame):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._sync_tool_parameter_layout()
+        self._sync_label_control_layouts()
 
     def _configure_slice_controls(
         self,
@@ -366,6 +376,11 @@ class ToolsPanel(QFrame):
             else:
                 self._label_text_layout = QVBoxLayout(self._label_text_container)
             self._label_text_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            self._label_text_container.setMinimumWidth(0)
+            self._label_text_container.setSizePolicy(
+                QSizePolicy.Policy.Maximum,
+                QSizePolicy.Policy.Preferred,
+            )
 
         if self._label_color_layout is None:
             existing = self._label_color_container.layout()
@@ -374,6 +389,17 @@ class ToolsPanel(QFrame):
             else:
                 self._label_color_layout = QVBoxLayout(self._label_color_container)
             self._label_color_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            self._label_color_container.setMinimumWidth(0)
+            self._label_color_container.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Preferred,
+            )
+
+        parent = self._label_color_container.parentWidget()
+        parent_layout = parent.layout() if parent is not None else None
+        if isinstance(parent_layout, QHBoxLayout):
+            parent_layout.setStretchFactor(self._label_text_container, 0)
+            parent_layout.setStretchFactor(self._label_color_container, 1)
 
         if self._layer_text_layout is None and self._label_text_layout is not None:
             layers_title = QLabel("Layers", self._label_text_container)
@@ -414,7 +440,7 @@ class ToolsPanel(QFrame):
             self._layer_placeholder_three = QWidget(self._label_color_container)
             self._label_color_layout.addWidget(self._layer_placeholder_three)
 
-            colors_title = QLabel("Colors", self._label_color_container)
+            colors_title = QLabel("Color / Opacity", self._label_color_container)
             self._label_color_layout.addWidget(colors_title)
             self._label_rows_color_layout = QVBoxLayout()
             self._label_rows_color_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -455,12 +481,17 @@ class ToolsPanel(QFrame):
                 btn.setParent(None)
                 btn.deleteLater()
 
-        for btn in self._label_color_buttons.values():
-            btn.setParent(None)
-            btn.deleteLater()
+        for widget in self._label_control_rows.values():
+            widget.setParent(None)
+            widget.deleteLater()
 
         self._label_buttons.clear()
         self._label_color_buttons.clear()
+        self._label_opacity_sliders.clear()
+        self._label_opacity_values.clear()
+        self._label_control_rows.clear()
+        self._label_control_layouts.clear()
+        self._label_controls_compact = None
         self._label_colors.clear()
 
     def clear_layers(self) -> None:
@@ -610,8 +641,6 @@ class ToolsPanel(QFrame):
 
         label_ids: list[int] = []
         max_label_width = 0
-        max_row_height = 0
-
         for label_id, color in entries:
             lbl = int(label_id)
             qcolor = QColor(color)
@@ -626,34 +655,48 @@ class ToolsPanel(QFrame):
             )
 
             color_button = QPushButton(qcolor.name(), self._label_color_container)
-            color_button.setFixedWidth(90)
+            color_button.setFixedWidth(82)
             color_button.clicked.connect(
                 lambda _checked=False, label_id=lbl: self._on_pick_label_color(label_id)
             )
-            self._label_rows_color_layout.addWidget(
-                color_button,
-                0,
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            opacity_slider = QSlider(Qt.Orientation.Horizontal, self._label_color_container)
+            opacity_slider.setRange(0, 100)
+            opacity_slider.setValue(self._opacity_percent(qcolor))
+            opacity_slider.setMinimumWidth(64)
+            opacity_slider.setToolTip(f"Opacity for {format_label_text(lbl)}")
+            opacity_slider.valueChanged.connect(
+                lambda value, label_id=lbl: self._on_label_opacity_value_changed(label_id, value)
             )
+            opacity_value = QLabel(self._opacity_text(qcolor), self._label_color_container)
+            opacity_value.setFixedWidth(38)
+            opacity_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            control_row = QWidget(self._label_color_container)
+            control_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            control_layout = QGridLayout(control_row)
+            control_layout.setContentsMargins(0, 0, 0, 0)
+            control_layout.setHorizontalSpacing(4)
+            control_layout.setVerticalSpacing(2)
+            control_layout.addWidget(color_button, 0, 0)
+            control_layout.addWidget(opacity_slider, 0, 1)
+            control_layout.addWidget(opacity_value, 0, 2)
+            self._label_rows_color_layout.addWidget(control_row)
 
             self._label_buttons[lbl] = label_button
             self._label_color_buttons[lbl] = color_button
+            self._label_opacity_sliders[lbl] = opacity_slider
+            self._label_opacity_values[lbl] = opacity_value
+            self._label_control_rows[lbl] = control_row
+            self._label_control_layouts[lbl] = control_layout
             self._label_colors[lbl] = qcolor
             label_ids.append(lbl)
             max_label_width = max(max_label_width, label_button.sizeHint().width())
-            max_row_height = max(
-                max_row_height,
-                label_button.sizeHint().height(),
-                color_button.sizeHint().height(),
-            )
 
         for lbl in label_ids:
             label_button = self._label_buttons[lbl]
-            color_button = self._label_color_buttons[lbl]
             label_button.setFixedWidth(max_label_width)
-            label_button.setFixedHeight(max_row_height)
-            color_button.setFixedHeight(max_row_height)
             self._apply_color_button_style(lbl)
+        self._sync_label_control_layouts(force=True)
 
         target = current if current in label_ids else (label_ids[0] if label_ids else None)
         if target is not None:
@@ -671,6 +714,7 @@ class ToolsPanel(QFrame):
         if label not in self._label_color_buttons:
             return
         self._label_colors[label] = QColor(color)
+        self._sync_label_opacity_widgets(label)
         self._apply_color_button_style(label)
 
     def _on_pick_label_color(self, label_id: int) -> None:
@@ -681,8 +725,19 @@ class ToolsPanel(QFrame):
             f"Color for {format_label_text(int(label_id))}",
         )
         if picked.isValid():
+            picked.setAlpha(current.alpha())
             self.set_label_color(int(label_id), picked)
             self.label_color_changed.emit(int(label_id), picked)
+
+    def _on_label_opacity_value_changed(self, label_id: int, value: int) -> None:
+        label = int(label_id)
+        color = QColor(self._label_colors.get(label, QColor("#ff00ff")))
+        percent = max(0, min(100, int(value)))
+        color.setAlpha(self._alpha_from_percent(percent))
+        self._label_colors[label] = color
+        self._sync_label_opacity_widgets(label)
+        self._apply_color_button_style(label)
+        self.label_opacity_changed.emit(label, float(percent) / 100.0)
 
     def _apply_color_button_style(self, label_id: int) -> None:
         label = int(label_id)
@@ -696,8 +751,109 @@ class ToolsPanel(QFrame):
             f"background-color: {color.name()}; color: {text_color}; font-weight: bold;"
         )
         button.setToolTip(
-            f"Change color for {format_label_text(label)} ({color.name()})"
+            f"Change color for {format_label_text(label)} ({color.name()}, {self._opacity_percent(color)}%)"
         )
+
+    def _sync_label_control_layouts(self, *, force: bool = False) -> None:
+        if not self._label_control_layouts:
+            return
+        compact = self._label_control_available_width() < 220
+        if not force and compact == self._label_controls_compact:
+            return
+        self._label_controls_compact = compact
+
+        for label in tuple(self._label_control_layouts.keys()):
+            layout = self._label_control_layouts.get(label)
+            control_row = self._label_control_rows.get(label)
+            label_button = self._label_buttons.get(label)
+            color_button = self._label_color_buttons.get(label)
+            opacity_slider = self._label_opacity_sliders.get(label)
+            opacity_value = self._label_opacity_values.get(label)
+            if (
+                layout is None
+                or control_row is None
+                or label_button is None
+                or color_button is None
+                or opacity_slider is None
+                or opacity_value is None
+            ):
+                continue
+
+            self._clear_label_control_layout(layout)
+            if compact:
+                layout.addWidget(color_button, 0, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
+                layout.addWidget(opacity_slider, 1, 0)
+                layout.addWidget(opacity_value, 1, 1)
+                layout.setColumnStretch(0, 1)
+                layout.setColumnStretch(1, 0)
+                layout.setColumnStretch(2, 0)
+            else:
+                layout.addWidget(color_button, 0, 0)
+                layout.addWidget(opacity_slider, 0, 1)
+                layout.addWidget(opacity_value, 0, 2)
+                layout.setColumnStretch(0, 0)
+                layout.setColumnStretch(1, 1)
+                layout.setColumnStretch(2, 0)
+
+            layout.invalidate()
+            layout.activate()
+            row_height = max(label_button.sizeHint().height(), control_row.sizeHint().height())
+            label_button.setFixedHeight(row_height)
+            control_row.setFixedHeight(row_height)
+            control_row.updateGeometry()
+
+        if self._label_color_container is not None:
+            self._label_color_container.updateGeometry()
+        if self._label_text_container is not None:
+            self._label_text_container.updateGeometry()
+
+    def _label_control_available_width(self) -> int:
+        container = self._label_color_container
+        if container is None:
+            return 0
+        width = int(container.width())
+        if width <= 0:
+            parent = container.parentWidget()
+            width = int(parent.width()) if parent is not None else int(self.width())
+            if width > 0:
+                width = width // 2
+        layout = container.layout()
+        if layout is not None:
+            margins = layout.contentsMargins()
+            width -= int(margins.left() + margins.right())
+        return max(0, width)
+
+    @staticmethod
+    def _clear_label_control_layout(layout: QGridLayout) -> None:
+        while layout.count():
+            layout.takeAt(0)
+
+    def _sync_label_opacity_widgets(self, label_id: int) -> None:
+        label = int(label_id)
+        color = self._label_colors.get(label)
+        slider = self._label_opacity_sliders.get(label)
+        value_label = self._label_opacity_values.get(label)
+        if color is None:
+            return
+        percent = self._opacity_percent(color)
+        if slider is not None:
+            slider.blockSignals(True)
+            slider.setValue(percent)
+            slider.blockSignals(False)
+        if value_label is not None:
+            value_label.setText(f"{percent}%")
+
+    @staticmethod
+    def _opacity_percent(color: QColor) -> int:
+        return int(round(max(0, min(255, QColor(color).alpha())) * 100.0 / 255.0))
+
+    @classmethod
+    def _opacity_text(cls, color: QColor) -> str:
+        return f"{cls._opacity_percent(color)}%"
+
+    @staticmethod
+    def _alpha_from_percent(percent: int) -> int:
+        return int(round(max(0, min(100, int(percent))) * 255.0 / 100.0))
 
     def set_slice_bounds(self, minimum: int, maximum: int) -> None:
         """Backward-compatible wrapper for the primary coordinate bounds."""

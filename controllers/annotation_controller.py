@@ -142,6 +142,38 @@ class AnnotationController:
         # Rafraîchir la preview ROI si le label actif change de couleur
         self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
 
+    def on_label_opacity_changed(self, label_id: int, opacity: float) -> None:
+        """Update one label alpha without changing its visibility."""
+        label = int(label_id)
+        color = self.annotation_model.get_label_palette().get(label)
+        if color is None:
+            color = MASK_COLORS_BGRA.get(label, (255, 0, 255, 160))
+            self.annotation_model.ensure_label(label, color, visible=True)
+        b, g, r, _a = color
+        alpha = int(round(max(0.0, min(1.0, float(opacity))) * 255.0))
+        bgra = (int(b), int(g), int(r), max(0, min(255, alpha)))
+        self.annotation_model.set_label_color(label, bgra)
+        self.temp_mask_model.set_label_color(label, bgra)
+        corrosion_palette = getattr(self.view_state_model, "corrosion_overlay_palette", None)
+        corrosion_labels = getattr(self.view_state_model, "corrosion_overlay_label_ids", None)
+        if isinstance(corrosion_palette, dict):
+            update_corrosion_palette = label in corrosion_palette
+            if not update_corrosion_palette and isinstance(corrosion_labels, tuple):
+                try:
+                    update_corrosion_palette = label in {
+                        int(corrosion_labels[0]),
+                        int(corrosion_labels[1]),
+                    }
+                except Exception:
+                    update_corrosion_palette = False
+            if update_corrosion_palette:
+                updated_palette = dict(corrosion_palette)
+                updated_palette[label] = tuple(int(channel) for channel in bgra)
+                self.view_state_model.corrosion_overlay_palette = updated_palette
+        self._sync_active_layer_label_state()
+        self.refresh_overlay(defer_volume=True, rebuild=False)
+        self.refresh_roi_overlay_for_slice(self.view_state_model.current_slice)
+
     def on_label_added(self, label_id: int, color: QColor) -> None:
         """Gère l'ajout d'un nouveau label depuis les paramètres overlay."""
         bgra = self.overlay_settings_view.qcolor_to_bgra(color)
